@@ -1,0 +1,6 @@
+# Rust local build
+target
+
+# Just in case
+*.pem
+*.crt

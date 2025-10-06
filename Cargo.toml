@@ -1,0 +1,8 @@
+[package]
+name = "regent-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "Rust SDK of the Regent project"
+license = "Apache-2.0"
+
+[dependencies]
