@@ -6,15 +6,15 @@ description = "Rust SDK of the Regent project"
 license = "Apache-2.0"
 
 [dependencies]
-serde = {version = "1.0.215", features= ["derive"]}
-serde_yaml = "0.9.33"
-serde_json = "1.0.132"
-sha2 = "0.10.8"
-ssh2 = "0.9.4"
+serde = {version = "1.0.228", features= ["derive"]}
+serde_yaml = "0.9.34"
+serde_json = "1.0.145"
+sha2 = "0.10.9"
+ssh2 = "0.9.5"
 tera = "1.20.0"
-pem = { version = "3.0.4", features = ["serde"] }
-chrono = "0.4.38"
-rayon = "1.10.0"
+pem = { version = "3.0.6", features = ["serde"] }
+chrono = "0.4.42"
+rayon = "1.11.0"
 nanoid = "0.4.0"
 
 [profile.release]
