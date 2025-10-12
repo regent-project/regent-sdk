@@ -8,10 +8,10 @@ use crate::task::tasklist::TaskListFileType;
 use crate::workflow::hostworkflow::HostWorkFlow;
 use crate::workflow::hostworkflow::HostWorkFlowStatus;
 use chrono::Utc;
-use machineid_rs::{Encryption, HWIDComponent, IdBuilder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::SystemTime;
+use nanoid::nanoid;
 
 /// The Job is the key type around which the whole automation revolves. A Job is about one host only. If you want to handle multiple hosts, you will need to have multiple Jobs (in a vec or anything else).
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -70,26 +70,11 @@ impl Job {
         self
     }
 
-    /// Using a correlation id can be required in a distributed environment. If a machine is building Jobs and sending it to worker nodes, then the results will probably arrive in a random order, meaning it will hard to identify which results belong to which Job unless we use correlation ids.
+    /// Using a correlation id can be required in a distributed environment. If a machine is building Jobs and sending it to worker nodes, then the results will probably arrive in a random order, meaning it will be hard to identify which results belong to which Job unless we use correlation ids.
     pub fn with_correlation_id(&mut self, with_correlation_id: bool) -> Result<&mut Self, Error> {
         if with_correlation_id {
-            match IdBuilder::new(Encryption::MD5)
-                .add_component(HWIDComponent::CPUID)
-                .add_component(HWIDComponent::MacAddress)
-                .add_component(HWIDComponent::MachineName)
-                .add_component(HWIDComponent::Username)
-                .build("dux")
-            {
-                Ok(salt) => {
-                    let now = SystemTime::now();
-                    let value = Sha256::digest(format!("{}{:?}", salt, now));
-                    self.correlation_id = Some(format!("{:X}", value));
-                    Ok(self)
-                }
-                Err(e) => {
-                    return Err(Error::FailedInitialization(format!("{}", e)));
-                }
-            }
+            self.correlation_id = Some(nanoid!());
+            Ok(self)
         } else {
             self.correlation_id = None;
             Ok(self)
