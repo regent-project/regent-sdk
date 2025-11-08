@@ -69,3 +69,38 @@ pub enum TaskListFileType {
     Json,
     Unknown,
 }
+
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parsing_from_yaml_str() {
+        let raw_tasklist_description = "---
+- name: Let's install a web server !
+  steps:
+    - name: First, we test the connectivity and authentication with the host.
+      ping:
+      
+    - name: Then we can install the package...
+      with_sudo: true
+      apt:
+        package: apache2
+        state: present
+        
+    - name: ... and start & enable the service.
+      with_sudo: true
+      service:
+        name: apache2
+        state: started
+        enabled: true
+        ";
+
+        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
+
+        assert!(parsed_tasklist.is_ok());
+        
+    }
+}
