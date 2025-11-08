@@ -3,6 +3,7 @@ name = "regent-sdk"
 version = "0.1.0"
 edition = "2024"
 description = "Rust SDK of the Regent project"
+repository = "https://github.com/regent-project/regent-sdk"
 license = "Apache-2.0"
 
 [dependencies]
@@ -11,7 +12,7 @@ serde_yaml = "0.9.34"
 serde_json = "1.0.145"
 sha2 = "0.10.9"
 ssh2 = "0.9.5"
-tera = "1.20.0"
+tera = "1.20.1"
 pem = { version = "3.0.6", features = ["serde"] }
 chrono = "0.4.42"
 rayon = "1.11.0"
