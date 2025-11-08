@@ -9,10 +9,26 @@ use crate::task::moduleblock::ModuleApiCall;
 use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+enum AptModuleInternalApi {
+    Install(String),
+    Remove(String),
+    Upgrade
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+enum PackageExpectedState {
+    Present,
+    Absent
+}
+
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AptBlockExpectedState {
     #[serde(skip_serializing_if = "Option::is_none")]
-    state: Option<String>,
+    #[serde(rename = "lowercase")]
+    state: Option<PackageExpectedState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     package: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -38,8 +54,8 @@ impl DryRun for AptBlockExpectedState {
         match &self.state {
             None => {}
             Some(state) => {
-                match state.as_str() {
-                    "present" => {
+                match state {
+                    PackageExpectedState::Present => {
                         // Check is package is already installed or needs to be
                         if is_package_installed(hosthandler, self.package.clone().unwrap()) {
                             changes.push(ModuleApiCall::None(format!(
@@ -49,19 +65,17 @@ impl DryRun for AptBlockExpectedState {
                         } else {
                             // Package is absent and needs to be installed
                             changes.push(ModuleApiCall::Apt(AptApiCall::from(
-                                "install",
-                                Some(self.package.clone().unwrap()),
+                                AptModuleInternalApi::Install(self.package.clone().unwrap()),
                                 privilege.clone(),
                             )));
                         }
                     }
-                    "absent" => {
+                    PackageExpectedState::Absent => {
                         // Check is package is already absent or needs to be removed
                         if is_package_installed(hosthandler, self.package.clone().unwrap()) {
                             // Package is present and needs to be removed
                             changes.push(ModuleApiCall::Apt(AptApiCall::from(
-                                "remove",
-                                Some(self.package.clone().unwrap()),
+                                AptModuleInternalApi::Remove(self.package.clone().unwrap()),
                                 privilege.clone(),
                             )));
                         } else {
@@ -71,7 +85,6 @@ impl DryRun for AptBlockExpectedState {
                             )));
                         }
                     }
-                    _ => {}
                 }
             }
         }
@@ -82,8 +95,7 @@ impl DryRun for AptBlockExpectedState {
         if let Some(value) = self.upgrade {
             if value {
                 changes.push(ModuleApiCall::Apt(AptApiCall::from(
-                    "upgrade",
-                    None,
+                    AptModuleInternalApi::Upgrade,
                     privilege.clone(),
                 )));
             }
@@ -104,39 +116,35 @@ impl DryRun for AptBlockExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AptApiCall {
-    action: String,
-    package: Option<String>,
-    privilege: Privilege,
+    api_call: AptModuleInternalApi,
+    privilege: Privilege
 }
 
 impl Apply for AptApiCall {
     fn display(&self) -> String {
-        match self.action.as_str() {
-            "install" => {
-                return format!("Install - {}", self.package.clone().unwrap());
+        match &self.api_call {
+            AptModuleInternalApi::Install(package_name) => {
+                return format!("Install - {}", package_name);
             }
-            "remove" => {
-                return format!("Remove - {}", self.package.clone().unwrap());
+            AptModuleInternalApi::Remove(package_name) => {
+                return format!("Remove - {}", package_name);
             }
-            "upgrade" => {
+            AptModuleInternalApi::Upgrade => {
                 return String::from("Upgrade");
-            }
-            _ => {
-                return String::from("Wrong AptApiCall action");
             }
         }
     }
 
     fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
-        match self.action.as_str() {
-            "install" => {
+        match &self.api_call {
+            AptModuleInternalApi::Install(package_name) => {
                 hosthandler
                     .run_cmd("apt-get update", self.privilege.clone())
                     .unwrap();
 
                 let cmd = format!(
                     "DEBIAN_FRONTEND=noninteractive apt-get install -y {}",
-                    self.package.clone().unwrap()
+                    package_name
                 );
                 let cmd_result = hosthandler
                     .run_cmd(cmd.as_str(), self.privilege.clone())
@@ -148,7 +156,7 @@ impl Apply for AptApiCall {
                         Some(cmd_result.stdout),
                         ApiCallStatus::ChangeSuccessful(format!(
                             "{} install successful",
-                            self.package.clone().unwrap()
+                            package_name
                         )),
                     );
                 } else {
@@ -157,15 +165,15 @@ impl Apply for AptApiCall {
                         Some(cmd_result.stdout),
                         ApiCallStatus::Failure(format!(
                             "{} install failed",
-                            self.package.clone().unwrap()
+                            package_name
                         )),
                     );
                 }
             }
-            "remove" => {
+            AptModuleInternalApi::Remove(package_name) => {
                 let cmd = format!(
                     "DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y {}",
-                    self.package.clone().unwrap()
+                    package_name
                 );
                 let cmd_result = hosthandler
                     .run_cmd(cmd.as_str(), self.privilege.clone())
@@ -177,7 +185,7 @@ impl Apply for AptApiCall {
                         Some(cmd_result.stdout),
                         ApiCallStatus::ChangeSuccessful(format!(
                             "{} removal successful",
-                            self.package.clone().unwrap()
+                            package_name
                         )),
                     );
                 } else {
@@ -186,12 +194,12 @@ impl Apply for AptApiCall {
                         Some(cmd_result.stdout),
                         ApiCallStatus::Failure(format!(
                             "{} removal failed",
-                            self.package.clone().unwrap()
+                            package_name
                         )),
                     );
                 }
             }
-            "upgrade" => {
+            AptModuleInternalApi::Upgrade => {
                 hosthandler
                     .run_cmd("apt-get update", self.privilege.clone())
                     .unwrap();
@@ -212,18 +220,14 @@ impl Apply for AptApiCall {
                     );
                 }
             }
-            _ => {
-                return ApiCallResult::none();
-            }
         }
     }
 }
 
 impl AptApiCall {
-    pub fn from(action: &str, package: Option<String>, privilege: Privilege) -> AptApiCall {
+    fn from(api_call: AptModuleInternalApi, privilege: Privilege) -> AptApiCall {
         AptApiCall {
-            action: action.to_string(),
-            package,
+            api_call,
             privilege,
         }
     }
