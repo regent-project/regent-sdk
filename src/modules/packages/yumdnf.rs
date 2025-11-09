@@ -40,7 +40,7 @@ impl DryRun for YumDnfBlockExpectedState {
         hosthandler: &mut HostHandler,
         privilege: Privilege,
     ) -> Result<StepChange, Error> {
-        let mut package_manager: RedHatFlavoredPackageManager;
+        let package_manager: RedHatFlavoredPackageManager;
 
         if hosthandler.is_this_cmd_available("dnf").unwrap() {
             package_manager = RedHatFlavoredPackageManager::Dnf;
