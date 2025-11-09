@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum AptModuleInternalApi {
+enum AptModuleInternalApiCall {
     Install(String),
     Remove(String),
     Upgrade
@@ -65,7 +65,7 @@ impl DryRun for AptBlockExpectedState {
                         } else {
                             // Package is absent and needs to be installed
                             changes.push(ModuleApiCall::Apt(AptApiCall::from(
-                                AptModuleInternalApi::Install(self.package.clone().unwrap()),
+                                AptModuleInternalApiCall::Install(self.package.clone().unwrap()),
                                 privilege.clone(),
                             )));
                         }
@@ -75,7 +75,7 @@ impl DryRun for AptBlockExpectedState {
                         if is_package_installed(hosthandler, self.package.clone().unwrap()) {
                             // Package is present and needs to be removed
                             changes.push(ModuleApiCall::Apt(AptApiCall::from(
-                                AptModuleInternalApi::Remove(self.package.clone().unwrap()),
+                                AptModuleInternalApiCall::Remove(self.package.clone().unwrap()),
                                 privilege.clone(),
                             )));
                         } else {
@@ -95,7 +95,7 @@ impl DryRun for AptBlockExpectedState {
         if let Some(value) = self.upgrade {
             if value {
                 changes.push(ModuleApiCall::Apt(AptApiCall::from(
-                    AptModuleInternalApi::Upgrade,
+                    AptModuleInternalApiCall::Upgrade,
                     privilege.clone(),
                 )));
             }
@@ -116,20 +116,20 @@ impl DryRun for AptBlockExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AptApiCall {
-    api_call: AptModuleInternalApi,
+    api_call: AptModuleInternalApiCall,
     privilege: Privilege
 }
 
 impl Apply for AptApiCall {
     fn display(&self) -> String {
         match &self.api_call {
-            AptModuleInternalApi::Install(package_name) => {
+            AptModuleInternalApiCall::Install(package_name) => {
                 return format!("Install - {}", package_name);
             }
-            AptModuleInternalApi::Remove(package_name) => {
+            AptModuleInternalApiCall::Remove(package_name) => {
                 return format!("Remove - {}", package_name);
             }
-            AptModuleInternalApi::Upgrade => {
+            AptModuleInternalApiCall::Upgrade => {
                 return String::from("Upgrade");
             }
         }
@@ -137,7 +137,7 @@ impl Apply for AptApiCall {
 
     fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
         match &self.api_call {
-            AptModuleInternalApi::Install(package_name) => {
+            AptModuleInternalApiCall::Install(package_name) => {
                 hosthandler
                     .run_cmd("apt-get update", self.privilege.clone())
                     .unwrap();
@@ -170,7 +170,7 @@ impl Apply for AptApiCall {
                     );
                 }
             }
-            AptModuleInternalApi::Remove(package_name) => {
+            AptModuleInternalApiCall::Remove(package_name) => {
                 let cmd = format!(
                     "DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y {}",
                     package_name
@@ -199,7 +199,7 @@ impl Apply for AptApiCall {
                     );
                 }
             }
-            AptModuleInternalApi::Upgrade => {
+            AptModuleInternalApiCall::Upgrade => {
                 hosthandler
                     .run_cmd("apt-get update", self.privilege.clone())
                     .unwrap();
@@ -225,7 +225,7 @@ impl Apply for AptApiCall {
 }
 
 impl AptApiCall {
-    fn from(api_call: AptModuleInternalApi, privilege: Privilege) -> AptApiCall {
+    fn from(api_call: AptModuleInternalApiCall, privilege: Privilege) -> AptApiCall {
         AptApiCall {
             api_call,
             privilege,
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn parsing_apt_module_block_from_yaml_str() {
         let raw_tasklist_description = "---
-- name: Dummy steps to test deserialisation and syntax of this module
+- name: Dummy steps to test deserialization and syntax of this module
   steps:
     - name: Package must be present
       apt:
