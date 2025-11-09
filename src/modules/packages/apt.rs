@@ -246,3 +246,36 @@ fn is_package_installed(hosthandler: &mut HostHandler, package: String) -> bool 
         false
     }
 }
+
+
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+
+    #[test]
+    fn parsing_apt_module_block_from_yaml_str() {
+        let raw_tasklist_description = "---
+- name: Dummy steps to test deserialisation and syntax of this module
+  steps:
+    - name: Package must be present
+      apt:
+        package: apache2
+        state: present
+    - name: Package must be absent
+      apt:
+        package: apache2
+        state: absent
+    - name: Package must be present with upgrade
+      apt:
+        package: apache2
+        state: present
+        upgrade: true
+        ";
+
+        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
+
+        assert!(parsed_tasklist.is_ok());
+        
+    }
+}
