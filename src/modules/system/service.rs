@@ -10,10 +10,25 @@ use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+enum ServiceModuleInternalApiCall {
+    Start(String),
+    Stop(String),
+    Enable(String),
+    Disable(String)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+enum ServiceExpectedState {
+    Started,
+    Stopped
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServiceBlockExpectedState {
     name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    state: Option<String>, // Either state...
+    #[serde(rename = "lowercase")]
+    state: Option<ServiceExpectedState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     enabled: Option<bool>, // ... or enabled is required.
 }
@@ -56,8 +71,8 @@ impl DryRun for ServiceBlockExpectedState {
         } else {
             match &self.state {
                 Some(state_content) => {
-                    match state_content.as_str() {
-                        "started" => {
+                    match state_content {
+                        ServiceExpectedState::Started => {
                             if service_is_running {
                                 changes.push(ModuleApiCall::None(format!(
                                     "{} already running",
@@ -66,18 +81,16 @@ impl DryRun for ServiceBlockExpectedState {
                             } else {
                                 // Service needs to be started
                                 changes.push(ModuleApiCall::Service(ServiceApiCall::from(
-                                    self.name.clone(),
-                                    "start",
+                                    ServiceModuleInternalApiCall::Start(self.name.clone()),
                                     privilege.clone(),
                                 )));
                             }
                         }
-                        "stopped" => {
+                        ServiceExpectedState::Stopped => {
                             if service_is_running {
                                 // Service needs to be stopped
                                 changes.push(ModuleApiCall::Service(ServiceApiCall::from(
-                                    self.name.clone(),
-                                    "stop",
+                                    ServiceModuleInternalApiCall::Stop(self.name.clone()),
                                     privilege.clone(),
                                 )));
                             } else {
@@ -87,45 +100,39 @@ impl DryRun for ServiceBlockExpectedState {
                                 )));
                             }
                         }
-                        _ => {}
                     }
                 }
                 None => {}
             }
 
-            match self.enabled {
-                Some(service_must_be_enabled) => {
-                    if service_must_be_enabled {
-                        if service_is_enabled {
-                            changes.push(ModuleApiCall::None(format!(
-                                "{} already enabled",
-                                &self.name
-                            )));
-                        } else {
-                            // SERVICE MUST BE ENABLED
-                            changes.push(ModuleApiCall::Service(ServiceApiCall::from(
-                                self.name.clone(),
-                                "enable",
-                                privilege.clone(),
-                            )));
-                        }
+            if let Some(service_must_be_enabled) = self.enabled {
+                if service_must_be_enabled {
+                    if service_is_enabled {
+                        changes.push(ModuleApiCall::None(format!(
+                            "{} already enabled",
+                            &self.name
+                        )));
                     } else {
-                        if service_is_enabled {
-                            // SERVICE MUST BE DISABLED
-                            changes.push(ModuleApiCall::Service(ServiceApiCall::from(
-                                self.name.clone(),
-                                "disable",
-                                privilege.clone(),
-                            )));
-                        } else {
-                            changes.push(ModuleApiCall::None(format!(
-                                "{} already disabled",
-                                &self.name
-                            )));
-                        }
+                        // SERVICE MUST BE ENABLED
+                        changes.push(ModuleApiCall::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Enable(self.name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                } else {
+                    if service_is_enabled {
+                        // SERVICE MUST BE DISABLED
+                        changes.push(ModuleApiCall::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Disable(self.name.clone()),
+                            privilege.clone(),
+                        )));
+                    } else {
+                        changes.push(ModuleApiCall::None(format!(
+                            "{} already disabled",
+                            &self.name
+                        )));
                     }
                 }
-                None => {}
             }
         }
 
@@ -144,38 +151,34 @@ impl DryRun for ServiceBlockExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServiceApiCall {
-    name: String,
-    action: String,
+    api_call: ServiceModuleInternalApiCall,
     privilege: Privilege,
 }
 
 impl Apply for ServiceApiCall {
     fn display(&self) -> String {
-        match self.action.as_str() {
-            "start" => {
-                return format!("Start service {}", self.name.clone());
+        match &self.api_call {
+            ServiceModuleInternalApiCall::Start(service_name) => {
+                return format!("Start service {}", service_name);
             }
-            "stop" => {
-                return format!("Stop service {}", self.name.clone());
+            ServiceModuleInternalApiCall::Stop(service_name) => {
+                return format!("Stop service {}", service_name);
             }
-            "enable" => {
-                return format!("Enable service {}", self.name.clone());
+            ServiceModuleInternalApiCall::Enable(service_name) => {
+                return format!("Enable service {}", service_name);
             }
-            "disable" => {
-                return format!("Disable service {}", self.name.clone());
-            }
-            _ => {
-                return String::from("Wrong ServiceApiCall action");
+            ServiceModuleInternalApiCall::Disable(service_name) => {
+                return format!("Disable service {}", service_name);
             }
         }
     }
 
     fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
-        match self.action.as_str() {
-            "start" => {
+        match &self.api_call {
+            ServiceModuleInternalApiCall::Start(service_name) => {
                 let cmd_result = hosthandler
                     .run_cmd(
-                        format!("systemctl start {}", self.name).as_str(),
+                        format!("systemctl start {}", service_name).as_str(),
                         self.privilege.clone(),
                     )
                     .unwrap();
@@ -184,7 +187,7 @@ impl Apply for ServiceApiCall {
                     ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::ChangeSuccessful(format!("{} started", self.name.clone())),
+                        ApiCallStatus::ChangeSuccessful(format!("{} started", service_name)),
                     )
                 } else {
                     return ApiCallResult::from(
@@ -194,10 +197,10 @@ impl Apply for ServiceApiCall {
                     );
                 }
             }
-            "stop" => {
+            ServiceModuleInternalApiCall::Stop(service_name) => {
                 let cmd_result = hosthandler
                     .run_cmd(
-                        format!("systemctl stop {}", self.name).as_str(),
+                        format!("systemctl stop {}", service_name).as_str(),
                         self.privilege.clone(),
                     )
                     .unwrap();
@@ -206,7 +209,7 @@ impl Apply for ServiceApiCall {
                     ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::ChangeSuccessful(format!("{} stopped", self.name.clone())),
+                        ApiCallStatus::ChangeSuccessful(format!("{} stopped", service_name)),
                     )
                 } else {
                     return ApiCallResult::from(
@@ -216,10 +219,10 @@ impl Apply for ServiceApiCall {
                     );
                 }
             }
-            "enable" => {
+            ServiceModuleInternalApiCall::Enable(service_name) => {
                 let cmd_result = hosthandler
                     .run_cmd(
-                        format!("systemctl enable {}", self.name).as_str(),
+                        format!("systemctl enable {}", service_name).as_str(),
                         self.privilege.clone(),
                     )
                     .unwrap();
@@ -228,7 +231,7 @@ impl Apply for ServiceApiCall {
                     ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::ChangeSuccessful(format!("{} enabled", self.name.clone())),
+                        ApiCallStatus::ChangeSuccessful(format!("{} enabled", service_name)),
                     )
                 } else {
                     return ApiCallResult::from(
@@ -238,10 +241,10 @@ impl Apply for ServiceApiCall {
                     );
                 }
             }
-            "disable" => {
+            ServiceModuleInternalApiCall::Disable(service_name) => {
                 let cmd_result = hosthandler
                     .run_cmd(
-                        format!("systemctl disable {}", self.name).as_str(),
+                        format!("systemctl disable {}", service_name).as_str(),
                         self.privilege.clone(),
                     )
                     .unwrap();
@@ -250,7 +253,7 @@ impl Apply for ServiceApiCall {
                     ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::ChangeSuccessful(format!("{} disabled", self.name.clone())),
+                        ApiCallStatus::ChangeSuccessful(format!("{} disabled", service_name)),
                     )
                 } else {
                     return ApiCallResult::from(
@@ -260,24 +263,22 @@ impl Apply for ServiceApiCall {
                     );
                 }
             }
-            _ => ApiCallResult::none(),
         }
     }
 }
 
 impl ServiceApiCall {
-    pub fn from(name: String, action: &str, privilege: Privilege) -> ServiceApiCall {
+    fn from(api_call: ServiceModuleInternalApiCall, privilege: Privilege) -> ServiceApiCall {
         ServiceApiCall {
-            name,
-            action: action.to_string(),
+            api_call,
             privilege,
         }
     }
 }
 
-fn service_is_active(hosthandler: &mut HostHandler, name: &String) -> Result<bool, String> {
+fn service_is_active(hosthandler: &mut HostHandler, service_name: &String) -> Result<bool, String> {
     match hosthandler.run_cmd(
-        format!("systemctl is-active {}", name).as_str(),
+        format!("systemctl is-active {}", service_name).as_str(),
         Privilege::Usual,
     ) {
         Ok(test_result) => {
@@ -291,9 +292,9 @@ fn service_is_active(hosthandler: &mut HostHandler, name: &String) -> Result<boo
     }
 }
 
-fn service_is_enabled(hosthandler: &mut HostHandler, name: &String) -> Result<bool, String> {
+fn service_is_enabled(hosthandler: &mut HostHandler, service_name: &String) -> Result<bool, String> {
     match hosthandler.run_cmd(
-        format!("systemctl is-enabled {}", name).as_str(),
+        format!("systemctl is-enabled {}", service_name).as_str(),
         Privilege::Usual,
     ) {
         Ok(test_result) => {
@@ -304,5 +305,34 @@ fn service_is_enabled(hosthandler: &mut HostHandler, name: &String) -> Result<bo
             }
         }
         Err(e) => Err(format!("Unable to check service status : {:?}", e)),
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+
+    #[test]
+    fn parsing_service_module_block_from_yaml_str() {
+        let raw_tasklist_description = "---
+- name: Dummy steps to test deserialization and syntax of this module
+  steps:
+    - name: Service must be started and enabled
+      service:
+        name: apache2
+        state: started
+        enabled: true
+    - name: Service must be stopped and disabled
+      service:
+        name: apache2
+        state: stopped
+        enabled: false
+        ";
+
+        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
+
+        assert!(parsed_tasklist.is_ok());
+        
     }
 }
