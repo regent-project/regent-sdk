@@ -17,6 +17,7 @@ enum YumDnfModuleInternalApiCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 enum PackageExpectedState {
     Present,
     Absent
@@ -25,7 +26,6 @@ enum PackageExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct YumDnfBlockExpectedState {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "lowercase")]
     state: Option<PackageExpectedState>,
     #[serde(skip_serializing_if = "Option::is_none")]
     package: Option<String>,
