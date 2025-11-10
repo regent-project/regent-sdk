@@ -33,6 +33,47 @@ pub struct YumDnfBlockExpectedState {
     upgrade: Option<bool>,
 }
 
+
+// Chained methods to allow building an YumDnfBlockExpectedState as follows :
+// let apt_block = YumDnfBlockExpectedState::new()
+//     .package("httpd".to_string())
+//     .must_be_present()
+//     .with_full_upgrade(true)
+//     .build();
+impl YumDnfBlockExpectedState {
+    pub fn new() -> YumDnfBlockExpectedState {
+        YumDnfBlockExpectedState { state: None, package: None, upgrade: None }
+    }
+
+    pub fn with_full_upgrade(&mut self, upgrade: bool) -> &mut Self {
+        self.upgrade = Some(upgrade);
+        self
+    }
+
+    pub fn package(&mut self, package_name: String) -> &mut Self {
+        self.package = Some(package_name);
+        self
+    }
+
+    pub fn must_be_present(&mut self) -> &mut Self {
+        self.state = Some(PackageExpectedState::Present);
+        self
+    }
+
+    pub fn must_be_absent(&mut self) -> &mut Self {
+        self.state = Some(PackageExpectedState::Absent);
+        self
+    }
+
+    pub fn build(&self) -> YumDnfBlockExpectedState {
+        YumDnfBlockExpectedState {
+            state: self.state.clone(),
+            package: self.package.clone(),
+            upgrade: self.upgrade.clone()
+        }
+    }
+}
+
 #[allow(unused_assignments)] // 'package_manager' is never actually read, only borrowed
 impl DryRun for YumDnfBlockExpectedState {
     fn dry_run_block(

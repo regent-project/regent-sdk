@@ -35,6 +35,46 @@ pub struct AptBlockExpectedState {
     upgrade: Option<bool>,
 }
 
+// Chained methods to allow building an AptBlockExpectedState as follows :
+// let apt_block = AptBlockExpectedState::new()
+//     .package("apache2".to_string())
+//     .must_be_present()
+//     .with_full_upgrade(true)
+//     .build();
+impl AptBlockExpectedState {
+    pub fn new() -> AptBlockExpectedState {
+        AptBlockExpectedState { state: None, package: None, upgrade: None }
+    }
+
+    pub fn with_full_upgrade(&mut self, upgrade: bool) -> &mut Self {
+        self.upgrade = Some(upgrade);
+        self
+    }
+
+    pub fn package(&mut self, package_name: String) -> &mut Self {
+        self.package = Some(package_name);
+        self
+    }
+
+    pub fn must_be_present(&mut self) -> &mut Self {
+        self.state = Some(PackageExpectedState::Present);
+        self
+    }
+
+    pub fn must_be_absent(&mut self) -> &mut Self {
+        self.state = Some(PackageExpectedState::Absent);
+        self
+    }
+
+    pub fn build(&self) -> AptBlockExpectedState {
+        AptBlockExpectedState {
+            state: self.state.clone(),
+            package: self.package.clone(),
+            upgrade: self.upgrade.clone()
+        }
+    }
+}
+
 impl DryRun for AptBlockExpectedState {
     fn dry_run_block(
         &self,
