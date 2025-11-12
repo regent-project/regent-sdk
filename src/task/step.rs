@@ -19,6 +19,13 @@ impl Step {
     pub fn from_parsed_step(parsed_step: ParsingStep) -> Result<Step, Error> {
         parsed_step.parsemodule()
     }
+
+    pub fn check(&self) -> Result<(), Error> {
+        if let Err(error_detail) = self.moduleblock.check() {
+            return Err(error_detail);
+        }
+        Ok(())
+    }
 }
 
 // Any value that is present is considered Some value, including null. This way, we can use

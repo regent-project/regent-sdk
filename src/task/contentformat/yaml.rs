@@ -10,7 +10,14 @@ pub fn yaml_tasklist_parser(tasklistcontent: &str) -> Result<TaskList, Error> {
             for parsed_task in parsed_content.iter() {
                 match parsed_task.parse_task_block() {
                     Ok(task_block) => {
-                        tasks.push(task_block);
+                        match task_block.check() {
+                            Ok(()) => {
+                                tasks.push(task_block);
+                            }
+                            Err(error) => {
+                                return Err(error);
+                            }
+                        }
                     }
                     Err(error) => {
                         return Err(error);

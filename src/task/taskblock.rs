@@ -25,6 +25,15 @@ impl TaskBlock {
             with_sudo,
         }
     }
+
+    pub fn check(&self) -> Result<(), Error> {
+        for step in self.steps.clone() {
+            if let Err(error_detail) = step.check() {
+                return Err(error_detail);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

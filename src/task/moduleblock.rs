@@ -85,6 +85,20 @@ impl ModuleBlockExpectedState {
 
         mbchange_result
     }
+
+    pub fn check(&self) -> Result<(), Error> {
+        match &self {
+                ModuleBlockExpectedState::Service(block) => block.check(),
+                ModuleBlockExpectedState::Debug(block) => block.check(),
+                ModuleBlockExpectedState::LineInFile(block) => block.check(),
+                ModuleBlockExpectedState::Command(block) => block.check(),
+                ModuleBlockExpectedState::Apt(block) => block.check(),
+                ModuleBlockExpectedState::Dnf(block) => block.check(),
+                ModuleBlockExpectedState::Ping(block) => block.check(),
+                ModuleBlockExpectedState::Yum(block) => block.check(),
+                _ => { Ok(()) }
+            }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +112,10 @@ pub enum ModuleApiCall {
     Apt(AptApiCall),
     Ping(PingApiCall),
     YumDnf(YumDnfApiCall),
+}
+
+pub trait Check {
+    fn check(&self) -> Result<(), Error>;
 }
 
 pub trait DryRun {
