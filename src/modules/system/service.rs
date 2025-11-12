@@ -1,5 +1,6 @@
 // Service Module : handle services running on a host
 
+use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
@@ -18,19 +19,64 @@ enum ServiceModuleInternalApiCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum ServiceExpectedState {
+#[serde(rename_all = "lowercase")]
+pub enum ServiceExpectedState {
     Started,
     Stopped
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceExpectedAutoStart {
+    Enabled,
+    Disabled
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ServiceBlockExpectedState {
     name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "lowercase")]
-    state: Option<ServiceExpectedState>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    enabled: Option<bool>, // ... or enabled is required.
+    current_state: Option<ServiceExpectedState>,
+    auto_start: Option<ServiceExpectedAutoStart>
+}
+
+// Chained methods to allow building an ServiceBlockExpectedState as follows :
+// let apt_block = ServiceBlockExpectedState::builder()
+//     .with_service_state("apache2", ServiceExpectedState::Started)
+//     .with_autostart_state(ServiceExpectedAutoStart::Enabled)
+//     .build();
+impl ServiceBlockExpectedState {
+    pub fn builder(service_name: &str) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState { name: service_name.to_string(), current_state: None, auto_start: None }
+    }
+
+    pub fn with_service_state(&mut self, expected_current_state: ServiceExpectedState) -> &mut Self {
+        self.current_state = Some(expected_current_state);
+        self
+    }
+
+    pub fn with_autostart_state(&mut self, expected_autostart_state: ServiceExpectedAutoStart) -> &mut Self {
+        self.auto_start = Some(expected_autostart_state);
+        self
+    }
+
+    pub fn build(&self) -> Result<ServiceBlockExpectedState, Error> {
+        if let Err(error_detail) = self.check() {
+            return Err(error_detail);
+        }
+        Ok(self.clone())
+    }
+}
+
+impl Check for ServiceBlockExpectedState {
+    fn check(&self) -> Result<(), Error> {
+        if let (None, None) = (&self.current_state, &self.auto_start) {
+            return Err(Error::IncoherentExpectedState(
+                format!("All parameters are unset. Please describe the expected state.")
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl DryRun for ServiceBlockExpectedState {
@@ -63,13 +109,13 @@ impl DryRun for ServiceBlockExpectedState {
         // State or enabled :
         // - one of them is required
         // - mutually exclusive
-        if let (None, None) = (&self.state, &self.enabled) {
+        if let (None, None) = (&self.current_state, &self.auto_start) {
             // PROBLEM : both 'state' and 'enabled' are empty
             return Err(Error::FailedDryRunEvaluation(
                 "STATE and ENABLED fields are both empty in provided Task List".to_string(),
             ));
         } else {
-            match &self.state {
+            match &self.current_state {
                 Some(state_content) => {
                     match state_content {
                         ServiceExpectedState::Started => {
@@ -105,32 +151,35 @@ impl DryRun for ServiceBlockExpectedState {
                 None => {}
             }
 
-            if let Some(service_must_be_enabled) = self.enabled {
-                if service_must_be_enabled {
-                    if service_is_enabled {
-                        changes.push(ModuleApiCall::None(format!(
-                            "{} already enabled",
-                            &self.name
-                        )));
-                    } else {
-                        // SERVICE MUST BE ENABLED
-                        changes.push(ModuleApiCall::Service(ServiceApiCall::from(
-                            ServiceModuleInternalApiCall::Enable(self.name.clone()),
-                            privilege.clone(),
-                        )));
+            if let Some(service_auto_start_expected_state) = &self.auto_start {
+                match service_auto_start_expected_state {
+                    ServiceExpectedAutoStart::Enabled => {
+                        if service_is_enabled {
+                            changes.push(ModuleApiCall::None(format!(
+                                "{} already enabled",
+                                &self.name
+                            )));
+                        } else {
+                            // SERVICE MUST BE ENABLED
+                            changes.push(ModuleApiCall::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Enable(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
                     }
-                } else {
-                    if service_is_enabled {
-                        // SERVICE MUST BE DISABLED
-                        changes.push(ModuleApiCall::Service(ServiceApiCall::from(
-                            ServiceModuleInternalApiCall::Disable(self.name.clone()),
-                            privilege.clone(),
-                        )));
-                    } else {
-                        changes.push(ModuleApiCall::None(format!(
-                            "{} already disabled",
-                            &self.name
-                        )));
+                    ServiceExpectedAutoStart::Disabled => {
+                        if service_is_enabled {
+                            // SERVICE MUST BE DISABLED
+                            changes.push(ModuleApiCall::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Disable(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        } else {
+                            changes.push(ModuleApiCall::None(format!(
+                                "{} already disabled",
+                                &self.name
+                            )));
+                        }
                     }
                 }
             }
@@ -321,17 +370,17 @@ mod tests {
     - name: Service must be started and enabled
       service:
         name: apache2
-        state: started
-        enabled: true
+        current_state: started
+        auto_start: enabled
     - name: Service must be stopped and disabled
       service:
         name: apache2
-        state: stopped
-        enabled: false
+        current_state: stopped
+        auto_start: disabled
         ";
 
         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
-
+        println!("{:#?}", parsed_tasklist);
         assert!(parsed_tasklist.is_ok());
         
     }

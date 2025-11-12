@@ -1,5 +1,6 @@
 // Command module : <short description>
 
+use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
@@ -10,9 +11,15 @@ use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CommandBlockExpectedState {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
+    content: String
+}
+
+impl Check for CommandBlockExpectedState {
+    fn check(&self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl DryRun for CommandBlockExpectedState {
@@ -23,17 +30,11 @@ impl DryRun for CommandBlockExpectedState {
     ) -> Result<StepChange, Error> {
         let mut changes: Vec<ModuleApiCall> = Vec::new();
 
-        match &self.content {
-            None => {
-                changes.push(ModuleApiCall::None(String::from("No command to run")));
-            }
-            Some(cmdcontent) => {
-                changes.push(ModuleApiCall::Command(CommandApiCall {
-                    cmd: cmdcontent.to_string(),
-                    privilege,
-                }));
-            }
-        }
+        changes.push(ModuleApiCall::Command(CommandApiCall {
+            cmd: self.content.clone(),
+            privilege,
+        }));
+        
         return Ok(StepChange::changes(changes));
     }
 }

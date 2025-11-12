@@ -94,12 +94,12 @@ mod tests {
       with_sudo: true
       service:
         name: apache2
-        state: started
-        enabled: true
+        current_state: started
+        auto_start: enabled
         ";
 
         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
-
+        println!("{:?}", parsed_tasklist);
         assert!(parsed_tasklist.is_ok());
         
     }

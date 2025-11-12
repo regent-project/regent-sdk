@@ -1,4 +1,6 @@
 // LineInFile module : manipulate lines in a file (add, delete)
+
+use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
@@ -32,12 +34,11 @@ enum LineExpectedPosition {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LineInFileBlockExpectedState {
     filepath: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     line: Option<String>,
     state: LineExpectedState,
-    #[serde(skip_serializing_if = "Option::is_none")]
     position: Option<LineExpectedPosition>, // "top" | "bottom" | "anywhere" (default) | "45" (specific line number)
 
                               // ****** To be implemented ********
@@ -45,6 +46,17 @@ pub struct LineInFileBlockExpectedState {
                               // afterline: Option<String>, // Insert after this line
                               // replace: Option<String>, // Replace this line...
                               // with: Option<String> // ... with this one.
+}
+
+impl Check for LineInFileBlockExpectedState {
+    fn check(&self) -> Result<(), Error> {
+        if let (None, None) = (&self.line, &self.position) {
+            return Err(Error::IncoherentExpectedState(
+                format!("Both 'line' and 'position' are unset. What is the expected state of this file ({}) ?", self.filepath)
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl DryRun for LineInFileBlockExpectedState {

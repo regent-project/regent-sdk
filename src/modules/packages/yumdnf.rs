@@ -1,5 +1,6 @@
 // YUM / DNF Module : handle packages in Fedora-like distributions
 
+use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
@@ -18,59 +19,67 @@ enum YumDnfModuleInternalApiCall {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-enum PackageExpectedState {
+pub enum PackageExpectedState {
     Present,
     Absent
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct YumDnfBlockExpectedState {
-    #[serde(skip_serializing_if = "Option::is_none")]
     state: Option<PackageExpectedState>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     package: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     upgrade: Option<bool>,
 }
 
 
 // Chained methods to allow building an YumDnfBlockExpectedState as follows :
-// let apt_block = YumDnfBlockExpectedState::new()
-//     .package("httpd".to_string())
-//     .must_be_present()
-//     .with_full_upgrade(true)
+// let apt_block = YumDnfBlockExpectedState::builder()
+//     .with_package_state("httpd", PackageExpectedState::Present)
+//     .with_system_upgrade()
 //     .build();
 impl YumDnfBlockExpectedState {
-    pub fn new() -> YumDnfBlockExpectedState {
+    pub fn builder() -> YumDnfBlockExpectedState {
         YumDnfBlockExpectedState { state: None, package: None, upgrade: None }
     }
 
-    pub fn with_full_upgrade(&mut self, upgrade: bool) -> &mut Self {
-        self.upgrade = Some(upgrade);
+    pub fn with_system_upgrade(&mut self) -> &mut Self {
+        self.upgrade = Some(true);
         self
     }
 
-    pub fn package(&mut self, package_name: String) -> &mut Self {
-        self.package = Some(package_name);
+    pub fn with_package_state(&mut self, package_name: &str, package_state: PackageExpectedState) -> &mut Self {
+        self.package = Some(package_name.to_string());
+        self.state = Some(package_state);
         self
     }
 
-    pub fn must_be_present(&mut self) -> &mut Self {
-        self.state = Some(PackageExpectedState::Present);
-        self
-    }
-
-    pub fn must_be_absent(&mut self) -> &mut Self {
-        self.state = Some(PackageExpectedState::Absent);
-        self
-    }
-
-    pub fn build(&self) -> YumDnfBlockExpectedState {
-        YumDnfBlockExpectedState {
-            state: self.state.clone(),
-            package: self.package.clone(),
-            upgrade: self.upgrade.clone()
+    pub fn build(&self) -> Result<YumDnfBlockExpectedState, Error> {
+        if let Err(error_detail) = self.check() {
+            return Err(error_detail);
         }
+        Ok(self.clone())
+    }
+}
+
+impl Check for YumDnfBlockExpectedState {
+    fn check(&self) -> Result<(), Error> {
+        if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
+            return Err(Error::IncoherentExpectedState(
+                format!("All parameters are unset. Please describe the expected state.")
+            ));
+        }
+        if let (None, Some(package_name)) = (&self.state, &self.package) {
+            return Err(Error::IncoherentExpectedState(
+                format!("Missing 'state' parameter. What is the expected state of the package ({}) ?", package_name)
+            ));
+        }
+        if let (Some(package_expected_state), None) = (&self.state, &self.package) {
+            return Err(Error::IncoherentExpectedState(
+                format!("Missing 'package' parameter. Which package should be {:?} ?", package_expected_state)
+            ));
+        }
+        Ok(())
     }
 }
 

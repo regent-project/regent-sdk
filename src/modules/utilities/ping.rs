@@ -1,5 +1,6 @@
 // APT Module : handle packages in Debian-like distributions
 
+use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
@@ -9,7 +10,14 @@ use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PingBlockExpectedState {}
+
+impl Check for PingBlockExpectedState {
+    fn check(&self) -> Result<(), Error> {
+        Ok(())
+    }
+}
 
 impl DryRun for PingBlockExpectedState {
     fn dry_run_block(

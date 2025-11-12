@@ -1,3 +1,4 @@
+use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
@@ -7,9 +8,16 @@ use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DebugBlockExpectedState {
     msg: String,
     // var: Option<String>, // TODO
+}
+
+impl Check for DebugBlockExpectedState {
+    fn check(&self) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 impl DryRun for DebugBlockExpectedState {
