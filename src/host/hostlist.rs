@@ -62,7 +62,6 @@ pub fn find_host_in_list(hosts_list: &Vec<Host>, host_name: &String) -> Option<u
     None
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

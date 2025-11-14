@@ -1,11 +1,11 @@
 // Service Module : handle services running on a host
 
-use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
 use crate::step::stepchange::StepChange;
+use crate::task::moduleblock::Check;
 use crate::task::moduleblock::ModuleApiCall;
 use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
@@ -15,21 +15,21 @@ enum ServiceModuleInternalApiCall {
     Start(String),
     Stop(String),
     Enable(String),
-    Disable(String)
+    Disable(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceExpectedState {
     Started,
-    Stopped
+    Stopped,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceExpectedAutoStart {
     Enabled,
-    Disabled
+    Disabled,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,7 +37,7 @@ pub enum ServiceExpectedAutoStart {
 pub struct ServiceBlockExpectedState {
     name: String,
     current_state: Option<ServiceExpectedState>,
-    auto_start: Option<ServiceExpectedAutoStart>
+    auto_start: Option<ServiceExpectedAutoStart>,
 }
 
 // Chained methods to allow building an ServiceBlockExpectedState as follows :
@@ -47,15 +47,25 @@ pub struct ServiceBlockExpectedState {
 //     .build();
 impl ServiceBlockExpectedState {
     pub fn builder(service_name: &str) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState { name: service_name.to_string(), current_state: None, auto_start: None }
+        ServiceBlockExpectedState {
+            name: service_name.to_string(),
+            current_state: None,
+            auto_start: None,
+        }
     }
 
-    pub fn with_service_state(&mut self, expected_current_state: ServiceExpectedState) -> &mut Self {
+    pub fn with_service_state(
+        &mut self,
+        expected_current_state: ServiceExpectedState,
+    ) -> &mut Self {
         self.current_state = Some(expected_current_state);
         self
     }
 
-    pub fn with_autostart_state(&mut self, expected_autostart_state: ServiceExpectedAutoStart) -> &mut Self {
+    pub fn with_autostart_state(
+        &mut self,
+        expected_autostart_state: ServiceExpectedAutoStart,
+    ) -> &mut Self {
         self.auto_start = Some(expected_autostart_state);
         self
     }
@@ -71,9 +81,9 @@ impl ServiceBlockExpectedState {
 impl Check for ServiceBlockExpectedState {
     fn check(&self) -> Result<(), Error> {
         if let (None, None) = (&self.current_state, &self.auto_start) {
-            return Err(Error::IncoherentExpectedState(
-                format!("All parameters are unset. Please describe the expected state.")
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "All parameters are unset. Please describe the expected state."
+            )));
         }
         Ok(())
     }
@@ -341,7 +351,10 @@ fn service_is_active(hosthandler: &mut HostHandler, service_name: &String) -> Re
     }
 }
 
-fn service_is_enabled(hosthandler: &mut HostHandler, service_name: &String) -> Result<bool, String> {
+fn service_is_enabled(
+    hosthandler: &mut HostHandler,
+    service_name: &String,
+) -> Result<bool, String> {
     match hosthandler.run_cmd(
         format!("systemctl is-enabled {}", service_name).as_str(),
         Privilege::Usual,
@@ -356,7 +369,6 @@ fn service_is_enabled(hosthandler: &mut HostHandler, service_name: &String) -> R
         Err(e) => Err(format!("Unable to check service status : {:?}", e)),
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -382,6 +394,5 @@ mod tests {
         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
         println!("{:#?}", parsed_tasklist);
         assert!(parsed_tasklist.is_ok());
-        
     }
 }

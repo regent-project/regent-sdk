@@ -1,11 +1,11 @@
 // Command module : <short description>
 
-use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
 use crate::step::stepchange::StepChange;
+use crate::task::moduleblock::Check;
 use crate::task::moduleblock::ModuleApiCall;
 use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CommandBlockExpectedState {
-    content: String
+    content: String,
 }
 
 impl Check for CommandBlockExpectedState {
@@ -34,7 +34,7 @@ impl DryRun for CommandBlockExpectedState {
             cmd: self.content.clone(),
             privilege,
         }));
-        
+
         return Ok(StepChange::changes(changes));
     }
 }

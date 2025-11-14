@@ -19,5 +19,5 @@ pub enum Error {
     WorkFlowNotFollowed(String),
     WrongInitialization(String),
     AnyOtherError(String),
-    IncoherentExpectedState(String)
+    IncoherentExpectedState(String),
 }

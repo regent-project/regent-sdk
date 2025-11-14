@@ -1,5 +1,5 @@
 use crate::error::Error;
-use crate::host::hostlist::{find_host_in_list, HostList};
+use crate::host::hostlist::{HostList, find_host_in_list};
 use crate::host::hosts::{Group, Host};
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -206,13 +206,14 @@ mod tests {
     #[test]
     fn varless_hostlist_parsing() {
         let hostlist = hostlist_parser(
-"---
+            "---
 hosts:
 - 10.20.30.51
 - 10.20.30.52
 - 10.20.30.53
-"
-        ).unwrap();
+",
+        )
+        .unwrap();
 
         assert!(hostlist.hosts.is_some());
 

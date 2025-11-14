@@ -70,8 +70,6 @@ pub enum TaskListFileType {
     Unknown,
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,6 +99,5 @@ mod tests {
         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
         println!("{:?}", parsed_tasklist);
         assert!(parsed_tasklist.is_ok());
-        
     }
 }

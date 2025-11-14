@@ -5,25 +5,23 @@ use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
 use crate::step::stepchange::StepChange;
-use crate::task::moduleblock::{Check, ModuleApiCall};
 use crate::task::moduleblock::{Apply, DryRun};
+use crate::task::moduleblock::{Check, ModuleApiCall};
 use serde::{Deserialize, Serialize};
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum AptModuleInternalApiCall {
     Install(String),
     Remove(String),
-    Upgrade
+    Upgrade,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PackageExpectedState {
     Present,
-    Absent
+    Absent,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -40,7 +38,11 @@ pub struct AptBlockExpectedState {
 //     .build();
 impl AptBlockExpectedState {
     pub fn builder() -> AptBlockExpectedState {
-        AptBlockExpectedState { state: None, package: None, upgrade: None }
+        AptBlockExpectedState {
+            state: None,
+            package: None,
+            upgrade: None,
+        }
     }
 
     pub fn with_system_upgrade(&mut self) -> &mut Self {
@@ -48,7 +50,11 @@ impl AptBlockExpectedState {
         self
     }
 
-    pub fn with_package_state(&mut self, package_name: &str, package_state: PackageExpectedState) -> &mut Self {
+    pub fn with_package_state(
+        &mut self,
+        package_name: &str,
+        package_state: PackageExpectedState,
+    ) -> &mut Self {
         self.package = Some(package_name.to_string());
         self.state = Some(package_state);
         self
@@ -65,19 +71,21 @@ impl AptBlockExpectedState {
 impl Check for AptBlockExpectedState {
     fn check(&self) -> Result<(), Error> {
         if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-            return Err(Error::IncoherentExpectedState(
-                format!("All parameters are unset. Please describe the expected state.")
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "All parameters are unset. Please describe the expected state."
+            )));
         }
         if let (None, Some(package_name)) = (&self.state, &self.package) {
-            return Err(Error::IncoherentExpectedState(
-                format!("Missing 'state' parameter. What is the expected state of the package ({}) ?", package_name)
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "Missing 'state' parameter. What is the expected state of the package ({}) ?",
+                package_name
+            )));
         }
         if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-            return Err(Error::IncoherentExpectedState(
-                format!("Missing 'package' parameter. Which package should be {:?} ?", package_expected_state)
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "Missing 'package' parameter. Which package should be {:?} ?",
+                package_expected_state
+            )));
         }
         Ok(())
     }
@@ -165,7 +173,7 @@ impl DryRun for AptBlockExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AptApiCall {
     api_call: AptModuleInternalApiCall,
-    privilege: Privilege
+    privilege: Privilege,
 }
 
 impl Apply for AptApiCall {
@@ -211,10 +219,7 @@ impl Apply for AptApiCall {
                     return ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::Failure(format!(
-                            "{} install failed",
-                            package_name
-                        )),
+                        ApiCallStatus::Failure(format!("{} install failed", package_name)),
                     );
                 }
             }
@@ -240,10 +245,7 @@ impl Apply for AptApiCall {
                     return ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::Failure(format!(
-                            "{} removal failed",
-                            package_name
-                        )),
+                        ApiCallStatus::Failure(format!("{} removal failed", package_name)),
                     );
                 }
             }
@@ -295,8 +297,6 @@ fn is_package_installed(hosthandler: &mut HostHandler, package: String) -> bool 
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use crate::{modules::prelude::AptBlockExpectedState, prelude::*};
@@ -323,6 +323,6 @@ mod tests {
 
         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
 
-        assert!(parsed_tasklist.is_ok());        
+        assert!(parsed_tasklist.is_ok());
     }
 }

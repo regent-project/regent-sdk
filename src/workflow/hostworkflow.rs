@@ -118,5 +118,5 @@ pub enum HostWorkFlowStatus {
     ApplyWithAllowedFailure,
     ApplyFailed,
     DryRunFailed,
-    ConnectionInitFailed(String)
+    ConnectionInitFailed(String),
 }

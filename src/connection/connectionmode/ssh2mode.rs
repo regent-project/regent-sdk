@@ -194,7 +194,11 @@ impl std::fmt::Debug for Ssh2AuthMode {
                 write!(f, "Unset")
             }
             Ssh2AuthMode::UsernamePassword(creds) => {
-                write!(f, "UsernamePassword(Credentials {{ username: {:?}, password: \"HIDDEN PASSWORD\" }})", creds.username)
+                write!(
+                    f,
+                    "UsernamePassword(Credentials {{ username: {:?}, password: \"HIDDEN PASSWORD\" }})",
+                    creds.username
+                )
             }
             Ssh2AuthMode::KeyFile((username, key_path)) => {
                 write!(f, "KeyFile(({:?}, {:?}))", username, key_path)

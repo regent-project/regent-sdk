@@ -1,11 +1,11 @@
 // APT Module : handle packages in Debian-like distributions
 
-use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::ApiCallResult;
 use crate::step::stepchange::StepChange;
+use crate::task::moduleblock::Check;
 use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 

@@ -30,7 +30,11 @@ impl JobOutput {
         let mut job_output = JobOutput::new();
 
         job_output.host = job.get_address();
-        job_output.timestamp_start = job.timestamp_start.as_ref().unwrap_or(&"".into()).to_string();
+        job_output.timestamp_start = job
+            .timestamp_start
+            .as_ref()
+            .unwrap_or(&"".into())
+            .to_string();
         job_output.timestamp_end = job.timestamp_end.as_ref().unwrap_or(&"".into()).to_string();
         job_output.final_status = format!("{:?}", job.final_status);
 

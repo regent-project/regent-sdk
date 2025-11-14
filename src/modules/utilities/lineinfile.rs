@@ -1,11 +1,11 @@
 // LineInFile module : manipulate lines in a file (add, delete)
 
-use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
 use crate::step::stepchange::StepChange;
+use crate::task::moduleblock::Check;
 use crate::task::moduleblock::ModuleApiCall;
 use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
@@ -13,14 +13,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum LineInFileModuleInternalApiCall {
     Add(LineExpectedPosition),
-    Delete(Vec<u64>)
+    Delete(Vec<u64>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 enum LineExpectedState {
     Present,
-    Absent
+    Absent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,7 +30,7 @@ enum LineExpectedPosition {
     Bottom,
     Anywhere,
     #[serde(untagged)]
-    SpecificLineNumber(u64)
+    SpecificLineNumber(u64),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -41,19 +41,20 @@ pub struct LineInFileBlockExpectedState {
     state: LineExpectedState,
     position: Option<LineExpectedPosition>, // "top" | "bottom" | "anywhere" (default) | "45" (specific line number)
 
-                              // ****** To be implemented ********
-                              // beforeline: Option<String>, // Insert before this line
-                              // afterline: Option<String>, // Insert after this line
-                              // replace: Option<String>, // Replace this line...
-                              // with: Option<String> // ... with this one.
+                                            // ****** To be implemented ********
+                                            // beforeline: Option<String>, // Insert before this line
+                                            // afterline: Option<String>, // Insert after this line
+                                            // replace: Option<String>, // Replace this line...
+                                            // with: Option<String> // ... with this one.
 }
 
 impl Check for LineInFileBlockExpectedState {
     fn check(&self) -> Result<(), Error> {
         if let (None, None) = (&self.line, &self.position) {
-            return Err(Error::IncoherentExpectedState(
-                format!("Both 'line' and 'position' are unset. What is the expected state of this file ({}) ?", self.filepath)
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "Both 'line' and 'position' are unset. What is the expected state of this file ({}) ?",
+                self.filepath
+            )));
         }
         Ok(())
     }
@@ -87,7 +88,6 @@ impl DryRun for LineInFileBlockExpectedState {
 
         let change = match &self.state {
             LineExpectedState::Present => {
-
                 let filenumberoflines = hosthandler
                     .run_cmd(
                         format!("wc -l {} | cut -f 1 -d ' '", self.filepath).as_str(),
@@ -100,10 +100,12 @@ impl DryRun for LineInFileBlockExpectedState {
                     .unwrap();
 
                 // Precheck
-                if let Some(LineExpectedPosition::SpecificLineNumber(expected_line_number)) = self.position {
+                if let Some(LineExpectedPosition::SpecificLineNumber(expected_line_number)) =
+                    self.position
+                {
                     if expected_line_number > filenumberoflines {
                         return Err(Error::FailedDryRunEvaluation(
-                            "Position value out of range (use \"bottom\" instead)".to_string()
+                            "Position value out of range (use \"bottom\" instead)".to_string(),
                         ));
                     }
                 }
@@ -129,7 +131,9 @@ impl DryRun for LineInFileBlockExpectedState {
                                             ))
                                         } else {
                                             ModuleApiCall::LineInFile(LineInFileApiCall {
-                                                api_call: LineInFileModuleInternalApiCall::Add(LineExpectedPosition::Top),
+                                                api_call: LineInFileModuleInternalApiCall::Add(
+                                                    LineExpectedPosition::Top,
+                                                ),
                                                 line_content: self.line.as_ref().unwrap().clone(),
                                                 file_path: self.filepath.clone(),
                                                 privilege,
@@ -144,14 +148,18 @@ impl DryRun for LineInFileBlockExpectedState {
                                             ))
                                         } else {
                                             ModuleApiCall::LineInFile(LineInFileApiCall {
-                                                api_call: LineInFileModuleInternalApiCall::Add(LineExpectedPosition::Bottom),
+                                                api_call: LineInFileModuleInternalApiCall::Add(
+                                                    LineExpectedPosition::Bottom,
+                                                ),
                                                 line_content: self.line.as_ref().unwrap().clone(),
                                                 file_path: self.filepath.clone(),
                                                 privilege,
                                             })
                                         }
                                     }
-                                    LineExpectedPosition::SpecificLineNumber(specific_line_number) => {
+                                    LineExpectedPosition::SpecificLineNumber(
+                                        specific_line_number,
+                                    ) => {
                                         if actual_line_numbers.contains(&specific_line_number) {
                                             // Line is already at the right place, nothing to do
                                             ModuleApiCall::None(String::from(
@@ -159,7 +167,11 @@ impl DryRun for LineInFileBlockExpectedState {
                                             ))
                                         } else {
                                             ModuleApiCall::LineInFile(LineInFileApiCall {
-                                                api_call: LineInFileModuleInternalApiCall::Add(LineExpectedPosition::SpecificLineNumber(*specific_line_number)),
+                                                api_call: LineInFileModuleInternalApiCall::Add(
+                                                    LineExpectedPosition::SpecificLineNumber(
+                                                        *specific_line_number,
+                                                    ),
+                                                ),
                                                 line_content: self.line.as_ref().unwrap().clone(),
                                                 file_path: self.filepath.clone(),
                                                 privilege,
@@ -174,7 +186,9 @@ impl DryRun for LineInFileBlockExpectedState {
                                             ))
                                         } else {
                                             ModuleApiCall::LineInFile(LineInFileApiCall {
-                                                api_call: LineInFileModuleInternalApiCall::Add(LineExpectedPosition::Bottom),
+                                                api_call: LineInFileModuleInternalApiCall::Add(
+                                                    LineExpectedPosition::Bottom,
+                                                ),
                                                 line_content: self.line.as_ref().unwrap().clone(),
                                                 file_path: self.filepath.clone(),
                                                 privilege,
@@ -197,7 +211,9 @@ impl DryRun for LineInFileBlockExpectedState {
                         match &self.position {
                             Some(expected_position) => {
                                 ModuleApiCall::LineInFile(LineInFileApiCall {
-                                    api_call: LineInFileModuleInternalApiCall::Add(expected_position.clone()),
+                                    api_call: LineInFileModuleInternalApiCall::Add(
+                                        expected_position.clone(),
+                                    ),
                                     line_content: self.line.as_ref().unwrap().clone(),
                                     file_path: self.filepath.clone(),
                                     privilege,
@@ -206,7 +222,9 @@ impl DryRun for LineInFileBlockExpectedState {
                             None => {
                                 // Defaults to bottom
                                 ModuleApiCall::LineInFile(LineInFileApiCall {
-                                    api_call: LineInFileModuleInternalApiCall::Add(LineExpectedPosition::Bottom),
+                                    api_call: LineInFileModuleInternalApiCall::Add(
+                                        LineExpectedPosition::Bottom,
+                                    ),
                                     line_content: self.line.as_ref().unwrap().clone(),
                                     file_path: self.filepath.clone(),
                                     privilege,
@@ -254,13 +272,13 @@ impl Apply for LineInFileApiCall {
     fn display(&self) -> String {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {
-                return format!("Line missing -> needs to be added here {:?}", line_expected_position);
+                return format!(
+                    "Line missing -> needs to be added here {:?}",
+                    line_expected_position
+                );
             }
             LineInFileModuleInternalApiCall::Delete(line_numbers) => {
-                return format!(
-                    "Line present {:?} -> needs to be removed",
-                    line_numbers
-                );
+                return format!("Line present {:?} -> needs to be removed", line_numbers);
             }
         }
     }
@@ -268,7 +286,6 @@ impl Apply for LineInFileApiCall {
     fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {
-
                 let filenumberoflines = hosthandler
                     .run_cmd(
                         format!("wc -l {} | cut -f 1 -d ' '", self.file_path).as_str(),
@@ -291,7 +308,9 @@ impl Apply for LineInFileApiCall {
                 if filenumberoflines == 0 {
                     // File is empty -> matches top|bottom|anywhere|given=1
                     match line_expected_position {
-                        LineExpectedPosition::Top | LineExpectedPosition::Bottom | LineExpectedPosition::Anywhere => {
+                        LineExpectedPosition::Top
+                        | LineExpectedPosition::Bottom
+                        | LineExpectedPosition::Anywhere => {
                             cmd = format!("echo \'{}\' >> {}", self.line_content, self.file_path);
                         }
                         LineExpectedPosition::SpecificLineNumber(1) => {
@@ -312,10 +331,17 @@ impl Apply for LineInFileApiCall {
                     // File not empty
                     let future_line_number = match line_expected_position {
                         LineExpectedPosition::Top => 1,
-                        LineExpectedPosition::Bottom | LineExpectedPosition::Anywhere => filenumberoflines,
-                        LineExpectedPosition::SpecificLineNumber(specific_line_number) => *specific_line_number
+                        LineExpectedPosition::Bottom | LineExpectedPosition::Anywhere => {
+                            filenumberoflines
+                        }
+                        LineExpectedPosition::SpecificLineNumber(specific_line_number) => {
+                            *specific_line_number
+                        }
                     };
-                    cmd = format!("sed -i \'{} i {}\' {}", future_line_number, self.line_content, self.file_path);
+                    cmd = format!(
+                        "sed -i \'{} i {}\' {}",
+                        future_line_number, self.line_content, self.file_path
+                    );
                 }
 
                 let cmd_result = hosthandler
@@ -339,7 +365,8 @@ impl Apply for LineInFileApiCall {
             LineInFileModuleInternalApiCall::Delete(line_numbers) => {
                 // We need a final command like this : sed -i '7d;12d;16d' input.txt
                 // It implies a little formatting first.
-                let formatted_line_numbers = line_numbers.clone()
+                let formatted_line_numbers = line_numbers
+                    .clone()
                     .into_iter()
                     .map(|i| format!("{}d;", i))
                     .collect::<String>();
@@ -356,10 +383,7 @@ impl Apply for LineInFileApiCall {
                     return ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::ChangeSuccessful(format!(
-                            "Line {:?} removed",
-                            line_numbers
-                        )),
+                        ApiCallStatus::ChangeSuccessful(format!("Line {:?} removed", line_numbers)),
                     );
                 } else {
                     return ApiCallResult::from(
@@ -397,7 +421,6 @@ fn is_line_present(
         return None;
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -439,6 +462,5 @@ mod tests {
         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
 
         assert!(parsed_tasklist.is_ok());
-        
     }
 }

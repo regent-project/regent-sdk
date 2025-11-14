@@ -8,10 +8,10 @@ use crate::task::tasklist::TaskListFileType;
 use crate::workflow::hostworkflow::HostWorkFlow;
 use crate::workflow::hostworkflow::HostWorkFlowStatus;
 use chrono::Utc;
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::SystemTime;
-use nanoid::nanoid;
 
 /// The Job is the key type around which the whole automation revolves. A Job is about one host only. If you want to handle multiple hosts, you will need to have multiple Jobs (in a vec or anything else).
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -97,10 +97,7 @@ impl Job {
     }
 
     /// Define the task list from a TaskList
-    pub fn set_tasklist(
-        &mut self,
-        task_list: TaskList
-    ) -> &mut Self {
+    pub fn set_tasklist(&mut self, task_list: TaskList) -> &mut Self {
         self.tasklist = Some(task_list);
         self
     }
@@ -164,9 +161,7 @@ impl Job {
             HostHandler::from(self.host.address.clone(), self.host_connection_info.clone())
                 .unwrap();
         if let Err(error) = host_handler.init() {
-            self.final_status = HostWorkFlowStatus::ConnectionInitFailed(
-                format!("{:?}", error)
-            );
+            self.final_status = HostWorkFlowStatus::ConnectionInitFailed(format!("{:?}", error));
             return;
         }
 
@@ -219,9 +214,7 @@ impl Job {
             HostHandler::from(self.host.address.clone(), self.host_connection_info.clone())
                 .unwrap();
         if let Err(error) = host_handler.init() {
-            self.final_status = HostWorkFlowStatus::ConnectionInitFailed(
-                format!("{:?}", error)
-            );
+            self.final_status = HostWorkFlowStatus::ConnectionInitFailed(format!("{:?}", error));
             return;
         }
 

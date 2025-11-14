@@ -1,11 +1,11 @@
 // YUM / DNF Module : handle packages in Fedora-like distributions
 
-use crate::task::moduleblock::Check;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
 use crate::step::stepchange::StepChange;
+use crate::task::moduleblock::Check;
 use crate::task::moduleblock::ModuleApiCall;
 use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
@@ -14,14 +14,14 @@ use serde::{Deserialize, Serialize};
 enum YumDnfModuleInternalApiCall {
     Install(String),
     Remove(String),
-    Upgrade
+    Upgrade,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PackageExpectedState {
     Present,
-    Absent
+    Absent,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -32,7 +32,6 @@ pub struct YumDnfBlockExpectedState {
     upgrade: Option<bool>,
 }
 
-
 // Chained methods to allow building an YumDnfBlockExpectedState as follows :
 // let apt_block = YumDnfBlockExpectedState::builder()
 //     .with_package_state("httpd", PackageExpectedState::Present)
@@ -40,7 +39,11 @@ pub struct YumDnfBlockExpectedState {
 //     .build();
 impl YumDnfBlockExpectedState {
     pub fn builder() -> YumDnfBlockExpectedState {
-        YumDnfBlockExpectedState { state: None, package: None, upgrade: None }
+        YumDnfBlockExpectedState {
+            state: None,
+            package: None,
+            upgrade: None,
+        }
     }
 
     pub fn with_system_upgrade(&mut self) -> &mut Self {
@@ -48,7 +51,11 @@ impl YumDnfBlockExpectedState {
         self
     }
 
-    pub fn with_package_state(&mut self, package_name: &str, package_state: PackageExpectedState) -> &mut Self {
+    pub fn with_package_state(
+        &mut self,
+        package_name: &str,
+        package_state: PackageExpectedState,
+    ) -> &mut Self {
         self.package = Some(package_name.to_string());
         self.state = Some(package_state);
         self
@@ -65,19 +72,21 @@ impl YumDnfBlockExpectedState {
 impl Check for YumDnfBlockExpectedState {
     fn check(&self) -> Result<(), Error> {
         if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-            return Err(Error::IncoherentExpectedState(
-                format!("All parameters are unset. Please describe the expected state.")
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "All parameters are unset. Please describe the expected state."
+            )));
         }
         if let (None, Some(package_name)) = (&self.state, &self.package) {
-            return Err(Error::IncoherentExpectedState(
-                format!("Missing 'state' parameter. What is the expected state of the package ({}) ?", package_name)
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "Missing 'state' parameter. What is the expected state of the package ({}) ?",
+                package_name
+            )));
         }
         if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-            return Err(Error::IncoherentExpectedState(
-                format!("Missing 'package' parameter. Which package should be {:?} ?", package_expected_state)
-            ));
+            return Err(Error::IncoherentExpectedState(format!(
+                "Missing 'package' parameter. Which package should be {:?} ?",
+                package_expected_state
+            )));
         }
         Ok(())
     }
@@ -181,14 +190,14 @@ impl DryRun for YumDnfBlockExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 enum RedHatFlavoredPackageManager {
     Yum,
-    Dnf
+    Dnf,
 }
 
 impl RedHatFlavoredPackageManager {
     fn command_name(&self) -> &str {
         match self {
             RedHatFlavoredPackageManager::Dnf => "dnf",
-            RedHatFlavoredPackageManager::Yum => "yum"
+            RedHatFlavoredPackageManager::Yum => "yum",
         }
     }
 }
@@ -218,7 +227,11 @@ impl Apply for YumDnfApiCall {
     fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
         match &self.api_call {
             YumDnfModuleInternalApiCall::Install(package_name) => {
-                let cmd = format!("{} install -y {}", self.package_manager.command_name(), package_name);
+                let cmd = format!(
+                    "{} install -y {}",
+                    self.package_manager.command_name(),
+                    package_name
+                );
                 let cmd_result = hosthandler
                     .run_cmd(cmd.as_str(), self.privilege.clone())
                     .unwrap();
@@ -236,15 +249,16 @@ impl Apply for YumDnfApiCall {
                     return ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::Failure(format!(
-                            "{} install failed",
-                            package_name
-                        )),
+                        ApiCallStatus::Failure(format!("{} install failed", package_name)),
                     );
                 }
             }
             YumDnfModuleInternalApiCall::Remove(package_name) => {
-                let cmd = format!("{} remove -y {}", self.package_manager.command_name(), package_name);
+                let cmd = format!(
+                    "{} remove -y {}",
+                    self.package_manager.command_name(),
+                    package_name
+                );
                 let cmd_result = hosthandler
                     .run_cmd(cmd.as_str(), self.privilege.clone())
                     .unwrap();
@@ -262,15 +276,15 @@ impl Apply for YumDnfApiCall {
                     return ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::Failure(format!(
-                            "{} removal failed",
-                            package_name
-                        )),
+                        ApiCallStatus::Failure(format!("{} removal failed", package_name)),
                     );
                 }
             }
             YumDnfModuleInternalApiCall::Upgrade => {
-                let cmd = format!("{} update -y --refresh", self.package_manager.command_name());
+                let cmd = format!(
+                    "{} update -y --refresh",
+                    self.package_manager.command_name()
+                );
                 let cmd_result = hosthandler
                     .run_cmd(cmd.as_str(), self.privilege.clone())
                     .unwrap();
@@ -316,7 +330,12 @@ fn is_package_installed(
 ) -> bool {
     let test = hosthandler
         .run_cmd(
-            format!("{} list installed {}", package_manager.command_name(), package_name).as_str(),
+            format!(
+                "{} list installed {}",
+                package_manager.command_name(),
+                package_name
+            )
+            .as_str(),
             privilege,
         )
         .unwrap();
@@ -327,7 +346,6 @@ fn is_package_installed(
         return false;
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -351,6 +369,5 @@ mod tests {
         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
 
         assert!(parsed_tasklist.is_ok());
-        
     }
 }

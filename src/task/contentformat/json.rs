@@ -9,16 +9,14 @@ pub fn json_tasklist_parser(tasklistcontent: &str) -> Result<TaskList, Error> {
             let mut tasks: Vec<TaskBlock> = Vec::new();
             for parsed_task in parsed_content.iter() {
                 match parsed_task.parse_task_block() {
-                    Ok(task_block) => {
-                        match task_block.check() {
-                            Ok(()) => {
-                                tasks.push(task_block);
-                            }
-                            Err(error) => {
-                                return Err(error);
-                            }
+                    Ok(task_block) => match task_block.check() {
+                        Ok(()) => {
+                            tasks.push(task_block);
                         }
-                    }
+                        Err(error) => {
+                            return Err(error);
+                        }
+                    },
                     Err(error) => {
                         return Err(error);
                     }

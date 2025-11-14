@@ -3,9 +3,9 @@
 pub use crate::connection::host_connection::HostConnectionInfo;
 pub use crate::connection::specification::REFRESH_INTERVAL_MILLI_SECONDS;
 pub use crate::exitcode::*;
+pub use crate::host::hostlist::HostList;
 pub use crate::host::hostlist::hostlist_get_all_hosts;
 pub use crate::host::hostlist::hostlist_get_from_file;
-pub use crate::host::hostlist::HostList;
 pub use crate::host::hosts::Host;
 pub use crate::host::parser::hostlist_parser;
 pub use crate::job::job::Job;
