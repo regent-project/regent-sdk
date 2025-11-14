@@ -273,7 +273,7 @@ impl Job {
         serde_json::to_string(&job_output).unwrap()
     }
 
-    pub fn display_pretty(&mut self) -> String {
+    pub fn display_pretty(&self) -> String {
         let job_output = JobOutput::from_job(self);
         serde_json::to_string_pretty(&job_output).unwrap()
     }

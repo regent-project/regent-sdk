@@ -26,7 +26,7 @@ impl JobOutput {
         }
     }
 
-    pub fn from_job(job: &mut Job) -> JobOutput {
+    pub fn from_job(job: &Job) -> JobOutput {
         let mut job_output = JobOutput::new();
 
         job_output.host = job.get_address();
