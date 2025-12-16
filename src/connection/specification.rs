@@ -18,8 +18,12 @@ pub enum Privilege {
     Usual,
     /// Run cmd with sudo
     WithSudo,
-    /// Run cmd as another user
-    AsUser(String),
+    /// Run cmd as another user using sudo
+    WithSudoAsUser(String),
+    /// Run cmd with sudo-rs
+    WithSudoRs,
+    /// Run cmd as another user using sudo-rs
+    WithSudoRsAsUser(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

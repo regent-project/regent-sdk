@@ -8,6 +8,7 @@ pub struct Step {
     pub name: Option<String>,
     pub run_as: Option<String>,
     pub with_sudo: Option<bool>,
+    pub with_sudo_rs: Option<bool>,
     pub allowed_to_fail: Option<bool>,
     pub register: Option<String>,
     // pub prelogic -> TODO
@@ -43,6 +44,7 @@ pub struct ParsingStep {
     pub name: Option<String>,
     pub run_as: Option<String>,
     pub with_sudo: Option<bool>,
+    pub with_sudo_rs: Option<bool>,
     pub allowed_to_fail: Option<bool>,
     pub register: Option<String>,
     // pub prelogic -> TODO
@@ -109,10 +111,19 @@ impl ParsingStep {
         } else {
             match moduleblock {
                 Some(module_block_expected_state) => {
+
+                    // with_sudo and with_sudo_rs are mutually exclusive
+                    if let (Some(true), Some(true)) = (self.with_sudo, self.with_sudo_rs) {
+                        return Err(Error::FailedInitialization(
+                            "Paramaters with_sudo and with_sudo_rs are mutually exclusive".into(),
+                        ));
+                    }
+
                     return Ok(Step {
                         name: self.name.clone(),
                         run_as: self.run_as.clone(),
                         with_sudo: self.with_sudo.clone(),
+                        with_sudo_rs: self.with_sudo_rs.clone(),
                         allowed_to_fail: self.allowed_to_fail.clone(),
                         register: self.register.clone(),
                         // prelogic -> TODO

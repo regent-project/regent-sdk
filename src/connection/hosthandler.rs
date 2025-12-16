@@ -125,8 +125,16 @@ fn final_cmd(cmd: String, privilege: Privilege) -> String {
             let final_cmd = format!("sudo -u root {} 2>&1", cmd);
             return final_cmd;
         }
-        Privilege::AsUser(username) => {
+        Privilege::WithSudoAsUser(username) => {
             let final_cmd = format!("sudo -u {} {} 2>&1", username, cmd);
+            return final_cmd;
+        }
+        Privilege::WithSudoRs => {
+            let final_cmd = format!("sudo-rs -u root {} 2>&1", cmd);
+            return final_cmd;
+        }
+        Privilege::WithSudoRsAsUser(username) => {
+            let final_cmd = format!("sudo-rs -u {} {} 2>&1", username, cmd);
             return final_cmd;
         }
     }

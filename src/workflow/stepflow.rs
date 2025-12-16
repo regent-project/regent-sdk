@@ -35,20 +35,27 @@ impl StepFlow {
         hosthandler: &mut HostHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
-        let privilege = match self.step_expected.with_sudo {
-            None => match &self.step_expected.run_as {
+        let privilege = match (self.step_expected.with_sudo, self.step_expected.with_sudo_rs) {
+            (None, None)|(None, Some(false))|(Some(false), None)|(Some(false),Some(false)) => match &self.step_expected.run_as {
                 None => Privilege::Usual,
-                Some(username) => Privilege::AsUser(username.into()),
+                Some(username) => Privilege::WithSudoAsUser(username.into()),
             },
-            Some(value) => {
-                if value {
-                    Privilege::WithSudo
-                } else {
-                    match &self.step_expected.run_as {
-                        None => Privilege::Usual,
-                        Some(username) => Privilege::AsUser(username.into()),
-                    }
+            (Some(true), Some(false))|(Some(true), None) => {
+                match &self.step_expected.run_as {
+                    None => Privilege::Usual,
+                    Some(username) => Privilege::WithSudoAsUser(username.into()),
                 }
+            }
+            (Some(false), Some(true))|(None, Some(true)) => {
+                match &self.step_expected.run_as {
+                    None => Privilege::Usual,
+                    Some(username) => Privilege::WithSudoRsAsUser(username.into()),
+                }
+            }
+            (Some(true), Some(true)) => {
+                return Err(Error::FailedInitialization(
+                    "Paramaters with_sudo and with_sudo_rs are mutually exclusive".into(),
+                ));
             }
         };
 
@@ -82,20 +89,27 @@ impl StepFlow {
         hosthandler: &mut HostHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
-        let privilege = match self.step_expected.with_sudo {
-            None => match &self.step_expected.run_as {
+        let privilege = match (self.step_expected.with_sudo, self.step_expected.with_sudo_rs) {
+            (None, None)|(None, Some(false))|(Some(false), None)|(Some(false),Some(false)) => match &self.step_expected.run_as {
                 None => Privilege::Usual,
-                Some(username) => Privilege::AsUser(username.into()),
+                Some(username) => Privilege::WithSudoAsUser(username.into()),
             },
-            Some(value) => {
-                if value {
-                    Privilege::WithSudo
-                } else {
-                    match &self.step_expected.run_as {
-                        None => Privilege::Usual,
-                        Some(username) => Privilege::AsUser(username.into()),
-                    }
+            (Some(true), Some(false))|(Some(true), None) => {
+                match &self.step_expected.run_as {
+                    None => Privilege::Usual,
+                    Some(username) => Privilege::WithSudoAsUser(username.into()),
                 }
+            }
+            (Some(false), Some(true))|(None, Some(true)) => {
+                match &self.step_expected.run_as {
+                    None => Privilege::Usual,
+                    Some(username) => Privilege::WithSudoRsAsUser(username.into()),
+                }
+            }
+            (Some(true), Some(true)) => {
+                return Err(Error::FailedInitialization(
+                    "Paramaters with_sudo and with_sudo_rs are mutually exclusive".into(),
+                ));
             }
         };
 
