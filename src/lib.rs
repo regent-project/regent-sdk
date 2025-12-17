@@ -33,7 +33,7 @@
 //!    // We set who the target host of this Job is, and how to connect to it.
 //!    my_job
 //!        .set_address("10.20.0.203").unwrap()
-//!        .set_connection(HostConnectionInfo::ssh2_with_key_file("dux", "controller_key")).unwrap();
+//!        .set_connection(ConnectionInfo::ssh2_with_key_file("dux", "controller_key")).unwrap();
 //!    
 //!    // We give it some context and the task list.
 //!    my_job

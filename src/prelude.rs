@@ -1,6 +1,6 @@
 //! Rapidly get started by importing all main items
 
-pub use crate::connection::host_connection::HostConnectionInfo;
+pub use crate::connection::host_connection::ConnectionInfo;
 pub use crate::connection::specification::REFRESH_INTERVAL_MILLI_SECONDS;
 pub use crate::exitcode::*;
 pub use crate::host::hostlist::HostList;

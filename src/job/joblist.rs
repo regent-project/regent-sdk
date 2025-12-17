@@ -1,7 +1,7 @@
 use rayon::iter::IntoParallelRefMutIterator;
 use rayon::iter::ParallelIterator;
 
-use crate::connection::host_connection::HostConnectionInfo;
+use crate::connection::host_connection::ConnectionInfo;
 use crate::error::Error;
 use crate::host::hostlist::HostList;
 use crate::job::job::Job;
@@ -74,11 +74,11 @@ impl JobList {
     /// Set the same connection information for all hosts of the JobList
     pub fn set_connection(
         &mut self,
-        host_connection_info: HostConnectionInfo,
+        host_connection_info: ConnectionInfo,
     ) -> Result<&mut Self, Error> {
-        if let HostConnectionInfo::Unset = host_connection_info {
+        if let ConnectionInfo::Unset = host_connection_info {
             Err(Error::WrongInitialization(format!(
-                "No point in initializing connection info to HostConnectionInfo::Unset"
+                "No point in initializing connection info to ConnectionInfo::Unset"
             )))
         } else {
             if let Some(jobs) = &mut self.job_list {
