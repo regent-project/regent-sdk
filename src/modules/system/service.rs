@@ -1,4 +1,4 @@
-// Service Module : handle services running on a host
+// Service Module : handle services Active on a host
 
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
@@ -20,9 +20,9 @@ enum ServiceModuleInternalApiCall {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum ServiceExpectedState {
-    Started,
-    Stopped,
+pub enum ServiceExpectedStatus {
+    Active,
+    Inactive,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -36,29 +36,29 @@ pub enum ServiceExpectedAutoStart {
 #[serde(deny_unknown_fields)]
 pub struct ServiceBlockExpectedState {
     name: String,
-    current_state: Option<ServiceExpectedState>,
+    current_status: Option<ServiceExpectedStatus>,
     auto_start: Option<ServiceExpectedAutoStart>,
 }
 
 // Chained methods to allow building an ServiceBlockExpectedState as follows :
 // let apt_block = ServiceBlockExpectedState::builder()
-//     .with_service_state("apache2", ServiceExpectedState::Started)
+//     .with_service_state("apache2", ServiceExpectedStatus::Active)
 //     .with_autostart_state(ServiceExpectedAutoStart::Enabled)
 //     .build();
 impl ServiceBlockExpectedState {
     pub fn builder(service_name: &str) -> ServiceBlockExpectedState {
         ServiceBlockExpectedState {
             name: service_name.to_string(),
-            current_state: None,
+            current_status: None,
             auto_start: None,
         }
     }
 
     pub fn with_service_state(
         &mut self,
-        expected_current_state: ServiceExpectedState,
+        expected_current_status: ServiceExpectedStatus,
     ) -> &mut Self {
-        self.current_state = Some(expected_current_state);
+        self.current_status = Some(expected_current_status);
         self
     }
 
@@ -80,7 +80,7 @@ impl ServiceBlockExpectedState {
 
 impl Check for ServiceBlockExpectedState {
     fn check(&self) -> Result<(), Error> {
-        if let (None, None) = (&self.current_state, &self.auto_start) {
+        if let (None, None) = (&self.current_status, &self.auto_start) {
             return Err(Error::IncoherentExpectedState(format!(
                 "All parameters are unset. Please describe the expected state."
             )));
@@ -103,8 +103,8 @@ impl DryRun for ServiceBlockExpectedState {
             ));
         }
 
-        let service_is_running = match service_is_active(hosthandler, &self.name) {
-            Ok(running_state) => running_state,
+        let service_is_Active = match service_is_active(hosthandler, &self.name) {
+            Ok(Active_state) => Active_state,
             Err(e) => return Err(Error::FailedDryRunEvaluation(e)),
         };
 
@@ -119,39 +119,39 @@ impl DryRun for ServiceBlockExpectedState {
         // State or enabled :
         // - one of them is required
         // - mutually exclusive
-        if let (None, None) = (&self.current_state, &self.auto_start) {
+        if let (None, None) = (&self.current_status, &self.auto_start) {
             // PROBLEM : both 'state' and 'enabled' are empty
             return Err(Error::FailedDryRunEvaluation(
                 "STATE and ENABLED fields are both empty in provided Task List".to_string(),
             ));
         } else {
-            match &self.current_state {
+            match &self.current_status {
                 Some(state_content) => {
                     match state_content {
-                        ServiceExpectedState::Started => {
-                            if service_is_running {
+                        ServiceExpectedStatus::Active => {
+                            if service_is_Active {
                                 changes.push(ModuleApiCall::None(format!(
-                                    "{} already running",
+                                    "{} already Active",
                                     &self.name
                                 )));
                             } else {
-                                // Service needs to be started
+                                // Service needs to be Active
                                 changes.push(ModuleApiCall::Service(ServiceApiCall::from(
                                     ServiceModuleInternalApiCall::Start(self.name.clone()),
                                     privilege.clone(),
                                 )));
                             }
                         }
-                        ServiceExpectedState::Stopped => {
-                            if service_is_running {
-                                // Service needs to be stopped
+                        ServiceExpectedStatus::Inactive => {
+                            if service_is_Active {
+                                // Service needs to be Inactive
                                 changes.push(ModuleApiCall::Service(ServiceApiCall::from(
                                     ServiceModuleInternalApiCall::Stop(self.name.clone()),
                                     privilege.clone(),
                                 )));
                             } else {
                                 changes.push(ModuleApiCall::None(format!(
-                                    "{} already stopped",
+                                    "{} already Inactive",
                                     &self.name
                                 )));
                             }
@@ -246,7 +246,7 @@ impl Apply for ServiceApiCall {
                     ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::ChangeSuccessful(format!("{} started", service_name)),
+                        ApiCallStatus::ChangeSuccessful(format!("{} Active", service_name)),
                     )
                 } else {
                     return ApiCallResult::from(
@@ -268,7 +268,7 @@ impl Apply for ServiceApiCall {
                     ApiCallResult::from(
                         Some(cmd_result.rc),
                         Some(cmd_result.stdout),
-                        ApiCallStatus::ChangeSuccessful(format!("{} stopped", service_name)),
+                        ApiCallStatus::ChangeSuccessful(format!("{} Inactive", service_name)),
                     )
                 } else {
                     return ApiCallResult::from(
@@ -379,15 +379,15 @@ mod tests {
         let raw_tasklist_description = "---
 - name: Dummy steps to test deserialization and syntax of this module
   steps:
-    - name: Service must be started and enabled
+    - name: Service must be Active and enabled
       service:
         name: apache2
-        current_state: started
+        current_status: Active
         auto_start: enabled
-    - name: Service must be stopped and disabled
+    - name: Service must be Inactive and disabled
       service:
         name: apache2
-        current_state: stopped
+        current_status: Inactive
         auto_start: disabled
         ";
 
