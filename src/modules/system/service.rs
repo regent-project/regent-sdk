@@ -103,8 +103,8 @@ impl DryRun for ServiceBlockExpectedState {
             ));
         }
 
-        let service_is_Active = match service_is_active(hosthandler, &self.name) {
-            Ok(Active_state) => Active_state,
+        let service_is_active = match service_is_active(hosthandler, &self.name) {
+            Ok(active_state) => active_state,
             Err(e) => return Err(Error::FailedDryRunEvaluation(e)),
         };
 
@@ -129,7 +129,7 @@ impl DryRun for ServiceBlockExpectedState {
                 Some(state_content) => {
                     match state_content {
                         ServiceExpectedStatus::Active => {
-                            if service_is_Active {
+                            if service_is_active {
                                 changes.push(ModuleApiCall::None(format!(
                                     "{} already Active",
                                     &self.name
@@ -143,7 +143,7 @@ impl DryRun for ServiceBlockExpectedState {
                             }
                         }
                         ServiceExpectedStatus::Inactive => {
-                            if service_is_Active {
+                            if service_is_active {
                                 // Service needs to be Inactive
                                 changes.push(ModuleApiCall::Service(ServiceApiCall::from(
                                     ServiceModuleInternalApiCall::Stop(self.name.clone()),
@@ -340,13 +340,13 @@ fn service_is_active(hosthandler: &mut HostHandler, service_name: &String) -> Re
         format!("systemctl is-active {}", service_name).as_str(),
         Privilege::Usual,
     ) {
-        Ok(test_result) => {
-            if test_result.rc == 0 {
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        }
+        Ok(test_result) => match test_result.rc {
+            0 => Ok(true),
+            1 => Err(format!("Unit not failed")),
+            3 => Ok(false),
+            4 => Err(format!("No such service")),
+            _ => Err(format!("Unknown return code : {:?}", test_result)),
+        },
         Err(e) => Err(format!("Unable to check service status : {:?}", e)),
     }
 }
@@ -360,10 +360,12 @@ fn service_is_enabled(
         Privilege::Usual,
     ) {
         Ok(test_result) => {
-            if test_result.rc == 0 {
-                Ok(true)
-            } else {
-                Ok(false)
+            match test_result.rc {
+                0 => Ok(true),
+                1 => Ok(false),
+                // 3 => Ok(false),
+                4 => Err(format!("No such service")),
+                _ => Err(format!("Unknown return code : {:?}", test_result)),
             }
         }
         Err(e) => Err(format!("Unable to check service status : {:?}", e)),
