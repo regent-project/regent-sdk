@@ -33,8 +33,11 @@ pub struct Credentials {
 }
 
 impl Credentials {
-    pub fn from(username: String, password: String) -> Credentials {
-        Credentials { username, password }
+    pub fn from(username: &str, password: &str) -> Credentials {
+        Credentials {
+            username: username.to_string(),
+            password: password.to_string(),
+        }
     }
 }
 

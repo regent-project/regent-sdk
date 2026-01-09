@@ -111,7 +111,6 @@ impl ParsingStep {
         } else {
             match moduleblock {
                 Some(module_block_expected_state) => {
-
                     // with_sudo and with_sudo_rs are mutually exclusive
                     if let (Some(true), Some(true)) = (self.with_sudo, self.with_sudo_rs) {
                         return Err(Error::FailedInitialization(
