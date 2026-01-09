@@ -13,6 +13,7 @@ pub enum Error {
     FailedTcpBinding(String),
     FailedTaskDryRun(String),
     FailedDryRunEvaluation(String),
+    FailedToApplyExpectedState(String),
     MissingInitialization(String),
     GroupNotFound,
     MissingGroupsList,

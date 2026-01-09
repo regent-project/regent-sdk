@@ -1,4 +1,5 @@
 use crate::result::apicallresult::ApiCallResult;
+use crate::result::apicallresult::ApiCallStatus;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,4 +59,28 @@ impl StepResult {
             apicallresults: apicallresults.clone(),
         }
     }
+
+    pub fn assess_result(&self) -> StepApplyResult {
+        for apicallresult in self.apicallresults.clone().iter() {
+            match &apicallresult.status {
+                ApiCallStatus::None | ApiCallStatus::ChangeSuccessful(_) => {}
+                ApiCallStatus::Unset => {
+                    return StepApplyResult::Failed(format!("{:?}", apicallresult));
+                }
+                ApiCallStatus::Failure(detail) => {
+                    return StepApplyResult::Failed(format!("{:?}", detail));
+                }
+                ApiCallStatus::AllowedFailure(detail) => {
+                    return StepApplyResult::Failed(format!("{:?}", detail));
+                }
+            }
+        }
+
+        StepApplyResult::Successful
+    }
+}
+
+pub enum StepApplyResult {
+    Successful,
+    Failed(String),
 }

@@ -52,6 +52,7 @@
 pub mod connection;
 pub mod error;
 pub mod exitcode;
+pub mod expected_state;
 pub mod host;
 pub mod job;
 pub mod modules;

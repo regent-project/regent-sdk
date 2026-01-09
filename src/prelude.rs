@@ -13,3 +13,5 @@ pub use crate::job::joblist::JobList;
 pub use crate::task::tasklist::RunningMode;
 pub use crate::task::tasklist::TaskList;
 pub use crate::task::tasklist::TaskListFileType;
+
+pub use crate::task::moduleblock::ModuleBlockExpectedState as Attribute;
