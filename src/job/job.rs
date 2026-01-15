@@ -1,4 +1,4 @@
-use crate::connection::host_connection::ConnectionInfo;
+use crate::connection::host_connection::HostConnectionInfo;
 use crate::connection::hosthandler::HostHandler;
 use crate::error::Error;
 use crate::host::hosts::Host;
@@ -17,7 +17,7 @@ use std::time::SystemTime;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Job {
     pub host: Host,
-    pub host_connection_info: ConnectionInfo,
+    pub host_connection_info: HostConnectionInfo,
     pub correlation_id: Option<String>,
     pub tasklist: Option<TaskList>,
     pub vars: Option<serde_json::Value>,
@@ -31,7 +31,7 @@ impl Job {
     pub fn new() -> Job {
         Job {
             host: Host::new(),
-            host_connection_info: ConnectionInfo::Unset,
+            host_connection_info: HostConnectionInfo::Unset,
             correlation_id: None,
             tasklist: None,
             vars: None,
@@ -84,11 +84,11 @@ impl Job {
     /// How do we connect to the target host ?
     pub fn set_connection(
         &mut self,
-        host_connection_info: ConnectionInfo,
+        host_connection_info: HostConnectionInfo,
     ) -> Result<&mut Self, Error> {
-        if let ConnectionInfo::Unset = host_connection_info {
+        if let HostConnectionInfo::Unset = host_connection_info {
             Err(Error::WrongInitialization(format!(
-                "No point in initializing connection info to ConnectionInfo::Unset"
+                "No point in initializing connection info to HostConnectionInfo::Unset"
             )))
         } else {
             self.host_connection_info = host_connection_info;

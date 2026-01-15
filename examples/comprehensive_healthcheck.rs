@@ -5,7 +5,7 @@ use regent_sdk::host::host::ManagedHost;
 use regent_sdk::modules::prelude::ServiceBlockExpectedState;
 use regent_sdk::modules::system::service::{ServiceExpectedAutoStart, ServiceExpectedStatus};
 use regent_sdk::prelude::Attribute;
-use regent_sdk::prelude::ConnectionInfo;
+use regent_sdk::prelude::HostConnectionInfo;
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -70,7 +70,7 @@ fn main() {
         // "srv1.www.company.com:22",
         // ConnectionInfo::ssh2_with_username_password("admin", "strong-password"),
         "localhost",
-        ConnectionInfo::LocalHost(WhichUser::CurrentUser),
+        HostConnectionInfo::LocalHost(WhichUser::CurrentUser),
         Privilege::WithSudoRs,
     );
 

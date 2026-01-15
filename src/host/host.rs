@@ -3,7 +3,7 @@ use crate::connection::specification::Privilege;
 use crate::expected_state::global_state::{CompliancyStatus, DryRunMode};
 use crate::step::stepchange::StepChange;
 use crate::step::stepresult::StepApplyResult;
-use crate::{error::Error, expected_state::global_state::ExpectedState, prelude::ConnectionInfo};
+use crate::{error::Error, expected_state::global_state::ExpectedState, prelude::HostConnectionInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -92,7 +92,7 @@ pub struct ManagedHost {
 impl ManagedHost {
     pub fn from(
         address: &str,
-        connection_info: ConnectionInfo,
+        connection_info: HostConnectionInfo,
         privilege: Privilege,
     ) -> ManagedHost {
         ManagedHost {
