@@ -68,11 +68,43 @@ impl Ssh2HostHandler {
                 "SSH2 authentication mode is unset".to_string(),
             ));
         } else {
-            // TODO : add SSH custom port handling
-            match TcpStream::connect(format!("{}:22", self.hostaddress)) {
+            // finding out if address is "address" or "address:port" kind, to decide which port to use
+            let address: &str;
+            let ssh_port: u16;
+
+            let mut iterator = self.hostaddress.split(':');
+
+            match iterator.next() {
+                Some(host_address) => {
+                    address = host_address;
+                    match iterator.next() {
+                        Some(port) => {
+                            match port.parse::<u16>() {
+                                Ok(port) => {
+                                    ssh_port = port;
+                                }
+                                Err(error_detail) => {
+                                    return Err(Error::FailedInitialization(format!("failure to parse given port : {}", error_detail)));
+                                }
+                            }
+                        }
+                        None => {
+                            // No port specified, using default ssh port then
+                            ssh_port = 22;
+                        }
+                    }
+                }
+                None => {
+                    return Err(Error::FailedInitialization("empty address".to_string()));
+                }
+            }
+            match TcpStream::connect(format!("{}:{}", address, ssh_port)) {
                 Ok(tcp) => {
                     self.sshsession.set_tcp_stream(tcp);
-                    self.sshsession.handshake().unwrap();
+
+                    if let Err(error_detail) = self.sshsession.handshake() {
+                        Error::FailedInitialization(format!("{:?}", error_detail));
+                    }
 
                     match &self.authmode {
                         Ssh2AuthMode::UsernamePassword(credentials) => {
@@ -161,7 +193,9 @@ impl Ssh2HostHandler {
 
         match self.sshsession.channel_session() {
             Ok(mut channel) => {
-                channel.exec(cmd).unwrap();
+                if let Err(error_detail) = channel.exec(cmd) {
+                    return Err(Error::FailureToRunCommand(format!("{:?}", error_detail)));
+                }
                 let mut s = String::new();
                 channel.read_to_string(&mut s).unwrap();
                 channel.wait_close().unwrap();
