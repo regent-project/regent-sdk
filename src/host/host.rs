@@ -3,7 +3,8 @@ use crate::connection::specification::Privilege;
 use crate::expected_state::global_state::{CompliancyStatus, DryRunMode};
 use crate::step::stepchange::StepChange;
 use crate::step::stepresult::StepApplyResult;
-use crate::{error::Error, expected_state::global_state::ExpectedState, prelude::HostConnectionInfo};
+use crate::{error::Error, expected_state::global_state::ExpectedState};
+use crate::connection::host_connection::HostConnectionInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -106,6 +107,11 @@ impl ManagedHost {
         expected_state: &ExpectedState,
         dry_run_mode: DryRunMode,
     ) -> Result<CompliancyStatus, Error> {
+
+        if let Err(error_detail) = self.host_handler.init() {
+            return Err(error_detail);
+        }
+
         match dry_run_mode {
             DryRunMode::Sequential => {
                 for attribute in &expected_state.attributes {
@@ -165,6 +171,10 @@ impl ManagedHost {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<(), Error> {
+        if let Err(error_detail) = self.host_handler.init() {
+            return Err(error_detail);
+        }
+
         for attribute in &expected_state.attributes {
             match attribute.dry_run_moduleblock(&mut self.host_handler, self.privilege.clone()) {
                 Ok(step_change) => {
