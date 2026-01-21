@@ -1,10 +1,10 @@
+use crate::connection::host_connection::HostConnectionInfo;
 use crate::connection::hosthandler::HostHandler;
 use crate::connection::specification::Privilege;
 use crate::expected_state::global_state::{CompliancyStatus, DryRunMode};
 use crate::step::stepchange::StepChange;
 use crate::step::stepresult::StepApplyResult;
 use crate::{error::Error, expected_state::global_state::ExpectedState};
-use crate::connection::host_connection::HostConnectionInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -107,7 +107,6 @@ impl ManagedHost {
         expected_state: &ExpectedState,
         dry_run_mode: DryRunMode,
     ) -> Result<CompliancyStatus, Error> {
-
         if let Err(error_detail) = self.host_handler.init() {
             return Err(error_detail);
         }

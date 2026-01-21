@@ -78,16 +78,17 @@ impl Ssh2HostHandler {
                 Some(host_address) => {
                     address = host_address;
                     match iterator.next() {
-                        Some(port) => {
-                            match port.parse::<u16>() {
-                                Ok(port) => {
-                                    ssh_port = port;
-                                }
-                                Err(error_detail) => {
-                                    return Err(Error::FailedInitialization(format!("failure to parse given port : {}", error_detail)));
-                                }
+                        Some(port) => match port.parse::<u16>() {
+                            Ok(port) => {
+                                ssh_port = port;
                             }
-                        }
+                            Err(error_detail) => {
+                                return Err(Error::FailedInitialization(format!(
+                                    "failure to parse given port : {}",
+                                    error_detail
+                                )));
+                            }
+                        },
                         None => {
                             // No port specified, using default ssh port then
                             ssh_port = 22;

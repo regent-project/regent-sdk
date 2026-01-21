@@ -25,7 +25,9 @@ impl HostConnectionInfo {
             Some(password_content) => HostConnectionInfo::LocalHost(WhichUser::UsernamePassword(
                 Credentials::from(username, &password_content),
             )),
-            None => HostConnectionInfo::LocalHost(WhichUser::PasswordLessUser(username.to_string())),
+            None => {
+                HostConnectionInfo::LocalHost(WhichUser::PasswordLessUser(username.to_string()))
+            }
         }
     }
 
