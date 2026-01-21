@@ -47,11 +47,11 @@ impl StepFlow {
                 Some(username) => Privilege::WithSudoAsUser(username.into()),
             },
             (Some(true), Some(false)) | (Some(true), None) => match &self.step_expected.run_as {
-                None => Privilege::Usual,
+                None => Privilege::WithSudo,
                 Some(username) => Privilege::WithSudoAsUser(username.into()),
             },
             (Some(false), Some(true)) | (None, Some(true)) => match &self.step_expected.run_as {
-                None => Privilege::Usual,
+                None => Privilege::WithSudoRs,
                 Some(username) => Privilege::WithSudoRsAsUser(username.into()),
             },
             (Some(true), Some(true)) => {
@@ -103,11 +103,11 @@ impl StepFlow {
                 Some(username) => Privilege::WithSudoAsUser(username.into()),
             },
             (Some(true), Some(false)) | (Some(true), None) => match &self.step_expected.run_as {
-                None => Privilege::Usual,
+                None => Privilege::WithSudo,
                 Some(username) => Privilege::WithSudoAsUser(username.into()),
             },
             (Some(false), Some(true)) | (None, Some(true)) => match &self.step_expected.run_as {
-                None => Privilege::Usual,
+                None => Privilege::WithSudoRs,
                 Some(username) => Privilege::WithSudoRsAsUser(username.into()),
             },
             (Some(true), Some(true)) => {
