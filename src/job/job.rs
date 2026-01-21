@@ -4,7 +4,7 @@ use crate::error::Error;
 use crate::host::hosts::Host;
 use crate::output::job_output::JobOutput;
 use crate::task::tasklist::TaskList;
-use crate::task::tasklist::TaskListFileType;
+use crate::task::tasklist::TaskListFormat;
 use crate::workflow::hostworkflow::HostWorkFlow;
 use crate::workflow::hostworkflow::HostWorkFlowStatus;
 use chrono::Utc;
@@ -106,7 +106,7 @@ impl Job {
     pub fn set_tasklist_from_str(
         &mut self,
         raw_content: &str,
-        content_type: TaskListFileType,
+        content_type: TaskListFormat,
     ) -> Result<&mut Self, Error> {
         match TaskList::from_str(raw_content, content_type) {
             Ok(task_list) => {
@@ -121,7 +121,7 @@ impl Job {
     pub fn set_tasklist_from_file(
         &mut self,
         file_path: &str,
-        content_type: TaskListFileType,
+        content_type: TaskListFormat,
     ) -> Result<&mut Self, Error> {
         match TaskList::from_file(file_path, content_type) {
             Ok(task_list) => {

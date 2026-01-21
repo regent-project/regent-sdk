@@ -1,6 +1,5 @@
 //! Rapidly get started by importing all main items
 
-pub use crate::connection::host_connection::HostConnectionInfo;
 pub use crate::connection::specification::REFRESH_INTERVAL_MILLI_SECONDS;
 pub use crate::exitcode::*;
 pub use crate::host::hostlist::HostList;
@@ -12,6 +11,4 @@ pub use crate::job::job::Job;
 pub use crate::job::joblist::JobList;
 pub use crate::task::tasklist::RunningMode;
 pub use crate::task::tasklist::TaskList;
-pub use crate::task::tasklist::TaskListFileType;
-
-pub use crate::task::moduleblock::ModuleBlockExpectedState as Attribute;
+pub use crate::task::tasklist::TaskListFormat;

@@ -321,7 +321,7 @@ mod tests {
         upgrade: true
         ";
 
-        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
+        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFormat::Yaml);
 
         assert!(parsed_tasklist.is_ok());
     }

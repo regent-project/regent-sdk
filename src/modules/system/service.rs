@@ -393,7 +393,7 @@ mod tests {
         auto_start: disabled
         ";
 
-        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
+        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFormat::Yaml);
         println!("{:#?}", parsed_tasklist);
         assert!(parsed_tasklist.is_ok());
     }

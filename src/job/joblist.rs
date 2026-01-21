@@ -7,7 +7,7 @@ use crate::host::hostlist::HostList;
 use crate::job::job::Job;
 use crate::output::joblist_output::JobListOutput;
 use crate::task::tasklist::TaskList;
-use crate::task::tasklist::TaskListFileType;
+use crate::task::tasklist::TaskListFormat;
 
 /// A JobList is just a Vec of Jobs on which convenient methods are defined. It simplifies the handling of multiple hosts.
 #[derive(Debug, Clone)]
@@ -106,7 +106,7 @@ impl JobList {
     pub fn set_tasklist_from_str(
         &mut self,
         raw_content: &str,
-        content_type: TaskListFileType,
+        content_type: TaskListFormat,
     ) -> Result<&mut Self, Error> {
         if let Some(jobs) = &mut self.job_list {
             match TaskList::from_str(raw_content, content_type) {
@@ -127,7 +127,7 @@ impl JobList {
     pub fn set_tasklist_from_file(
         &mut self,
         file_path: &str,
-        content_type: TaskListFileType,
+        content_type: TaskListFormat,
     ) -> Result<&mut Self, Error> {
         if let Some(jobs) = &mut self.job_list {
             match TaskList::from_file(file_path, content_type) {

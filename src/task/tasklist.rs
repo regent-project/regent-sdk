@@ -18,11 +18,11 @@ impl TaskList {
     pub fn from(tasks: Vec<TaskBlock>) -> TaskList {
         TaskList { tasks }
     }
-    pub fn from_str(raw_content: &str, content_type: TaskListFileType) -> Result<TaskList, Error> {
+    pub fn from_str(raw_content: &str, content_type: TaskListFormat) -> Result<TaskList, Error> {
         match content_type {
-            TaskListFileType::Yaml => yaml_tasklist_parser(raw_content),
-            TaskListFileType::Json => json_tasklist_parser(raw_content),
-            TaskListFileType::Unknown => {
+            TaskListFormat::Yaml => yaml_tasklist_parser(raw_content),
+            TaskListFormat::Json => json_tasklist_parser(raw_content),
+            TaskListFormat::Unknown => {
                 // Unknown format -> Try YAML -> Try JSON -> Failed
                 match yaml_tasklist_parser(raw_content) {
                     Ok(task_list) => {
@@ -43,7 +43,7 @@ impl TaskList {
             }
         }
     }
-    pub fn from_file(file_path: &str, file_type: TaskListFileType) -> Result<TaskList, Error> {
+    pub fn from_file(file_path: &str, file_type: TaskListFormat) -> Result<TaskList, Error> {
         match std::fs::read_to_string(file_path) {
             Ok(file_content) => {
                 return TaskList::from_str(&file_content, file_type);
@@ -64,7 +64,7 @@ pub enum RunningMode {
     Apply,  // Actually apply the changes required to match the expected situation
 }
 
-pub enum TaskListFileType {
+pub enum TaskListFormat {
     Yaml,
     Json,
     Unknown,
@@ -96,7 +96,7 @@ mod tests {
         auto_start: enabled
         ";
 
-        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFileType::Yaml);
+        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFormat::Yaml);
         println!("{:?}", parsed_tasklist);
         assert!(parsed_tasklist.is_ok());
     }

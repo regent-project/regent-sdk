@@ -39,7 +39,7 @@
 //!    my_job
 //!        .set_var("package_name", "apache2")
 //!        .set_var("service_name", "apache2")
-//!        .set_tasklist_from_str(my_tasklist, TaskListFileType::Yaml).unwrap()
+//!        .set_tasklist_from_str(my_tasklist, TaskListFormat::Yaml).unwrap()
 //!    ;
 //!    // We can finally apply the task list to this host.
 //!    my_job.apply();
