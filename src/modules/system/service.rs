@@ -381,15 +381,15 @@ mod tests {
         let raw_tasklist_description = "---
 - name: Dummy steps to test deserialization and syntax of this module
   steps:
-    - name: Service must be Active and enabled
+    - name: Service must be active and enabled
       service:
         name: apache2
-        current_status: Active
+        current_status: active
         auto_start: enabled
-    - name: Service must be Inactive and disabled
+    - name: Service must be inactive and disabled
       service:
         name: apache2
-        current_status: Inactive
+        current_status: inactive
         auto_start: disabled
         ";
 

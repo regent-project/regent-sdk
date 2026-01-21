@@ -92,7 +92,7 @@ mod tests {
       with_sudo: true
       service:
         name: apache2
-        current_state: started
+        current_status: active
         auto_start: enabled
         ";
 
