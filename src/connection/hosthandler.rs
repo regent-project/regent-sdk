@@ -119,10 +119,11 @@ impl HostHandler {
 fn final_cmd(cmd: String, privilege: Privilege) -> String {
     match privilege {
         Privilege::Usual => {
-            return format!("{} 2>&1", cmd);
+            let final_cmd = format!("{} 2>&1", cmd);
+            return final_cmd;
         }
         Privilege::WithSudo => {
-            let final_cmd = format!("sudo -u root {} 2>&1", cmd);
+            let final_cmd = format!("sudo {} 2>&1", cmd);
             return final_cmd;
         }
         Privilege::WithSudoAsUser(username) => {
@@ -130,7 +131,7 @@ fn final_cmd(cmd: String, privilege: Privilege) -> String {
             return final_cmd;
         }
         Privilege::WithSudoRs => {
-            let final_cmd = format!("sudo-rs -u root {} 2>&1", cmd);
+            let final_cmd = format!("sudo-rs {} 2>&1", cmd);
             return final_cmd;
         }
         Privilege::WithSudoRsAsUser(username) => {
