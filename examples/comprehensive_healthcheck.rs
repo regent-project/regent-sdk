@@ -1,3 +1,4 @@
+use regent_sdk::Apt;
 use regent_sdk::connection::specification::Privilege;
 use regent_sdk::expected_state::global_state::{CompliancyStatus, DryRunMode, ExpectedState};
 use regent_sdk::modules::prelude::ServiceBlockExpectedState;
@@ -8,7 +9,7 @@ use std::time::Duration;
 
 // Performs a comprehensive health check on a managed host by continuously assessing
 // compliance with expected system state and attempting remediation when necessary.
-// 
+//
 // This function runs an infinite loop that:
 // 1. Checks if the host is compliant with the expected state
 // 2. If not compliant, attempts to automatically fix issues
@@ -26,13 +27,17 @@ fn comprehensive_health_check(mut managed_host: ManagedHost, expected_state: Exp
                     println!("[WARN] Not compliant");
                     println!("[INFO] let's try to fix things on our own at least once");
 
-                    if let Err(failure_details) =
-                        managed_host.try_reach_compliance_with(&expected_state)
-                    {
-                        println!(
-                            "[ERROR] self-remediation failed, we need to bother some sysadmin somewhere ! {:?}",
-                            failure_details
-                        );
+                    match managed_host.try_reach_compliance_with(&expected_state) {
+                        Ok(()) => {
+                            println!("[INFO] FIxed !");
+                        }
+
+                        Err(failure_details) => {
+                            println!(
+                                "[ERROR] remediation failed, we need to bother some sysadmin somewhere ! {:?}",
+                                failure_details
+                            );
+                        }
                     }
                 }
             },
@@ -49,16 +54,14 @@ fn comprehensive_health_check(mut managed_host: ManagedHost, expected_state: Exp
 }
 
 fn main() {
-    // This creates a service block for docker.socket that should be active and enabled
-    let docker_socket_service_inactive_and_disabled =
-        ServiceBlockExpectedState::builder("docker.socket")
-            .with_service_state(ServiceExpectedStatus::Active)
-            .with_autostart_state(ServiceExpectedAutoStart::Enabled)
-            .build()
-            .unwrap();
+    // This creates a package block to check that boinc is installed (distributed computing - https://boinc.berkeley.edu/)
+    let boinc_package_installed = Apt::AptBlockExpectedState::builder()
+        .with_package_state("boinc", Apt::PackageExpectedState::Present)
+        .build()
+        .unwrap();
 
-    // This creates a service block for docker that should be active and enabled
-    let docker_service_inactive_and_disabled = ServiceBlockExpectedState::builder("docker")
+    // This creates a service block to ensure boinc is active and enabled
+    let boinc_service_active_and_enabled = ServiceBlockExpectedState::builder("boinc-client")
         .with_service_state(ServiceExpectedStatus::Active)
         .with_autostart_state(ServiceExpectedAutoStart::Enabled)
         .build()
@@ -66,10 +69,8 @@ fn main() {
 
     // Combines both service expectations into a complete expected state configuration
     let expected_state = ExpectedState::new()
-        .with_attribute(Attribute::Service(
-            docker_socket_service_inactive_and_disabled,
-        ))
-        .with_attribute(Attribute::Service(docker_service_inactive_and_disabled))
+        .with_attribute(Attribute::Apt(boinc_package_installed))
+        .with_attribute(Attribute::Service(boinc_service_active_and_enabled))
         .build();
 
     // Creates a managed host instance with SSH connection details and sudo privileges
@@ -81,4 +82,3 @@ fn main() {
 
     comprehensive_health_check(my_managed_host, expected_state);
 }
-
