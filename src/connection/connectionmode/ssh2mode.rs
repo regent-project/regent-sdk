@@ -68,6 +68,12 @@ impl Ssh2HostHandler {
                 "SSH2 authentication mode is unset".to_string(),
             ));
         } else {
+            // Check whether a session is already enabled or not (init() might have already been called
+            // on this host)
+            if self.sshsession.authenticated() {
+                return Ok(());
+            }
+
             // finding out if address is "address" or "address:port" kind, to decide which port to use
             let address: &str;
             let ssh_port: u16;
@@ -99,12 +105,13 @@ impl Ssh2HostHandler {
                     return Err(Error::FailedInitialization("empty address".to_string()));
                 }
             }
+
             match TcpStream::connect(format!("{}:{}", address, ssh_port)) {
                 Ok(tcp) => {
                     self.sshsession.set_tcp_stream(tcp);
 
                     if let Err(error_detail) = self.sshsession.handshake() {
-                        Error::FailedInitialization(format!("{:?}", error_detail));
+                        return Err(Error::FailedInitialization(format!("{:?}", error_detail)));
                     }
 
                     match &self.authmode {
@@ -116,7 +123,7 @@ impl Ssh2HostHandler {
                                 return Ok(());
                             } else {
                                 return Err(Error::FailedInitialization(String::from(
-                                    "PLACEHOLDER",
+                                    "Authentication failed",
                                 )));
                             }
                         }
@@ -133,7 +140,7 @@ impl Ssh2HostHandler {
                                 return Ok(());
                             } else {
                                 return Err(Error::FailedInitialization(String::from(
-                                    "PLACEHOLDER",
+                                    "Authentication failed",
                                 )));
                             }
                         }
@@ -150,13 +157,13 @@ impl Ssh2HostHandler {
                                 return Ok(());
                             } else {
                                 return Err(Error::FailedInitialization(String::from(
-                                    "PLACEHOLDER",
+                                    "Authentication failed",
                                 )));
                             }
                         }
                         Ssh2AuthMode::Agent(_agent) => {
                             return Ok(());
-                        } // TODO
+                        }
                         _ => return Err(Error::FailedInitialization(String::from("Other error"))),
                     }
                 }
