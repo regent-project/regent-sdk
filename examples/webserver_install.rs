@@ -1,4 +1,4 @@
-use regent_sdk::{Job, HostConnectionInfo, TaskListFormat};
+use regent_sdk::{HostConnectionInfo, Job, TaskListFormat};
 
 fn main() {
     let my_tasklist = r#"---
@@ -22,12 +22,16 @@ fn main() {
     let mut my_job = Job::new();
 
     my_job
-      .set_address("<target-host-endpoint>:<port>") // port is optional (22 if unspecified)
-      .set_connection(
-        HostConnectionInfo::ssh2_with_key_file("regent-user", "/path/to/private/key"),
-    ).unwrap();
+        .set_address("<target-host-endpoint>:<port>") // port is optional (22 if unspecified)
+        .set_connection(HostConnectionInfo::ssh2_with_key_file(
+            "regent-user",
+            "/path/to/private/key",
+        ))
+        .unwrap();
 
-    my_job.set_tasklist_from_str(my_tasklist, TaskListFormat::Yaml).unwrap();
+    my_job
+        .set_tasklist_from_str(my_tasklist, TaskListFormat::Yaml)
+        .unwrap();
 
     my_job.apply();
 
