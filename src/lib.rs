@@ -66,6 +66,14 @@ pub mod workflow;
 pub use crate::connection::connectionmode::ssh2mode::Ssh2AuthMode;
 pub use crate::connection::host_connection::HostConnectionInfo;
 pub use crate::host::host::ManagedHost;
-pub use crate::task::moduleblock::ModuleBlockExpectedState as Attribute;
 pub use crate::job::job::Job;
+pub use crate::task::moduleblock::ModuleBlockExpectedState as Attribute;
 pub use crate::task::tasklist::TaskListFormat;
+
+pub use crate::modules::packages::apt as Apt;
+pub use crate::modules::packages::yumdnf as YumDnf;
+pub use crate::modules::system::service as Service;
+pub use crate::modules::shell::command as Command;
+pub use crate::modules::utilities::debug as Debug;
+pub use crate::modules::utilities::lineinfile as LineInFile;
+pub use crate::modules::utilities::ping as Ping;

@@ -1,9 +1,7 @@
-use regent_sdk::Apt;
 use regent_sdk::connection::specification::Privilege;
 use regent_sdk::expected_state::global_state::{CompliancyStatus, DryRunMode, ExpectedState};
-use regent_sdk::modules::prelude::ServiceBlockExpectedState;
-use regent_sdk::modules::system::service::{ServiceExpectedAutoStart, ServiceExpectedStatus};
 use regent_sdk::{Attribute, HostConnectionInfo, ManagedHost};
+use regent_sdk::{Apt, Service};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -61,9 +59,9 @@ fn main() {
         .unwrap();
 
     // This creates a service block to ensure boinc is active and enabled
-    let boinc_service_active_and_enabled = ServiceBlockExpectedState::builder("boinc-client")
-        .with_service_state(ServiceExpectedStatus::Active)
-        .with_autostart_state(ServiceExpectedAutoStart::Enabled)
+    let boinc_service_active_and_enabled = Service::ServiceBlockExpectedState::builder("boinc-client")
+        .with_service_state(Service::ServiceExpectedStatus::Active)
+        .with_autostart_state(Service::ServiceExpectedAutoStart::Enabled)
         .build()
         .unwrap();
 
