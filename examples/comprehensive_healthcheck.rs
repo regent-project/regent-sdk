@@ -6,6 +6,14 @@ use regent_sdk::{Attribute, HostConnectionInfo, ManagedHost};
 use std::thread::sleep;
 use std::time::Duration;
 
+// Performs a comprehensive health check on a managed host by continuously assessing
+// compliance with expected system state and attempting remediation when necessary.
+// 
+// This function runs an infinite loop that:
+// 1. Checks if the host is compliant with the expected state
+// 2. If not compliant, attempts to automatically fix issues
+// 3. Sleeps for 5 seconds before repeating the process
+
 fn comprehensive_health_check(mut managed_host: ManagedHost, expected_state: ExpectedState) {
     // Assess whether the host is compliant or not
     loop {
@@ -41,7 +49,7 @@ fn comprehensive_health_check(mut managed_host: ManagedHost, expected_state: Exp
 }
 
 fn main() {
-    // Build different properties of the expected state : check if Docker daemon is available on the host but not running/enabled
+    // This creates a service block for docker.socket that should be active and enabled
     let docker_socket_service_inactive_and_disabled =
         ServiceBlockExpectedState::builder("docker.socket")
             .with_service_state(ServiceExpectedStatus::Active)
@@ -49,13 +57,14 @@ fn main() {
             .build()
             .unwrap();
 
+    // This creates a service block for docker that should be active and enabled
     let docker_service_inactive_and_disabled = ServiceBlockExpectedState::builder("docker")
         .with_service_state(ServiceExpectedStatus::Active)
         .with_autostart_state(ServiceExpectedAutoStart::Enabled)
         .build()
         .unwrap();
 
-    // Assemble all the properties into a single reusable object
+    // Combines both service expectations into a complete expected state configuration
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::Service(
             docker_socket_service_inactive_and_disabled,
@@ -63,10 +72,8 @@ fn main() {
         .with_attribute(Attribute::Service(docker_service_inactive_and_disabled))
         .build();
 
-    // Describe how to connect to the target host
+    // Creates a managed host instance with SSH connection details and sudo privileges
     let my_managed_host = ManagedHost::from(
-        // "srv1.www.company.com:22",
-        // ConnectionInfo::ssh2_with_username_password("admin", "strong-password"),
         "<target-host-endpoint>:<port>",
         HostConnectionInfo::ssh2_with_key_file("regent-user", "/path/to/private/key"),
         Privilege::WithSudo,
@@ -74,3 +81,4 @@ fn main() {
 
     comprehensive_health_check(my_managed_host, expected_state);
 }
+
