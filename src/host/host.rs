@@ -1,9 +1,10 @@
-use crate::connection::host_connection::HostConnectionInfo;
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
+use crate::connection::hosthandler::NewConnectionDetails;
 use crate::connection::specification::Privilege;
 use crate::expected_state::global_state::{CompliancyStatus, DryRunMode};
 use crate::step::stepchange::StepChange;
 use crate::step::stepresult::StepApplyResult;
+use crate::task::moduleblock::ModuleApiCall;
 use crate::{error::Error, expected_state::global_state::ExpectedState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -84,21 +85,23 @@ pub struct Group {
 
 #[derive(Clone)]
 pub struct ManagedHost {
-    // address: String,
-    // connection_info: ConnectionInfo,
-    host_handler: HostHandler,
+    connection_details: NewConnectionDetails,
+    connection_handler: ConnectionHandler,
     privilege: Privilege,
 }
 
 impl ManagedHost {
     pub fn from(
-        address: &str,
-        connection_info: HostConnectionInfo,
+        connection_details: NewConnectionDetails,
         privilege: Privilege,
-    ) -> ManagedHost {
-        ManagedHost {
-            host_handler: HostHandler::from(address.to_string(), connection_info).unwrap(),
-            privilege,
+    ) -> Result<ManagedHost, Error> {
+        match ConnectionHandler::from(&connection_details) {
+            Ok(connection_handler) => Ok(ManagedHost {
+                connection_details,
+                connection_handler,
+                privilege,
+            }),
+            Err(error_detail) => Err(error_detail),
         }
     }
 
@@ -107,19 +110,19 @@ impl ManagedHost {
         expected_state: &ExpectedState,
         dry_run_mode: DryRunMode,
     ) -> Result<CompliancyStatus, Error> {
-        if let Err(error_detail) = self.host_handler.init() {
-            return Err(error_detail);
-        }
+        let mut compliant = true;
+        let mut all_changes: Vec<ModuleApiCall> = Vec::new();
 
         match dry_run_mode {
             DryRunMode::Sequential => {
                 for attribute in &expected_state.attributes {
                     match attribute
-                        .dry_run_moduleblock(&mut self.host_handler, self.privilege.clone())
+                        .dry_run_moduleblock(&mut self.connection_handler, &self.privilege)
                     {
                         Ok(step_change) => {
-                            if let StepChange::ModuleApiCalls(_module_api_calls) = step_change {
-                                return Ok(CompliancyStatus::NotCompliant);
+                            if let StepChange::ModuleApiCalls(changes) = step_change {
+                                compliant = false;
+                                all_changes.extend(changes);
                             }
                         }
                         Err(error_detail) => {
@@ -127,42 +130,46 @@ impl ManagedHost {
                         }
                     }
                 }
-
-                Ok(CompliancyStatus::Compliant)
             }
             DryRunMode::Parallel => {
-                let mut join_handles = Vec::new();
+                let (sender, receiver) = std::sync::mpsc::channel::<StepChange>();
+
                 for attribute in &expected_state.attributes {
-                    // Async ? std::thread ? rayon ?
-                    let attribute_thread_join_handle = std::thread::spawn({
-                        let mut host_handler = self.host_handler.clone();
+                    std::thread::spawn({
                         let privilege = self.privilege.clone();
                         let attribute = attribute.clone();
-                        move || attribute.dry_run_moduleblock(&mut host_handler, privilege)
+                        let sender_clone = sender.clone();
+                        let mut connection_handler =
+                            ConnectionHandler::from(&self.connection_details).unwrap();
+                        move || {
+                            let step_change = attribute
+                                .dry_run_moduleblock(&mut connection_handler, &privilege)
+                                .unwrap();
+                            sender_clone.send(step_change).unwrap();
+                        }
                     });
-
-                    join_handles.push(attribute_thread_join_handle);
                 }
 
-                for join_handle in join_handles {
-                    match join_handle.join() {
-                        Ok(Ok(StepChange::ModuleApiCalls(_module_api_calls))) => {
-                            return Ok(CompliancyStatus::NotCompliant);
-                        }
-                        Ok(Err(error_detail)) => {
-                            // One step failed. return
-                            return Err(Error::FailedTaskDryRun(format!("{:?}", error_detail)));
+                for _ in 0..expected_state.attributes.len() {
+                    match receiver.recv() {
+                        Ok(step_change) => {
+                            if let StepChange::ModuleApiCalls(changes) = step_change {
+                                compliant = false;
+                                all_changes.extend(changes);
+                            }
                         }
                         Err(error_detail) => {
-                            // One step failed. return
-                            return Err(Error::FailedTaskDryRun(format!("{:?}", error_detail)));
+                            return Err(Error::FailedDryRunEvaluation(format!("{}", error_detail)));
                         }
-                        _ => {}
                     }
                 }
-
-                Ok(CompliancyStatus::Compliant)
             }
+        }
+
+        if compliant {
+            Ok(CompliancyStatus::Compliant)
+        } else {
+            Ok(CompliancyStatus::NotCompliant(all_changes))
         }
     }
 
@@ -170,14 +177,11 @@ impl ManagedHost {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<(), Error> {
-        if let Err(error_detail) = self.host_handler.init() {
-            return Err(error_detail);
-        }
-
         for attribute in &expected_state.attributes {
-            match attribute.dry_run_moduleblock(&mut self.host_handler, self.privilege.clone()) {
+            match attribute.dry_run_moduleblock(&mut self.connection_handler, &self.privilege) {
                 Ok(step_change) => {
-                    let step_result = step_change.apply_moduleblockchange(&mut self.host_handler);
+                    let step_result =
+                        step_change.apply_moduleblockchange(&mut self.connection_handler);
                     if let StepApplyResult::Failed(details) = step_result.assess_result() {
                         return Err(Error::FailedToApplyExpectedState(details));
                     }
