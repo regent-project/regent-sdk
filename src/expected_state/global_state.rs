@@ -1,4 +1,4 @@
-use crate::task::moduleblock::ModuleBlockExpectedState as Attribute;
+use crate::task::moduleblock::{ModuleApiCall, ModuleBlockExpectedState as Attribute};
 
 pub struct ExpectedState {
     pub attributes: Vec<Attribute>,
@@ -30,5 +30,5 @@ pub enum DryRunMode {
 
 pub enum CompliancyStatus {
     Compliant,
-    NotCompliant, // TODO : add details about why it's not compliant
+    NotCompliant(Vec<ModuleApiCall>), // TODO : add details about why it's not compliant
 }
