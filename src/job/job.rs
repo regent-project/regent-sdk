@@ -1,5 +1,7 @@
+use crate::NewConnectionDetails;
+use crate::NewSsh2ConnectionDetails;
 use crate::connection::host_connection::HostConnectionInfo;
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::error::Error;
 use crate::host::hosts::Host;
 use crate::output::job_output::JobOutput;
@@ -10,8 +12,6 @@ use crate::workflow::hostworkflow::HostWorkFlowStatus;
 use chrono::Utc;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::time::SystemTime;
 
 /// The Job is the key type around which the whole automation revolves. A Job is about one host only. If you want to handle multiple hosts, you will need to have multiple Jobs (in a vec or anything else).
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -156,14 +156,24 @@ impl Job {
 
     /// "DRY_RUN" this job -> evaluate the difference between the expected state and the actual state of the given host
     pub fn dry_run(&mut self) {
-        // Build a HostHandler
-        let mut host_handler =
-            HostHandler::from(self.host.address.clone(), self.host_connection_info.clone())
-                .unwrap();
-        if let Err(error) = host_handler.init() {
-            self.final_status = HostWorkFlowStatus::ConnectionInitFailed(format!("{:?}", error));
-            return;
-        }
+        let mut connection_handler = match &self.host_connection_info {
+            HostConnectionInfo::Unset => {
+                self.final_status = HostWorkFlowStatus::ConnectionInitFailed(format!(
+                    "{:?}",
+                    Error::MissingInitialization("ConnectionMode is unset".to_string(),)
+                ));
+                return;
+            }
+            HostConnectionInfo::LocalHost(user_info) => {
+                ConnectionHandler::LocalHost(user_info.clone())
+            }
+            HostConnectionInfo::Ssh2(ssh2_auth_mode) => {
+                ConnectionHandler::from(&NewConnectionDetails::Ssh2(
+                    NewSsh2ConnectionDetails::from(&self.host.address, ssh2_auth_mode.clone()),
+                ))
+                .unwrap()
+            }
+        };
 
         // Build a context
         let mut temp_tera_context = match &self.vars {
@@ -175,7 +185,7 @@ impl Job {
 
         match &mut self.hostworkflow {
             Some(host_work_flow) => {
-                match host_work_flow.dry_run(&mut host_handler, &mut temp_tera_context) {
+                match host_work_flow.dry_run(&mut connection_handler, &mut temp_tera_context) {
                     Ok(()) => {
                         self.final_status = host_work_flow.final_status.clone();
                     }
@@ -186,7 +196,7 @@ impl Job {
             }
             None => {
                 let mut host_work_flow = HostWorkFlow::from(&self.tasklist.as_mut().unwrap());
-                match host_work_flow.dry_run(&mut host_handler, &mut temp_tera_context) {
+                match host_work_flow.dry_run(&mut connection_handler, &mut temp_tera_context) {
                     Ok(()) => {
                         self.final_status = host_work_flow.final_status.clone();
                         self.hostworkflow = Some(host_work_flow);
@@ -209,14 +219,24 @@ impl Job {
 
     /// "APPLY" this job -> evaluate what needs to be done to reach the expected state, then do it
     pub fn apply(&mut self) {
-        // Build a HostHandler
-        let mut host_handler =
-            HostHandler::from(self.host.address.clone(), self.host_connection_info.clone())
-                .unwrap();
-        if let Err(error) = host_handler.init() {
-            self.final_status = HostWorkFlowStatus::ConnectionInitFailed(format!("{:?}", error));
-            return;
-        }
+        let mut connection_handler = match &self.host_connection_info {
+            HostConnectionInfo::Unset => {
+                self.final_status = HostWorkFlowStatus::ConnectionInitFailed(format!(
+                    "{:?}",
+                    Error::MissingInitialization("ConnectionMode is unset".to_string(),)
+                ));
+                return;
+            }
+            HostConnectionInfo::LocalHost(user_info) => {
+                ConnectionHandler::LocalHost(user_info.clone())
+            }
+            HostConnectionInfo::Ssh2(ssh2_auth_mode) => {
+                ConnectionHandler::from(&NewConnectionDetails::Ssh2(
+                    NewSsh2ConnectionDetails::from(&self.host.address, ssh2_auth_mode.clone()),
+                ))
+                .unwrap()
+            }
+        };
 
         // Build a context
         let mut temp_tera_context = match &self.vars {
@@ -228,7 +248,7 @@ impl Job {
 
         match &mut self.hostworkflow {
             Some(host_work_flow) => {
-                match host_work_flow.apply(&mut host_handler, &mut temp_tera_context) {
+                match host_work_flow.apply(&mut connection_handler, &mut temp_tera_context) {
                     Ok(()) => {
                         self.final_status = host_work_flow.final_status.clone();
                     }
@@ -239,7 +259,7 @@ impl Job {
             }
             None => {
                 let mut host_work_flow = HostWorkFlow::from(&self.tasklist.as_mut().unwrap());
-                match host_work_flow.apply(&mut host_handler, &mut temp_tera_context) {
+                match host_work_flow.apply(&mut connection_handler, &mut temp_tera_context) {
                     Ok(()) => {
                         self.final_status = host_work_flow.final_status.clone();
                         self.hostworkflow = Some(host_work_flow);

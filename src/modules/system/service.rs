@@ -1,6 +1,6 @@
 // Service Module : handle services Active on a host
 
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
@@ -92,12 +92,15 @@ impl Check for ServiceBlockExpectedState {
 impl DryRun for ServiceBlockExpectedState {
     fn dry_run_block(
         &self,
-        hosthandler: &mut HostHandler,
-        privilege: Privilege,
+        hosthandler: &mut ConnectionHandler,
+        privilege: &Privilege,
     ) -> Result<StepChange, Error> {
         // Prechecks
 
-        if !hosthandler.is_this_cmd_available("systemctl").unwrap() {
+        if !hosthandler
+            .is_this_cmd_available("systemctl", &privilege)
+            .unwrap()
+        {
             return Err(Error::FailedDryRunEvaluation(
                 "SYSTEMCTL not available on this host".to_string(),
             ));
@@ -232,13 +235,13 @@ impl Apply for ServiceApiCall {
         }
     }
 
-    fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
+    fn apply_moduleblock_change(&self, hosthandler: &mut ConnectionHandler) -> ApiCallResult {
         match &self.api_call {
             ServiceModuleInternalApiCall::Start(service_name) => {
                 let cmd_result = hosthandler
                     .run_cmd(
                         format!("systemctl start {}", service_name).as_str(),
-                        self.privilege.clone(),
+                        &self.privilege,
                     )
                     .unwrap();
 
@@ -260,7 +263,7 @@ impl Apply for ServiceApiCall {
                 let cmd_result = hosthandler
                     .run_cmd(
                         format!("systemctl stop {}", service_name).as_str(),
-                        self.privilege.clone(),
+                        &self.privilege,
                     )
                     .unwrap();
 
@@ -282,7 +285,7 @@ impl Apply for ServiceApiCall {
                 let cmd_result = hosthandler
                     .run_cmd(
                         format!("systemctl enable {}", service_name).as_str(),
-                        self.privilege.clone(),
+                        &self.privilege,
                     )
                     .unwrap();
 
@@ -304,7 +307,7 @@ impl Apply for ServiceApiCall {
                 let cmd_result = hosthandler
                     .run_cmd(
                         format!("systemctl disable {}", service_name).as_str(),
-                        self.privilege.clone(),
+                        &self.privilege,
                     )
                     .unwrap();
 
@@ -335,10 +338,13 @@ impl ServiceApiCall {
     }
 }
 
-fn service_is_active(hosthandler: &mut HostHandler, service_name: &String) -> Result<bool, String> {
+fn service_is_active(
+    hosthandler: &mut ConnectionHandler,
+    service_name: &String,
+) -> Result<bool, String> {
     match hosthandler.run_cmd(
         format!("systemctl is-active {}", service_name).as_str(),
-        Privilege::Usual,
+        &Privilege::Usual,
     ) {
         Ok(test_result) => match test_result.rc {
             0 => Ok(true),
@@ -352,12 +358,12 @@ fn service_is_active(hosthandler: &mut HostHandler, service_name: &String) -> Re
 }
 
 fn service_is_enabled(
-    hosthandler: &mut HostHandler,
+    hosthandler: &mut ConnectionHandler,
     service_name: &String,
 ) -> Result<bool, String> {
     match hosthandler.run_cmd(
         format!("systemctl is-enabled {}", service_name).as_str(),
-        Privilege::Usual,
+        &Privilege::Usual,
     ) {
         Ok(test_result) => {
             match test_result.rc {

@@ -1,6 +1,6 @@
 // APT Module : handle packages in Debian-like distributions
 
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::ApiCallResult;
@@ -22,11 +22,11 @@ impl Check for PingBlockExpectedState {
 impl DryRun for PingBlockExpectedState {
     fn dry_run_block(
         &self,
-        hosthandler: &mut HostHandler,
-        privilege: Privilege,
+        hosthandler: &mut ConnectionHandler,
+        privilege: &Privilege,
     ) -> Result<StepChange, Error> {
         let cmd = String::from("DEBIAN_FRONTEND=noninteractive id");
-        let cmd_result = hosthandler.run_cmd(cmd.as_str(), privilege)?;
+        let cmd_result = hosthandler.run_cmd(cmd.as_str(), &privilege)?;
 
         if cmd_result.rc == 0 {
             return Ok(StepChange::AlreadyMatched("Host reachable".to_string()));
@@ -48,7 +48,7 @@ impl Apply for PingApiCall {
         return format!("Check SSH connectivity with remote host");
     }
 
-    fn apply_moduleblock_change(&self, _hosthandler: &mut HostHandler) -> ApiCallResult {
+    fn apply_moduleblock_change(&self, _hosthandler: &mut ConnectionHandler) -> ApiCallResult {
         return ApiCallResult::none();
     }
 }

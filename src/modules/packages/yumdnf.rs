@@ -1,6 +1,6 @@
 // YUM / DNF Module : handle packages in Fedora-like distributions
 
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
@@ -96,14 +96,20 @@ impl Check for YumDnfBlockExpectedState {
 impl DryRun for YumDnfBlockExpectedState {
     fn dry_run_block(
         &self,
-        hosthandler: &mut HostHandler,
-        privilege: Privilege,
+        hosthandler: &mut ConnectionHandler,
+        privilege: &Privilege,
     ) -> Result<StepChange, Error> {
         let package_manager: RedHatFlavoredPackageManager;
 
-        if hosthandler.is_this_cmd_available("dnf").unwrap() {
+        if hosthandler
+            .is_this_cmd_available("dnf", &privilege)
+            .unwrap()
+        {
             package_manager = RedHatFlavoredPackageManager::Dnf;
-        } else if hosthandler.is_this_cmd_available("yum").unwrap() {
+        } else if hosthandler
+            .is_this_cmd_available("yum", &privilege)
+            .unwrap()
+        {
             package_manager = RedHatFlavoredPackageManager::Yum;
         } else {
             return Err(Error::FailedDryRunEvaluation(
@@ -224,7 +230,7 @@ impl Apply for YumDnfApiCall {
         }
     }
 
-    fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
+    fn apply_moduleblock_change(&self, hosthandler: &mut ConnectionHandler) -> ApiCallResult {
         match &self.api_call {
             YumDnfModuleInternalApiCall::Install(package_name) => {
                 let cmd = format!(
@@ -232,9 +238,7 @@ impl Apply for YumDnfApiCall {
                     self.package_manager.command_name(),
                     package_name
                 );
-                let cmd_result = hosthandler
-                    .run_cmd(cmd.as_str(), self.privilege.clone())
-                    .unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd.as_str(), &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -259,9 +263,7 @@ impl Apply for YumDnfApiCall {
                     self.package_manager.command_name(),
                     package_name
                 );
-                let cmd_result = hosthandler
-                    .run_cmd(cmd.as_str(), self.privilege.clone())
-                    .unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd.as_str(), &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -285,9 +287,7 @@ impl Apply for YumDnfApiCall {
                     "{} update -y --refresh",
                     self.package_manager.command_name()
                 );
-                let cmd_result = hosthandler
-                    .run_cmd(cmd.as_str(), self.privilege.clone())
-                    .unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd.as_str(), &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -323,7 +323,7 @@ impl YumDnfApiCall {
 }
 
 fn is_package_installed(
-    hosthandler: &mut HostHandler,
+    hosthandler: &mut ConnectionHandler,
     package_manager: &RedHatFlavoredPackageManager,
     package_name: String,
     privilege: Privilege,
@@ -336,7 +336,7 @@ fn is_package_installed(
                 package_name
             )
             .as_str(),
-            privilege,
+            &privilege,
         )
         .unwrap();
 

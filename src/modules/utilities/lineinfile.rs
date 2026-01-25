@@ -1,6 +1,6 @@
 // LineInFile module : manipulate lines in a file (add, delete)
 
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
@@ -63,20 +63,22 @@ impl Check for LineInFileBlockExpectedState {
 impl DryRun for LineInFileBlockExpectedState {
     fn dry_run_block(
         &self,
-        hosthandler: &mut HostHandler,
-        privilege: Privilege,
+        hosthandler: &mut ConnectionHandler,
+        privilege: &Privilege,
     ) -> Result<StepChange, Error> {
-        if !hosthandler.is_this_cmd_available("sed").unwrap() {
+        if !hosthandler
+            .is_this_cmd_available("sed", &privilege)
+            .unwrap()
+        {
             return Err(Error::FailedDryRunEvaluation(
                 "Sed command not available on this host".to_string(),
             ));
         }
 
+        let privilege = privilege.clone();
+
         let file_exists_check = hosthandler
-            .run_cmd(
-                format!("test -f {}", self.filepath).as_str(),
-                privilege.clone(),
-            )
+            .run_cmd(format!("test -f {}", self.filepath).as_str(), &privilege)
             .unwrap();
 
         if file_exists_check.rc != 0 {
@@ -91,7 +93,7 @@ impl DryRun for LineInFileBlockExpectedState {
                 let filenumberoflines = hosthandler
                     .run_cmd(
                         format!("wc -l {} | cut -f 1 -d ' '", self.filepath).as_str(),
-                        privilege.clone(),
+                        &privilege,
                     )
                     .unwrap()
                     .stdout
@@ -283,13 +285,13 @@ impl Apply for LineInFileApiCall {
         }
     }
 
-    fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
+    fn apply_moduleblock_change(&self, hosthandler: &mut ConnectionHandler) -> ApiCallResult {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {
                 let filenumberoflines = hosthandler
                     .run_cmd(
                         format!("wc -l {} | cut -f 1 -d ' '", self.file_path).as_str(),
-                        self.privilege.clone(),
+                        &self.privilege,
                     )
                     .unwrap()
                     .stdout
@@ -344,9 +346,7 @@ impl Apply for LineInFileApiCall {
                     );
                 }
 
-                let cmd_result = hosthandler
-                    .run_cmd(cmd.as_str(), self.privilege.clone())
-                    .unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd.as_str(), &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -375,9 +375,7 @@ impl Apply for LineInFileApiCall {
                     .0; // Delete the last ';
 
                 let cmd = format!("sed -i \'{}\' {}", formatted_line_numbers, self.file_path);
-                let cmd_result = hosthandler
-                    .run_cmd(cmd.as_str(), self.privilege.clone())
-                    .unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd.as_str(), &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -399,7 +397,7 @@ impl Apply for LineInFileApiCall {
 
 // Returns a Some(Vec<u64>) representing the line numbers of each occurrence of the line if present, and None if absent
 fn is_line_present(
-    hosthandler: &mut HostHandler,
+    hosthandler: &mut ConnectionHandler,
     line: &String,
     filepath: &String,
     privilege: &Privilege,
@@ -407,7 +405,7 @@ fn is_line_present(
     let test = hosthandler
         .run_cmd(
             format!("grep -n -F -w \'{}\' {}", line, filepath).as_str(), //  Output looks like 4:my line content
-            privilege.clone(),
+            &privilege,
         )
         .unwrap();
 

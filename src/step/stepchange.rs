@@ -1,4 +1,4 @@
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::result::apicallresult::ApiCallResult;
 use crate::step::stepresult::StepResult;
 use crate::task::moduleblock::Apply;
@@ -46,7 +46,7 @@ impl StepChange {
         }
     }
 
-    pub fn apply_moduleblockchange(&self, hosthandler: &mut HostHandler) -> StepResult {
+    pub fn apply_moduleblockchange(&self, hosthandler: &mut ConnectionHandler) -> StepResult {
         let raw_step_result = match self {
             StepChange::AlreadyMatched(_message) => return StepResult::none(),
             StepChange::ModuleApiCalls(changeslist) => {

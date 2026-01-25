@@ -1,4 +1,4 @@
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::modules::prelude::*;
@@ -6,7 +6,6 @@ use crate::result::apicallresult::ApiCallResult;
 use crate::step::stepchange::StepChange;
 use serde::{Deserialize, Serialize};
 use tera::{Context, Tera};
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ModuleBlockExpectedState {
@@ -65,22 +64,36 @@ impl ModuleBlockExpectedState {
 
     pub fn dry_run_moduleblock(
         &self,
-        hosthandler: &mut HostHandler,
-        privilege: Privilege,
+        connection_handler: &mut ConnectionHandler,
+        privilege: &Privilege,
     ) -> Result<StepChange, Error> {
         let mbchange_result: Result<StepChange, Error> = match &self {
             ModuleBlockExpectedState::None => Ok(StepChange::matched("none")),
             // **BEACON_3**
-            ModuleBlockExpectedState::Service(block) => block.dry_run_block(hosthandler, privilege),
-            ModuleBlockExpectedState::Debug(block) => block.dry_run_block(hosthandler, privilege),
-            ModuleBlockExpectedState::LineInFile(block) => {
-                block.dry_run_block(hosthandler, privilege)
+            ModuleBlockExpectedState::Service(block) => {
+                block.dry_run_block(connection_handler, privilege)
             }
-            ModuleBlockExpectedState::Command(block) => block.dry_run_block(hosthandler, privilege),
-            ModuleBlockExpectedState::Apt(block) => block.dry_run_block(hosthandler, privilege),
-            ModuleBlockExpectedState::Dnf(block) => block.dry_run_block(hosthandler, privilege),
-            ModuleBlockExpectedState::Ping(block) => block.dry_run_block(hosthandler, privilege),
-            ModuleBlockExpectedState::Yum(block) => block.dry_run_block(hosthandler, privilege),
+            ModuleBlockExpectedState::Debug(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
+            ModuleBlockExpectedState::LineInFile(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
+            ModuleBlockExpectedState::Command(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
+            ModuleBlockExpectedState::Apt(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
+            ModuleBlockExpectedState::Dnf(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
+            ModuleBlockExpectedState::Ping(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
+            ModuleBlockExpectedState::Yum(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
         };
 
         mbchange_result
@@ -121,12 +134,13 @@ pub trait Check {
 pub trait DryRun {
     fn dry_run_block(
         &self,
-        hosthandler: &mut HostHandler,
-        privilege: Privilege,
+        connection_handler: &mut ConnectionHandler,
+        privilege: &Privilege,
     ) -> Result<StepChange, Error>;
 }
 
 pub trait Apply {
     fn display(&self) -> String;
-    fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult;
+    fn apply_moduleblock_change(&self, connection_handler: &mut ConnectionHandler)
+    -> ApiCallResult;
 }

@@ -1,4 +1,4 @@
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::ApiCallStatus;
@@ -32,7 +32,7 @@ impl StepFlow {
 
     pub fn dry_run(
         &mut self,
-        hosthandler: &mut HostHandler,
+        hosthandler: &mut ConnectionHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
         let privilege = match (
@@ -66,7 +66,7 @@ impl StepFlow {
             .moduleblock
             .consider_context(tera_context)
             .unwrap() // TODO : If register of a step is used in another step later, dry_run is impossible -> handle this case
-            .dry_run_moduleblock(hosthandler, privilege)
+            .dry_run_moduleblock(hosthandler, &privilege)
         {
             Ok(mbchange) => {
                 match &mbchange {
@@ -88,7 +88,7 @@ impl StepFlow {
     }
     pub fn apply(
         &mut self,
-        hosthandler: &mut HostHandler,
+        hosthandler: &mut ConnectionHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
         let privilege = match (
@@ -123,7 +123,7 @@ impl StepFlow {
             .moduleblock
             .consider_context(tera_context)
             .unwrap()
-            .dry_run_moduleblock(hosthandler, privilege)
+            .dry_run_moduleblock(hosthandler, &privilege)
         {
             Ok(mbchange) => {
                 match &mbchange {

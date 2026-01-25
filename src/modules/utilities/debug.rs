@@ -1,4 +1,4 @@
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::ApiCallResult;
@@ -23,8 +23,8 @@ impl Check for DebugBlockExpectedState {
 impl DryRun for DebugBlockExpectedState {
     fn dry_run_block(
         &self,
-        _hosthandler: &mut HostHandler,
-        _privilege: Privilege,
+        _hosthandler: &mut ConnectionHandler,
+        _privilege: &Privilege,
     ) -> Result<StepChange, Error> {
         return Ok(StepChange::matched(self.msg.as_str()));
     }
@@ -38,7 +38,7 @@ impl Apply for DebugApiCall {
         "Debug module".into()
     }
 
-    fn apply_moduleblock_change(&self, _hosthandler: &mut HostHandler) -> ApiCallResult {
+    fn apply_moduleblock_change(&self, _hosthandler: &mut ConnectionHandler) -> ApiCallResult {
         return ApiCallResult::none();
     }
 }

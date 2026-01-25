@@ -1,6 +1,6 @@
 // APT Module : handle packages in Debian-like distributions
 
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
 use crate::result::apicallresult::{ApiCallResult, ApiCallStatus};
@@ -94,11 +94,15 @@ impl Check for AptBlockExpectedState {
 impl DryRun for AptBlockExpectedState {
     fn dry_run_block(
         &self,
-        hosthandler: &mut HostHandler,
-        privilege: Privilege,
+        hosthandler: &mut ConnectionHandler,
+        privilege: &Privilege,
     ) -> Result<StepChange, Error> {
-        if !hosthandler.is_this_cmd_available("apt-get").unwrap()
-            || !hosthandler.is_this_cmd_available("dpkg").unwrap()
+        if !hosthandler
+            .is_this_cmd_available("apt-get", &privilege)
+            .unwrap()
+            || !hosthandler
+                .is_this_cmd_available("dpkg", &privilege)
+                .unwrap()
         {
             return Err(Error::FailedDryRunEvaluation(
                 "APT not working on this host".to_string(),
@@ -191,20 +195,18 @@ impl Apply for AptApiCall {
         }
     }
 
-    fn apply_moduleblock_change(&self, hosthandler: &mut HostHandler) -> ApiCallResult {
+    fn apply_moduleblock_change(&self, hosthandler: &mut ConnectionHandler) -> ApiCallResult {
         match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => {
                 hosthandler
-                    .run_cmd("apt-get update", self.privilege.clone())
+                    .run_cmd("apt-get update", &self.privilege)
                     .unwrap();
 
                 let cmd = format!(
                     "DEBIAN_FRONTEND=noninteractive apt-get install -y {}",
                     package_name
                 );
-                let cmd_result = hosthandler
-                    .run_cmd(cmd.as_str(), self.privilege.clone())
-                    .unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd.as_str(), &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -228,9 +230,7 @@ impl Apply for AptApiCall {
                     "DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y {}",
                     package_name
                 );
-                let cmd_result = hosthandler
-                    .run_cmd(cmd.as_str(), self.privilege.clone())
-                    .unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd.as_str(), &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -251,10 +251,10 @@ impl Apply for AptApiCall {
             }
             AptModuleInternalApiCall::Upgrade => {
                 hosthandler
-                    .run_cmd("apt-get update", self.privilege.clone())
+                    .run_cmd("apt-get update", &self.privilege)
                     .unwrap();
                 let cmd = "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y";
-                let cmd_result = hosthandler.run_cmd(cmd, self.privilege.clone()).unwrap();
+                let cmd_result = hosthandler.run_cmd(cmd, &self.privilege).unwrap();
 
                 if cmd_result.rc == 0 {
                     return ApiCallResult::from(
@@ -283,9 +283,9 @@ impl AptApiCall {
     }
 }
 
-fn is_package_installed(hosthandler: &mut HostHandler, package: String) -> bool {
+fn is_package_installed(hosthandler: &mut ConnectionHandler, package: String) -> bool {
     let test = hosthandler
-        .run_cmd(format!("dpkg -s {}", package).as_str(), Privilege::Usual)
+        .run_cmd(format!("dpkg -s {}", package).as_str(), &Privilege::Usual)
         .unwrap();
 
     if test.rc == 0 && test.stdout.contains("Status: install") {
@@ -299,7 +299,7 @@ fn is_package_installed(hosthandler: &mut HostHandler, package: String) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use crate::{modules::prelude::AptBlockExpectedState, prelude::*};
+    use crate::prelude::*;
 
     #[test]
     fn parsing_apt_module_block_from_yaml_str() {

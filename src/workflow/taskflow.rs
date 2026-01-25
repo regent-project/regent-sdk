@@ -1,4 +1,4 @@
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::error::Error;
 use crate::task::taskblock::TaskBlock;
 use crate::workflow::stepflow::{StepFlow, StepStatus};
@@ -40,7 +40,7 @@ impl TaskFlow {
 
     pub fn dry_run(
         &mut self,
-        hosthandler: &mut HostHandler,
+        hosthandler: &mut ConnectionHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
         let mut changes_required = false;
@@ -69,7 +69,7 @@ impl TaskFlow {
 
     pub fn apply(
         &mut self,
-        hosthandler: &mut HostHandler,
+        hosthandler: &mut ConnectionHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
         let mut task_status = TaskStatus::ApplySuccesful;

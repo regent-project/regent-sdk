@@ -1,4 +1,4 @@
-use crate::connection::hosthandler::HostHandler;
+use crate::connection::hosthandler::ConnectionHandler;
 use crate::error::Error;
 use crate::task::tasklist::TaskList;
 use crate::workflow::taskflow::{TaskFlow, TaskStatus};
@@ -33,7 +33,7 @@ impl HostWorkFlow {
 
     pub fn dry_run(
         &mut self,
-        hosthandler: &mut HostHandler,
+        hosthandler: &mut ConnectionHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
         let mut changes_required = false;
@@ -62,7 +62,7 @@ impl HostWorkFlow {
 
     pub fn apply(
         &mut self,
-        hosthandler: &mut HostHandler,
+        hosthandler: &mut ConnectionHandler,
         tera_context: &mut tera::Context,
     ) -> Result<(), Error> {
         if let HostWorkFlowStatus::AlreadyMatched = self.final_status {
