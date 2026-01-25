@@ -238,7 +238,7 @@ impl std::fmt::Debug for Ssh2AuthMode {
             Ssh2AuthMode::UsernamePassword(creds) => {
                 write!(
                     f,
-                    "UsernamePassword(Credentials {{ username: {:?}, password: \"HIDDEN PASSWORD\" }})",
+                    "UsernamePassword(Credentials {{ username: {:?}, password: \"********\" }})",
                     creds.username
                 )
             }
@@ -246,11 +246,44 @@ impl std::fmt::Debug for Ssh2AuthMode {
                 write!(f, "KeyFile(({:?}, {:?}))", username, key_path)
             }
             Ssh2AuthMode::KeyMemory((username, _key_content)) => {
-                write!(f, "KeyMemory(({:?}, \"HIDDEN KEY CONTENT\"))", username)
-            }
-            Ssh2AuthMode::Agent(agent_name) => {
-                write!(f, "Agent({:?})", agent_name)
-            }
+                write!(f, "KeyMemory(({:?}, \"********\"))", username)
+            } // Ssh2AuthMode::Agent(agent_name) => {
+              //     write!(f, "Agent({:?})", agent_name)
+              // }
+        }
+    }
+}
+
+impl Ssh2AuthMode {
+    pub fn username_password(username: &str, password: &str) -> Ssh2AuthMode {
+        Ssh2AuthMode::UsernamePassword(Credentials::from(username, password))
+    }
+
+    pub fn key_file(username: &str, key_file_path: &str) -> Ssh2AuthMode {
+        Ssh2AuthMode::KeyFile((username.to_string(), PathBuf::from(key_file_path)))
+    }
+
+    pub fn key_in_memory(username: &str, key_content: Pem) -> Ssh2AuthMode {
+        Ssh2AuthMode::KeyMemory((username.to_string(), key_content))
+    }
+}
+
+// #############################################
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewSsh2ConnectionDetails {
+    pub host_endpoint: String,
+    pub authentication_mode: Ssh2AuthMode,
+}
+
+impl NewSsh2ConnectionDetails {
+    /// Commands will be run on a remote host through SSH2, with username/password authentication
+    pub fn from(
+        host_endpoint: &str,
+        authentication_mode: Ssh2AuthMode,
+    ) -> NewSsh2ConnectionDetails {
+        NewSsh2ConnectionDetails {
+            host_endpoint: host_endpoint.to_string(),
+            authentication_mode,
         }
     }
 }
