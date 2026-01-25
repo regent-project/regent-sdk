@@ -1,7 +1,8 @@
-use regent_sdk::connection::specification::Privilege;
 use regent_sdk::expected_state::global_state::{CompliancyStatus, DryRunMode, ExpectedState};
-use regent_sdk::{Attribute, HostConnectionInfo, ManagedHost};
-use regent_sdk::{Apt, Service};
+use regent_sdk::{Apt, Attribute, Service};
+use regent_sdk::{
+    ManagedHost, NewConnectionDetails, NewSsh2ConnectionDetails, Privilege, Ssh2AuthMode,
+};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -21,13 +22,15 @@ fn comprehensive_health_check(mut managed_host: ManagedHost, expected_state: Exp
                 CompliancyStatus::Compliant => {
                     println!("[INFO] so far so good !");
                 }
-                CompliancyStatus::NotCompliant => {
-                    println!("[WARN] Not compliant");
-                    println!("[INFO] let's try to fix things on our own at least once");
+                CompliancyStatus::NotCompliant(changes) => {
+                    println!(
+                        "[WARN] Not compliant ! Here is what needs to be done : {:?}",
+                        changes
+                    );
 
                     match managed_host.try_reach_compliance_with(&expected_state) {
                         Ok(()) => {
-                            println!("[INFO] FIxed !");
+                            println!("[INFO] Fixed !");
                         }
 
                         Err(failure_details) => {
@@ -59,11 +62,12 @@ fn main() {
         .unwrap();
 
     // This creates a service block to ensure boinc is active and enabled
-    let boinc_service_active_and_enabled = Service::ServiceBlockExpectedState::builder("boinc-client")
-        .with_service_state(Service::ServiceExpectedStatus::Active)
-        .with_autostart_state(Service::ServiceExpectedAutoStart::Enabled)
-        .build()
-        .unwrap();
+    let boinc_service_active_and_enabled =
+        Service::ServiceBlockExpectedState::builder("boinc-client")
+            .with_service_state(Service::ServiceExpectedStatus::Active)
+            .with_autostart_state(Service::ServiceExpectedAutoStart::Enabled)
+            .build()
+            .unwrap();
 
     // Combines both service expectations into a complete expected state configuration
     let expected_state = ExpectedState::new()
@@ -73,10 +77,13 @@ fn main() {
 
     // Creates a managed host instance with SSH connection details and sudo privileges
     let my_managed_host = ManagedHost::from(
-        "<target-host-endpoint>:<port>",
-        HostConnectionInfo::ssh2_with_key_file("regent-user", "/path/to/private/key"),
+        NewConnectionDetails::Ssh2(NewSsh2ConnectionDetails::from(
+            "<target-host-endpoint>:<port>",
+            Ssh2AuthMode::key_file("regent-user", "/path/to/private/key"),
+        )),
         Privilege::WithSudo,
-    );
+    )
+    .unwrap();
 
     comprehensive_health_check(my_managed_host, expected_state);
 }
