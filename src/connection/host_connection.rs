@@ -51,8 +51,8 @@ impl HostConnectionInfo {
         HostConnectionInfo::Ssh2(Ssh2AuthMode::KeyMemory((username, key_content)))
     }
 
-    /// Commands will be run on a remote host through SSH2, using SSH agent
-    pub fn ssh2_with_agent(agent_name: String) -> HostConnectionInfo {
-        HostConnectionInfo::Ssh2(Ssh2AuthMode::Agent(agent_name))
-    }
+    // /// Commands will be run on a remote host through SSH2, using SSH agent
+    // pub fn ssh2_with_agent(agent_name: String) -> HostConnectionInfo {
+    //     HostConnectionInfo::Ssh2(Ssh2AuthMode::Agent(agent_name))
+    // }
 }

@@ -161,9 +161,9 @@ impl Ssh2HostHandler {
                                 )));
                             }
                         }
-                        Ssh2AuthMode::Agent(_agent) => {
-                            return Ok(());
-                        }
+                        // Ssh2AuthMode::Agent(_agent) => {
+                        //     return Ok(());
+                        // }
                         _ => return Err(Error::FailedInitialization(String::from("Other error"))),
                     }
                 }
@@ -226,7 +226,7 @@ pub enum Ssh2AuthMode {
     UsernamePassword(Credentials),
     KeyFile((String, PathBuf)), // (username, private key's path)
     KeyMemory((String, Pem)),   // (username, PEM encoded key from memory)
-    Agent(String),              // Name of SSH agent
+                                // Agent(String),              // Name of SSH agent
 }
 
 impl std::fmt::Debug for Ssh2AuthMode {
