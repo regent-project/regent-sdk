@@ -1,5 +1,6 @@
 use crate::task::moduleblock::{ModuleApiCall, ModuleBlockExpectedState as Attribute};
 
+#[derive(Clone)]
 pub struct ExpectedState {
     pub attributes: Vec<Attribute>,
 }
@@ -28,6 +29,7 @@ pub enum DryRunMode {
     Parallel,
 }
 
+#[derive(Debug)]
 pub enum CompliancyStatus {
     Compliant,
     NotCompliant(Vec<ModuleApiCall>), // TODO : add details about why it's not compliant
