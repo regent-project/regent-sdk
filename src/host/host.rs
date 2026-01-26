@@ -132,7 +132,7 @@ impl ManagedHost {
                 }
             }
             DryRunMode::Parallel => {
-                let (sender, receiver) = std::sync::mpsc::channel::<StepChange>();
+                let (sender, receiver) = std::sync::mpsc::channel::<Result<StepChange, Error>>();
 
                 for attribute in &expected_state.attributes {
                     std::thread::spawn({
@@ -142,21 +142,28 @@ impl ManagedHost {
                         let mut connection_handler =
                             ConnectionHandler::from(&self.connection_details).unwrap();
                         move || {
-                            let step_change = attribute
-                                .dry_run_moduleblock(&mut connection_handler, &privilege)
-                                .unwrap();
-                            sender_clone.send(step_change).unwrap();
+                            let result = attribute
+                                .dry_run_moduleblock(&mut connection_handler, &privilege);
+                            let _ = sender_clone.send(result);
                         }
                     });
                 }
 
                 for _ in 0..expected_state.attributes.len() {
                     match receiver.recv() {
-                        Ok(step_change) => {
-                            if let StepChange::ModuleApiCalls(changes) = step_change {
-                                compliant = false;
-                                all_changes.extend(changes);
+                        Ok(result_dry_run_attribute) => {
+                            match result_dry_run_attribute {
+                                Ok(step_change) => {
+                                    if let StepChange::ModuleApiCalls(changes) = step_change {
+                                        compliant = false;
+                                        all_changes.extend(changes);
+                                    }
+                                }
+                                Err(error_detail) => {
+                                    return Err(error_detail);
+                                }
                             }
+                            
                         }
                         Err(error_detail) => {
                             return Err(Error::FailedDryRunEvaluation(format!("{}", error_detail)));
