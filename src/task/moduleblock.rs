@@ -127,6 +127,21 @@ pub enum ModuleApiCall {
     YumDnf(YumDnfApiCall),
 }
 
+impl std::fmt::Display for ModuleApiCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ModuleApiCall::None(s) => write!(f, "None({})", s),
+            ModuleApiCall::Debug(_debug_api_call) => write!(f, "Debug()"),
+            ModuleApiCall::Service(service_api_call) => write!(f, "Service({})", service_api_call.api_call),
+            ModuleApiCall::LineInFile(line_in_file_api_call) => write!(f, "LineInFile({})", line_in_file_api_call.api_call),
+            ModuleApiCall::Command(cmd_api_call) => write!(f, "Command({})", cmd_api_call.cmd),
+            ModuleApiCall::Apt(apt_api_call) => write!(f, "Apt({})", apt_api_call.api_call),
+            ModuleApiCall::Ping(_ping_api_call) => write!(f, "Ping()"),
+            ModuleApiCall::YumDnf(yum_dnf_api_call) => write!(f, "YumDnf({})", yum_dnf_api_call.api_call),
+        }
+    }
+}
+
 pub trait Check {
     fn check(&self) -> Result<(), Error>;
 }
