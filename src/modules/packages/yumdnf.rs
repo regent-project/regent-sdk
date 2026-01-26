@@ -11,10 +11,20 @@ use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum YumDnfModuleInternalApiCall {
+pub enum YumDnfModuleInternalApiCall {
     Install(String),
     Remove(String),
     Upgrade,
+}
+
+impl std::fmt::Display for YumDnfModuleInternalApiCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            YumDnfModuleInternalApiCall::Install(package) => write!(f, "install {}", package),
+            YumDnfModuleInternalApiCall::Remove(package) => write!(f, "remove {}", package),
+            YumDnfModuleInternalApiCall::Upgrade => write!(f, "upgrade"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -210,7 +220,7 @@ impl RedHatFlavoredPackageManager {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct YumDnfApiCall {
-    api_call: YumDnfModuleInternalApiCall,
+    pub api_call: YumDnfModuleInternalApiCall,
     package_manager: RedHatFlavoredPackageManager,
     privilege: Privilege,
 }

@@ -43,7 +43,7 @@ impl DryRun for CommandBlockExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandApiCall {
-    cmd: String,
+    pub cmd: String,
     privilege: Privilege,
 }
 

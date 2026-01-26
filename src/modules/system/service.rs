@@ -11,11 +11,22 @@ use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum ServiceModuleInternalApiCall {
+pub enum ServiceModuleInternalApiCall {
     Start(String),
     Stop(String),
     Enable(String),
     Disable(String),
+}
+
+impl std::fmt::Display for ServiceModuleInternalApiCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ServiceModuleInternalApiCall::Start(service) => write!(f, "start {}", service),
+            ServiceModuleInternalApiCall::Stop(service) => write!(f, "stop {}", service),
+            ServiceModuleInternalApiCall::Enable(service) => write!(f, "enable {}", service),
+            ServiceModuleInternalApiCall::Disable(service) => write!(f, "disable {}", service),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -213,7 +224,7 @@ impl DryRun for ServiceBlockExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServiceApiCall {
-    api_call: ServiceModuleInternalApiCall,
+    pub api_call: ServiceModuleInternalApiCall,
     privilege: Privilege,
 }
 

@@ -11,9 +11,22 @@ use crate::task::moduleblock::{Apply, DryRun};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum LineInFileModuleInternalApiCall {
+pub enum LineInFileModuleInternalApiCall {
     Add(LineExpectedPosition),
     Delete(Vec<u64>),
+}
+
+impl std::fmt::Display for LineInFileModuleInternalApiCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LineInFileModuleInternalApiCall::Add(position) => {
+                write!(f, "add line at position {:?}", position)
+            }
+            LineInFileModuleInternalApiCall::Delete(line_numbers) => {
+                write!(f, "delete lines {:?}", line_numbers)
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -266,7 +279,7 @@ impl DryRun for LineInFileBlockExpectedState {
 pub struct LineInFileApiCall {
     file_path: String,
     line_content: String,
-    api_call: LineInFileModuleInternalApiCall,
+    pub api_call: LineInFileModuleInternalApiCall,
     privilege: Privilege,
 }
 

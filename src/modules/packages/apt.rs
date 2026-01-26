@@ -10,10 +10,20 @@ use crate::task::moduleblock::{Check, ModuleApiCall};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-enum AptModuleInternalApiCall {
+pub enum AptModuleInternalApiCall {
     Install(String),
     Remove(String),
     Upgrade,
+}
+
+impl std::fmt::Display for AptModuleInternalApiCall {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AptModuleInternalApiCall::Install(package) => write!(f, "install {}", package),
+            AptModuleInternalApiCall::Remove(package) => write!(f, "remove {}", package),
+            AptModuleInternalApiCall::Upgrade => write!(f, "upgrade"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -176,7 +186,7 @@ impl DryRun for AptBlockExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AptApiCall {
-    api_call: AptModuleInternalApiCall,
+    pub api_call: AptModuleInternalApiCall,
     privilege: Privilege,
 }
 
