@@ -56,12 +56,13 @@ async fn health_check(State(mut app_state): State<AppState>) -> Result<Json<Heal
 struct HealthCheckResponse {
     date: String,
     status: HostStatus,
+    remediations: Vec<String>
 }
 
 #[derive(Serialize)]
 enum HostStatus {
     Compliant,
-    NotCompliant(Vec<String>),
+    NotCompliant
 }
 
 #[derive(Clone)]
@@ -85,6 +86,7 @@ impl AppState {
                     CompliancyStatus::Compliant => Ok(HealthCheckResponse {
                         date,
                         status: HostStatus::Compliant,
+                        remediations: Vec::new()
                     }),
                     CompliancyStatus::NotCompliant(step_changes) => {
                         let mut changes = Vec::new();
@@ -97,7 +99,8 @@ impl AppState {
                         }
                         Ok(HealthCheckResponse {
                             date,
-                            status: HostStatus::NotCompliant(changes),
+                            status: HostStatus::NotCompliant,
+                            remediations: changes
                         })
                     }
                 }

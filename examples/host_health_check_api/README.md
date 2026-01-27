@@ -12,18 +12,18 @@ This example implements a simple web service using **Axum** that exposes a `/hea
 
 ```json
 {
-  "date": "2026-01-26T22:08:59+00:00",
-  "status": {
-    "NotCompliant": [
-      "Service(start httpd)",
-      "Service(enable httpd)"
-    ]
-  }
+  "date": "2026-01-27T20:17:10+00:00",
+  "status": "NotCompliant",
+  "remediations": [
+    "Service(start httpd)",
+    "Service(enable httpd)"
+  ]
 }
 ```
 ```json
 {
-  "date": "2026-01-26T22:25:07+00:00",
-  "status": "Compliant"
+  "date": "2026-01-27T20:17:56+00:00",
+  "status": "Compliant",
+  "remediations": []
 }
 ```
