@@ -142,8 +142,8 @@ impl ManagedHost {
                         let mut connection_handler =
                             ConnectionHandler::from(&self.connection_details).unwrap();
                         move || {
-                            let result = attribute
-                                .dry_run_moduleblock(&mut connection_handler, &privilege);
+                            let result =
+                                attribute.dry_run_moduleblock(&mut connection_handler, &privilege);
                             let _ = sender_clone.send(result);
                         }
                     });
@@ -151,20 +151,17 @@ impl ManagedHost {
 
                 for _ in 0..expected_state.attributes.len() {
                     match receiver.recv() {
-                        Ok(result_dry_run_attribute) => {
-                            match result_dry_run_attribute {
-                                Ok(step_change) => {
-                                    if let StepChange::ModuleApiCalls(changes) = step_change {
-                                        compliant = false;
-                                        all_changes.extend(changes);
-                                    }
-                                }
-                                Err(error_detail) => {
-                                    return Err(error_detail);
+                        Ok(result_dry_run_attribute) => match result_dry_run_attribute {
+                            Ok(step_change) => {
+                                if let StepChange::ModuleApiCalls(changes) = step_change {
+                                    compliant = false;
+                                    all_changes.extend(changes);
                                 }
                             }
-                            
-                        }
+                            Err(error_detail) => {
+                                return Err(error_detail);
+                            }
+                        },
                         Err(error_detail) => {
                             return Err(Error::FailedDryRunEvaluation(format!("{}", error_detail)));
                         }
