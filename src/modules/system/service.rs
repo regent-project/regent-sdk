@@ -49,6 +49,7 @@ pub struct ServiceBlockExpectedState {
     name: String,
     current_status: Option<ServiceExpectedStatus>,
     auto_start: Option<ServiceExpectedAutoStart>,
+    exists: Option<bool>, // None treated as Some(true)
 }
 
 // Chained methods to allow building an ServiceBlockExpectedState as follows :
@@ -62,6 +63,7 @@ impl ServiceBlockExpectedState {
             name: service_name.to_string(),
             current_status: None,
             auto_start: None,
+            exists: None,
         }
     }
 
@@ -81,6 +83,11 @@ impl ServiceBlockExpectedState {
         self
     }
 
+    pub fn exists(&mut self, setting: bool) -> &mut Self {
+        self.exists = Some(setting);
+        self
+    }
+
     pub fn build(&self) -> Result<ServiceBlockExpectedState, Error> {
         if let Err(error_detail) = self.check() {
             return Err(error_detail);
@@ -93,8 +100,20 @@ impl Check for ServiceBlockExpectedState {
     fn check(&self) -> Result<(), Error> {
         if let (None, None) = (&self.current_status, &self.auto_start) {
             return Err(Error::IncoherentExpectedState(format!(
-                "All parameters are unset. Please describe the expected state."
+                "Incomplete minimal description of the expected state of the service."
             )));
+        }
+        if let Some(false) = self.exists {
+            if let Some(ServiceExpectedStatus::Active) = self.current_status {
+                return Err(Error::IncoherentExpectedState(format!(
+                    "Service cannot be both active and non-existing."
+                )));
+            }
+            if let Some(ServiceExpectedAutoStart::Enabled) = self.auto_start {
+                return Err(Error::IncoherentExpectedState(format!(
+                    "Service cannot be both enabled and non-existing."
+                )));
+            }
         }
         Ok(())
     }
@@ -117,12 +136,17 @@ impl DryRun for ServiceBlockExpectedState {
             ));
         }
 
-        let service_is_active = match service_is_active(hosthandler, &self.name) {
+        let must_exists = match self.exists {
+            Some(value) => value,
+            None => true,
+        };
+
+        let service_is_active = match service_is_active(hosthandler, &self.name, must_exists) {
             Ok(active_state) => active_state,
             Err(e) => return Err(Error::FailedDryRunEvaluation(e)),
         };
 
-        let service_is_enabled = match service_is_enabled(hosthandler, &self.name) {
+        let service_is_enabled = match service_is_enabled(hosthandler, &self.name, must_exists) {
             Ok(enabled_state) => enabled_state,
             Err(e) => return Err(Error::FailedDryRunEvaluation(e)),
         };
@@ -132,12 +156,22 @@ impl DryRun for ServiceBlockExpectedState {
 
         // State or enabled :
         // - one of them is required
-        // - mutually exclusive
         if let (None, None) = (&self.current_status, &self.auto_start) {
             // PROBLEM : both 'state' and 'enabled' are empty
             return Err(Error::FailedDryRunEvaluation(
                 "STATE and ENABLED fields are both empty in provided Task List".to_string(),
             ));
+        } else if let Some(false) = self.exists {
+            if let Some(ServiceExpectedStatus::Active) = self.current_status {
+                return Err(Error::IncoherentExpectedState(format!(
+                    "Service cannot be both active and non-existing."
+                )));
+            }
+            if let Some(ServiceExpectedAutoStart::Enabled) = self.auto_start {
+                return Err(Error::IncoherentExpectedState(format!(
+                    "Service cannot be both enabled and non-existing."
+                )));
+            }
         } else {
             match &self.current_status {
                 Some(state_content) => {
@@ -352,6 +386,7 @@ impl ServiceApiCall {
 fn service_is_active(
     hosthandler: &mut ConnectionHandler,
     service_name: &String,
+    must_exists: bool,
 ) -> Result<bool, String> {
     match hosthandler.run_cmd(
         format!("systemctl is-active {}", service_name).as_str(),
@@ -361,7 +396,13 @@ fn service_is_active(
             0 => Ok(true),
             1 => Err(format!("Unit not failed")),
             3 => Ok(false),
-            4 => Err(format!("No such service")),
+            4 => {
+                if must_exists {
+                    Err(format!("No such service"))
+                } else {
+                    Ok(false)
+                }
+            }
             _ => Err(format!("Unknown return code : {:?}", test_result)),
         },
         Err(e) => Err(format!("Unable to check service status : {:?}", e)),
@@ -371,6 +412,7 @@ fn service_is_active(
 fn service_is_enabled(
     hosthandler: &mut ConnectionHandler,
     service_name: &String,
+    must_exists: bool,
 ) -> Result<bool, String> {
     match hosthandler.run_cmd(
         format!("systemctl is-enabled {}", service_name).as_str(),
@@ -381,7 +423,13 @@ fn service_is_enabled(
                 0 => Ok(true),
                 1 => Ok(false),
                 // 3 => Ok(false),
-                4 => Err(format!("No such service")),
+                4 => {
+                    if must_exists {
+                        Err(format!("No such service"))
+                    } else {
+                        Ok(false)
+                    }
+                }
                 _ => Err(format!("Unknown return code : {:?}", test_result)),
             }
         }
