@@ -201,8 +201,9 @@ impl Job {
                         self.final_status = host_work_flow.final_status.clone();
                         self.hostworkflow = Some(host_work_flow);
                     }
-                    Err(_error) => {
-                        self.final_status = HostWorkFlowStatus::ApplyFailed;
+                    Err(error_detail) => {
+                        self.final_status =
+                            HostWorkFlowStatus::ApplyFailed(format!("{:?}", error_detail));
                     }
                 }
             }
@@ -252,8 +253,9 @@ impl Job {
                     Ok(()) => {
                         self.final_status = host_work_flow.final_status.clone();
                     }
-                    Err(_error) => {
-                        self.final_status = HostWorkFlowStatus::ApplyFailed;
+                    Err(error_detail) => {
+                        self.final_status =
+                            HostWorkFlowStatus::ApplyFailed(format!("{:?}", error_detail));
                     }
                 }
             }
@@ -264,8 +266,9 @@ impl Job {
                         self.final_status = host_work_flow.final_status.clone();
                         self.hostworkflow = Some(host_work_flow);
                     }
-                    Err(_error) => {
-                        self.final_status = HostWorkFlowStatus::ApplyFailed;
+                    Err(error_detail) => {
+                        self.final_status =
+                            HostWorkFlowStatus::ApplyFailed(format!("{:?}", error_detail));
                     }
                 }
             }

@@ -100,7 +100,7 @@ impl HostWorkFlow {
             } else if allowed_failures {
                 self.final_status = HostWorkFlowStatus::ApplyWithAllowedFailure;
             } else if failures {
-                self.final_status = HostWorkFlowStatus::ApplyFailed;
+                self.final_status = HostWorkFlowStatus::ApplyFailed("failures".to_string());
             } else {
                 self.final_status = HostWorkFlowStatus::ApplySuccesful;
             }
@@ -116,7 +116,7 @@ pub enum HostWorkFlowStatus {
     ChangeRequired,
     ApplySuccesful,
     ApplyWithAllowedFailure,
-    ApplyFailed,
+    ApplyFailed(String),
     DryRunFailed,
     ConnectionInitFailed(String),
 }
