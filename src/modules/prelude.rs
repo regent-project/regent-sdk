@@ -1,3 +1,4 @@
+//**BEACON **/
 pub use crate::modules::utilities::lineinfile::LineInFileApiCall;
 pub use crate::modules::utilities::lineinfile::LineInFileBlockExpectedState;
 
@@ -6,6 +7,9 @@ pub use crate::modules::shell::command::CommandBlockExpectedState;
 
 pub use crate::modules::packages::apt::AptApiCall;
 pub use crate::modules::packages::apt::AptBlockExpectedState;
+
+pub use crate::modules::packages::pacman::PacmanApiCall;
+pub use crate::modules::packages::pacman::PacmanBlockExpectedState;
 
 pub use crate::modules::utilities::ping::PingApiCall;
 pub use crate::modules::utilities::ping::PingBlockExpectedState;

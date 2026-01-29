@@ -58,6 +58,7 @@ pub struct ParsingStep {
     pub lineinfile: Option<LineInFileBlockExpectedState>,
     pub command: Option<CommandBlockExpectedState>,
     pub apt: Option<AptBlockExpectedState>,
+    pub pacman: Option<PacmanBlockExpectedState>,
     pub dnf: Option<YumDnfBlockExpectedState>,
     #[serde(default, deserialize_with = "deserialize_argumentlessmodule")]
     pub ping: Option<Option<PingBlockExpectedState>>, // Double wrapping in order to have Serde distinguish between missing field and None value
@@ -89,6 +90,10 @@ impl ParsingStep {
         if let Some(content) = self.apt.clone() {
             counter += 1;
             moduleblock = Some(ModuleBlockExpectedState::Apt(content));
+        }
+        if let Some(content) = self.pacman.clone() {
+            counter += 1;
+            moduleblock = Some(ModuleBlockExpectedState::Pacman(content));
         }
         if let Some(content) = self.dnf.clone() {
             counter += 1;

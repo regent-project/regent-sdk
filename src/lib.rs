@@ -71,6 +71,7 @@ pub use crate::task::moduleblock::ModuleBlockExpectedState as Attribute;
 pub use crate::task::tasklist::TaskListFormat;
 
 pub use crate::modules::packages::apt as Apt;
+pub use crate::modules::packages::pacman as Pacman;
 pub use crate::modules::packages::yumdnf as YumDnf;
 pub use crate::modules::shell::command as Command;
 pub use crate::modules::system::service as Service;

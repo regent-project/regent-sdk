@@ -1,9 +1,10 @@
-use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::specification::Privilege;
 use crate::error::Error;
+use crate::modules::packages::pacman::PacmanBlockExpectedState;
 use crate::modules::prelude::*;
 use crate::result::apicallresult::ApiCallResult;
 use crate::step::stepchange::StepChange;
+use crate::{connection::hosthandler::ConnectionHandler, modules::packages::pacman::PacmanApiCall};
 use serde::{Deserialize, Serialize};
 use tera::{Context, Tera};
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -16,6 +17,7 @@ pub enum ModuleBlockExpectedState {
     LineInFile(LineInFileBlockExpectedState),
     Command(CommandBlockExpectedState),
     Apt(AptBlockExpectedState),
+    Pacman(PacmanBlockExpectedState),
     Dnf(YumDnfBlockExpectedState),
     Ping(PingBlockExpectedState),
     Yum(YumDnfBlockExpectedState),
@@ -85,6 +87,9 @@ impl ModuleBlockExpectedState {
             ModuleBlockExpectedState::Apt(block) => {
                 block.dry_run_block(connection_handler, privilege)
             }
+            ModuleBlockExpectedState::Pacman(block) => {
+                block.dry_run_block(connection_handler, privilege)
+            }
             ModuleBlockExpectedState::Dnf(block) => {
                 block.dry_run_block(connection_handler, privilege)
             }
@@ -123,6 +128,7 @@ pub enum ModuleApiCall {
     LineInFile(LineInFileApiCall),
     Command(CommandApiCall),
     Apt(AptApiCall),
+    Pacman(PacmanApiCall),
     Ping(PingApiCall),
     YumDnf(YumDnfApiCall),
 }
@@ -132,12 +138,21 @@ impl std::fmt::Display for ModuleApiCall {
         match self {
             ModuleApiCall::None(s) => write!(f, "None({})", s),
             ModuleApiCall::Debug(_debug_api_call) => write!(f, "Debug()"),
-            ModuleApiCall::Service(service_api_call) => write!(f, "Service({})", service_api_call.api_call),
-            ModuleApiCall::LineInFile(line_in_file_api_call) => write!(f, "LineInFile({})", line_in_file_api_call.api_call),
+            ModuleApiCall::Service(service_api_call) => {
+                write!(f, "Service({})", service_api_call.api_call)
+            }
+            ModuleApiCall::LineInFile(line_in_file_api_call) => {
+                write!(f, "LineInFile({})", line_in_file_api_call.api_call)
+            }
             ModuleApiCall::Command(cmd_api_call) => write!(f, "Command({})", cmd_api_call.cmd),
             ModuleApiCall::Apt(apt_api_call) => write!(f, "Apt({})", apt_api_call.api_call),
+            ModuleApiCall::Pacman(pacman_api_call) => {
+                write!(f, "Pacman({})", pacman_api_call.api_call)
+            }
             ModuleApiCall::Ping(_ping_api_call) => write!(f, "Ping()"),
-            ModuleApiCall::YumDnf(yum_dnf_api_call) => write!(f, "YumDnf({})", yum_dnf_api_call.api_call),
+            ModuleApiCall::YumDnf(yum_dnf_api_call) => {
+                write!(f, "YumDnf({})", yum_dnf_api_call.api_call)
+            }
         }
     }
 }

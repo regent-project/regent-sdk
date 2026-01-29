@@ -36,6 +36,7 @@ impl StepChange {
                         ModuleApiCall::LineInFile(block) => block.display(),
                         ModuleApiCall::Command(block) => block.display(),
                         ModuleApiCall::Apt(block) => block.display(),
+                        ModuleApiCall::Pacman(block) => block.display(),
                         ModuleApiCall::Ping(block) => block.display(),
                         ModuleApiCall::YumDnf(block) => block.display(),
                     };
@@ -66,6 +67,7 @@ impl StepChange {
                             block.apply_moduleblock_change(hosthandler)
                         }
                         ModuleApiCall::Apt(block) => block.apply_moduleblock_change(hosthandler),
+                        ModuleApiCall::Pacman(block) => block.apply_moduleblock_change(hosthandler),
                         ModuleApiCall::Ping(block) => block.apply_moduleblock_change(hosthandler),
                         ModuleApiCall::YumDnf(block) => block.apply_moduleblock_change(hosthandler),
                     };
