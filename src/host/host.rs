@@ -34,15 +34,15 @@ impl Host {
         }
     }
 
-    pub fn add_to_group(&mut self, groupname: &String) {
+    pub fn add_to_group(&mut self, groupname: &str) {
         match &self.groups {
             Some(group_list) => {
                 let mut new_group_list = group_list.clone();
-                new_group_list.push(groupname.clone());
+                new_group_list.push(groupname.to_string());
                 self.groups = Some(new_group_list);
             }
             None => {
-                self.groups = Some(vec![groupname.clone()]);
+                self.groups = Some(vec![groupname.to_string()]);
             }
         }
     }
@@ -197,5 +197,38 @@ impl ManagedHost {
         }
 
         Ok(())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::host::host::Host;
+    use std::collections::HashMap;
+
+    #[test]
+    fn host_building() {
+        // New host from_string
+        let mut host = Host::from_string("192.168.1.1".to_string());
+
+        assert_eq!(host.address, "192.168.1.1");
+        assert_eq!(host.vars, None);
+        assert_eq!(host.groups, None);
+
+        // Add variables
+        host.add_var("key1", "value1");
+        host.add_var("key2", "value2");
+
+        let mut expected_vars = HashMap::new();
+        expected_vars.insert("key1".to_string(), "value1".to_string());
+        expected_vars.insert("key2".to_string(), "value2".to_string());
+        assert_eq!(host.vars, Some(expected_vars));
+
+        // Add groups
+        host.add_to_group("web_servers");
+        host.add_to_group("database");
+
+        assert_eq!(host.groups, Some(vec!["web_servers".to_string(), "database".to_string()]));
+
     }
 }
