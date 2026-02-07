@@ -1,6 +1,7 @@
-use crate::task::moduleblock::{ModuleApiCall, ModuleBlockExpectedState as Attribute};
+use crate::state::attribute::Attribute;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone)]
+#[derive(Serialize, Deserialize)]
 pub struct ExpectedState {
     pub attributes: Vec<Attribute>,
 }
@@ -22,15 +23,4 @@ impl ExpectedState {
             attributes: self.attributes.clone(),
         }
     }
-}
-
-pub enum DryRunMode {
-    Sequential,
-    Parallel,
-}
-
-#[derive(Debug)]
-pub enum CompliancyStatus {
-    Compliant,
-    NotCompliant(Vec<ModuleApiCall>), // TODO : add details about why it's not compliant
 }

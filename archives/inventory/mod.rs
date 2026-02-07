@@ -3,4 +3,4 @@
 pub mod host;
 pub mod hostlist;
 pub mod hosts;
-pub mod parser;
+pub mod parsing;

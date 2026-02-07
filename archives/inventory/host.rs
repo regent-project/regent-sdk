@@ -1,7 +1,7 @@
 use crate::connection::hosthandler::ConnectionHandler;
 use crate::connection::hosthandler::NewConnectionDetails;
 use crate::connection::specification::Privilege;
-use crate::expected_state::global_state::{CompliancyStatus, DryRunMode};
+use crate::expected_state::global_state::{ComplianceStatus, DryRunMode};
 use crate::step::stepchange::StepChange;
 use crate::step::stepresult::StepApplyResult;
 use crate::task::moduleblock::ModuleApiCall;
@@ -109,7 +109,7 @@ impl ManagedHost {
         &mut self,
         expected_state: &ExpectedState,
         dry_run_mode: DryRunMode,
-    ) -> Result<CompliancyStatus, Error> {
+    ) -> Result<ComplianceStatus, Error> {
         let mut compliant = true;
         let mut all_changes: Vec<ModuleApiCall> = Vec::new();
 
@@ -171,9 +171,9 @@ impl ManagedHost {
         }
 
         if compliant {
-            Ok(CompliancyStatus::Compliant)
+            Ok(ComplianceStatus::Compliant)
         } else {
-            Ok(CompliancyStatus::NotCompliant(all_changes))
+            Ok(ComplianceStatus::NotCompliant(all_changes))
         }
     }
 
@@ -203,7 +203,7 @@ impl ManagedHost {
 
 #[cfg(test)]
 mod tests {
-    use crate::host::host::Host;
+    use crate::inventory::host::Host;
     use std::collections::HashMap;
 
     #[test]

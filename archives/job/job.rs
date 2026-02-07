@@ -3,7 +3,7 @@ use crate::NewSsh2ConnectionDetails;
 use crate::connection::host_connection::HostConnectionInfo;
 use crate::connection::hosthandler::ConnectionHandler;
 use crate::error::Error;
-use crate::host::hosts::Host;
+use crate::inventory::hosts::Host;
 use crate::output::job_output::JobOutput;
 use crate::task::tasklist::TaskList;
 use crate::task::tasklist::TaskListFormat;

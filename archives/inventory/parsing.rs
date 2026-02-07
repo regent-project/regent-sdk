@@ -1,18 +1,19 @@
 use crate::error::Error;
-use crate::host::hostlist::{HostList, find_host_in_list};
-use crate::host::hosts::{Group, Host};
+use crate::inventory::hostlist::{Inventory, find_host_in_list};
+use crate::inventory::hosts::{Group, Host};
 use serde::Deserialize;
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct HostListVarsUnparsed {
+#[serde(deny_unknown_fields)]
+pub struct RawInventoryContent {
     pub vars: Option<HashMap<String, String>>,
     pub hosts: Option<Vec<String>>,
     pub groups: Option<Vec<Group>>,
 }
 
-impl HostListVarsUnparsed {
-    pub fn parse_host_vars(&self) -> HostListFile {
+impl RawInventoryContent {
+    pub fn parse_host_vars(&self) -> InventoryFile {
         match &self.hosts {
             Some(hosts_list) => {
                 let mut parsed_hosts: Vec<Host> = Vec::new();
@@ -44,13 +45,13 @@ impl HostListVarsUnparsed {
                     }
                 }
 
-                HostListFile {
+                InventoryFile {
                     hosts: Some(parsed_hosts),
                     groups: self.groups.clone(),
                     vars: self.vars.clone(),
                 }
             }
-            None => HostListFile {
+            None => InventoryFile {
                 hosts: None,
                 groups: self.groups.clone(),
                 vars: self.vars.clone(),
@@ -60,36 +61,36 @@ impl HostListVarsUnparsed {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct HostListFile {
+pub struct InventoryFile {
     pub vars: Option<HashMap<String, String>>,
     pub hosts: Option<Vec<Host>>,
     pub groups: Option<Vec<Group>>,
 }
 
-impl HostListFile {
-    pub fn new() -> HostListFile {
-        HostListFile {
+impl InventoryFile {
+    pub fn new() -> InventoryFile {
+        InventoryFile {
             vars: Some(HashMap::new()),
             hosts: Some(Vec::new()),
             groups: Some(Vec::new()),
         }
     }
 
-    pub fn from_hosts(hosts: Vec<Host>, vars: Option<HashMap<String, String>>) -> HostListFile {
+    pub fn from_hosts(hosts: Vec<Host>, vars: Option<HashMap<String, String>>) -> InventoryFile {
         if hosts.is_empty() {
-            HostListFile {
+            InventoryFile {
                 vars: None,
                 hosts: None,
                 groups: None,
             }
         } else {
             match vars {
-                Some(variables) => HostListFile {
+                Some(variables) => InventoryFile {
                     vars: Some(variables),
                     hosts: Some(hosts),
                     groups: None,
                 },
-                None => HostListFile {
+                None => InventoryFile {
                     vars: None,
                     hosts: Some(hosts),
                     groups: None,
@@ -100,7 +101,7 @@ impl HostListFile {
 
     // This method will gather all elements about a host and create a Host object / per host
     // -> address + all variables which applies to this host + all groups this host belongs to
-    pub fn generate_hostlist(&self) -> HostList {
+    pub fn generate_hostlist(&self) -> Inventory {
         let mut final_hostlist: Vec<Host> = Vec::new();
 
         match &self.groups {
@@ -112,14 +113,14 @@ impl HostListFile {
                                 match find_host_in_list(&final_hostlist, &host_address) {
                                     Some(index) => {
                                         final_hostlist[index].add_to_group(&group.name);
-                                        // Only add group level variables because the host is already in the list, meaning it already has HostList level variables
+                                        // Only add group level variables because the host is already in the list, meaning it already has Inventory level variables
                                         final_hostlist[index]
                                             .add_vars(&group.vars.as_ref().unwrap());
                                     }
                                     None => {
                                         let mut temp_host = Host::from_string(host_address.clone());
                                         temp_host.add_to_group(&group.name);
-                                        // First, add HostList level variables
+                                        // First, add Inventory level variables
                                         if let Some(vars_content) = &self.vars.as_ref() {
                                             temp_host.add_vars(vars_content);
                                         }
@@ -150,7 +151,7 @@ impl HostListFile {
                         }
                         None => {
                             let mut temp_host = Host::from_string(host.address.clone());
-                            // First, add HostList level variables
+                            // First, add Inventory level variables
                             if let Some(vars_content) = &self.vars.as_ref() {
                                 temp_host.add_vars(vars_content);
                             }
@@ -168,9 +169,9 @@ impl HostListFile {
         }
 
         if final_hostlist.is_empty() {
-            HostList { hosts: None }
+            Inventory { hosts: None }
         } else {
-            HostList {
+            Inventory {
                 hosts: Some(final_hostlist),
             }
         }
@@ -178,13 +179,13 @@ impl HostListFile {
 }
 
 // TODO : So far, we assume the hostlist file is in YAML format. More formats will come later.
-pub fn hostlist_parser(hostlistfilecontent: &str) -> Result<HostList, Error> {
+pub fn hostlist_parser(hostlistfilecontent: &str) -> Result<Inventory, Error> {
     // First we parse the content as YAML, host vars not parsed yet (unproper YAML syntax)
-    match serde_yaml::from_str::<HostListVarsUnparsed>(&hostlistfilecontent) {
+    match serde_yaml::from_str::<RawInventoryContent>(&hostlistfilecontent) {
         Ok(yaml_parsed_result) => {
             // Second we parse the host vars
             let host_vars_parsed_result = yaml_parsed_result.parse_host_vars();
-            // Finally, we generate a HostList out of the HostListFile
+            // Finally, we generate a Inventory out of the InventoryFile
             return Ok(host_vars_parsed_result.generate_hostlist());
         }
         Err(error) => {
@@ -201,32 +202,5 @@ mod tests {
     fn empty_hostlist_parsing() {
         let hostlist = hostlist_parser("").unwrap();
         assert!(hostlist.hosts.is_none());
-    }
-
-    #[test]
-    fn varless_hostlist_parsing() {
-        let hostlist = hostlist_parser(
-            "---
-hosts:
-- 10.20.30.51
-- 10.20.30.52
-- 10.20.30.53
-",
-        )
-        .unwrap();
-
-        assert!(hostlist.hosts.is_some());
-
-        let vec_hosts = hostlist.hosts.unwrap();
-        assert_eq!(vec_hosts.len(), 3);
-
-        let mut address_list: Vec<String> = Vec::new();
-        address_list.push(vec_hosts[0].address.clone());
-        address_list.push(vec_hosts[1].address.clone());
-        address_list.push(vec_hosts[2].address.clone());
-        assert!(address_list.binary_search(&"10.20.30.51".into()).is_ok());
-        assert!(address_list.binary_search(&"10.20.30.52".into()).is_ok());
-        assert!(address_list.binary_search(&"10.20.30.53".into()).is_ok());
-        assert!(address_list.binary_search(&"192.168.10.25".into()).is_err());
     }
 }

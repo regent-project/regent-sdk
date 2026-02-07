@@ -3,7 +3,7 @@ use axum::response::Result;
 use axum::{Router, extract::State, routing::get};
 use regent_sdk::{
     connection::connectionmode::localhost::WhichUser,
-    expected_state::global_state::{CompliancyStatus, DryRunMode, ExpectedState},
+    expected_state::global_state::{ComplianceStatus, DryRunMode, ExpectedState},
     task::moduleblock::ModuleApiCall,
     {Attribute, ManagedHost, NewConnectionDetails, Privilege, Service},
 };
@@ -77,18 +77,18 @@ impl AppState {
             .managed_host
             .assess_compliance_with(&self.expected_state, DryRunMode::Parallel)
         {
-            Ok(compliancy_status) => {
+            Ok(compliance_status) => {
                 let date = chrono::Utc::now()
                     .format("%Y-%m-%dT%H:%M:%S+00:00")
                     .to_string();
 
-                match compliancy_status {
-                    CompliancyStatus::Compliant => Ok(HealthCheckResponse {
+                match compliance_status {
+                    ComplianceStatus::Compliant => Ok(HealthCheckResponse {
                         date,
                         status: HostStatus::Compliant,
                         remediations: Vec::new()
                     }),
-                    CompliancyStatus::NotCompliant(step_changes) => {
+                    ComplianceStatus::NotCompliant(step_changes) => {
                         let mut changes = Vec::new();
                         for step in step_changes {
                             if let ModuleApiCall::None(_) = step {

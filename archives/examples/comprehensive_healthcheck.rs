@@ -1,4 +1,4 @@
-use regent_sdk::expected_state::global_state::{CompliancyStatus, DryRunMode, ExpectedState};
+use regent_sdk::expected_state::global_state::{ComplianceStatus, DryRunMode, ExpectedState};
 use regent_sdk::{Apt, Attribute, Service};
 use regent_sdk::{
     ManagedHost, NewConnectionDetails, NewSsh2ConnectionDetails, Privilege, Ssh2AuthMode,
@@ -18,11 +18,11 @@ fn comprehensive_health_check(mut managed_host: ManagedHost, expected_state: Exp
     // Assess whether the host is compliant or not
     loop {
         match managed_host.assess_compliance_with(&expected_state, DryRunMode::Sequential) {
-            Ok(compliancy_status) => match compliancy_status {
-                CompliancyStatus::Compliant => {
+            Ok(compliance_status) => match compliance_status {
+                ComplianceStatus::Compliant => {
                     println!("[INFO] so far so good !");
                 }
-                CompliancyStatus::NotCompliant(changes) => {
+                ComplianceStatus::NotCompliant(changes) => {
                     println!(
                         "[WARN] Not compliant ! Here is what needs to be done : {:?}",
                         changes
@@ -44,7 +44,7 @@ fn comprehensive_health_check(mut managed_host: ManagedHost, expected_state: Exp
             },
             Err(health_check_failure_details) => {
                 println!(
-                    "[ERROR] unable to assess compliancy : {:?}",
+                    "[ERROR] unable to assess compliance : {:?}",
                     health_check_failure_details
                 );
             }

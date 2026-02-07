@@ -3,7 +3,7 @@ use rayon::iter::ParallelIterator;
 
 use crate::connection::host_connection::HostConnectionInfo;
 use crate::error::Error;
-use crate::host::hostlist::HostList;
+use crate::inventory::hostlist::Inventory;
 use crate::job::job::Job;
 use crate::output::joblist_output::JobListOutput;
 use crate::task::tasklist::TaskList;
@@ -22,8 +22,8 @@ impl JobList {
         }
     }
 
-    /// Takes a HostList as input and creates a JobList withholding a new Job for each host of the list. Specific host/group variables are respected, meaning each Job can have its own unique context if defined that way in the HostList.
-    pub fn from_hostlist(host_list: HostList) -> JobList {
+    /// Takes a Inventory as input and creates a JobList withholding a new Job for each host of the list. Specific host/group variables are respected, meaning each Job can have its own unique context if defined that way in the Inventory.
+    pub fn from_hostlist(host_list: Inventory) -> JobList {
         match host_list.hosts {
             Some(host_list_content) => {
                 let mut jobs: Vec<Job> = Vec::new();
@@ -41,7 +41,7 @@ impl JobList {
     }
 
     pub fn from_hostlist_as_str(raw_content: &str) -> Result<JobList, Error> {
-        match HostList::from_str(raw_content) {
+        match Inventory::from_str(raw_content) {
             Ok(host_list_content) => Ok(JobList::from_hostlist(host_list_content)),
             Err(error) => Err(error),
         }

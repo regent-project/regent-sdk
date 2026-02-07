@@ -1,4 +1,4 @@
-use regent_sdk::expected_state::global_state::{CompliancyStatus, DryRunMode, ExpectedState};
+use regent_sdk::expected_state::global_state::{ComplianceStatus, DryRunMode, ExpectedState};
 use regent_sdk::{Attribute, Service::*};
 use regent_sdk::{
     ManagedHost, NewConnectionDetails, NewSsh2ConnectionDetails, Privilege, Ssh2AuthMode,
@@ -34,11 +34,11 @@ fn main() {
     // Assessing compliance with a large number of services and attributes
     // DryRunMode::Parallel enables concurrent assessment for performance
     match my_managed_host.assess_compliance_with(&expected_state, DryRunMode::Parallel) {
-        Ok(compliancy_status) => match compliancy_status {
-            CompliancyStatus::Compliant => {
+        Ok(compliance_status) => match compliance_status {
+            ComplianceStatus::Compliant => {
                 println!("[INFO] so far so good !");
             }
-            CompliancyStatus::NotCompliant(changes) => {
+            ComplianceStatus::NotCompliant(changes) => {
                 println!(
                     "[WARN] Not compliant ! Here is what needs to be done : {:?}",
                     changes
@@ -47,18 +47,18 @@ fn main() {
         },
         Err(health_check_failure_details) => {
             println!(
-                "[ERROR] unable to assess compliancy : {:?}",
+                "[ERROR] unable to assess compliance : {:?}",
                 health_check_failure_details
             );
         }
     }
 
     match my_managed_host.assess_compliance_with(&expected_state, DryRunMode::Parallel) {
-        Ok(compliancy_status) => match compliancy_status {
-            CompliancyStatus::Compliant => {
+        Ok(compliance_status) => match compliance_status {
+            ComplianceStatus::Compliant => {
                 println!("[INFO] Everything is running !");
             }
-            CompliancyStatus::NotCompliant(changes) => {
+            ComplianceStatus::NotCompliant(changes) => {
                 println!(
                     "[WARN] Not compliant ! Here is what needs to be done : {:?}",
                     changes
@@ -67,7 +67,7 @@ fn main() {
         },
         Err(health_check_failure_details) => {
             println!(
-                "[ERROR] unable to assess compliancy : {:?}",
+                "[ERROR] unable to assess compliance : {:?}",
                 health_check_failure_details
             );
         }
