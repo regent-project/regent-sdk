@@ -3,18 +3,18 @@ use crate::error::Error;
 use crate::host_handler::host_handler::HostHandler;
 use crate::host_handler::host_handler::final_command;
 use crate::host_handler::localhost::WhichUser;
+use crate::host_handler::privilege::Credentials;
 use crate::host_handler::privilege::Privilege;
-use std::path::PathBuf;
 use pem::Pem;
 use ssh2::Session;
-use crate::host_handler::privilege::Credentials;
-use std::net::TcpStream;
 use std::io::Read;
+use std::net::TcpStream;
+use std::path::PathBuf;
 
 #[derive(Clone)]
-pub struct  Ssh2HostHandler {
+pub struct Ssh2HostHandler {
     auth: Ssh2AuthMethod,
-    session: Session
+    session: Session,
 }
 
 impl std::fmt::Debug for Ssh2HostHandler {
@@ -27,111 +27,105 @@ impl std::fmt::Debug for Ssh2HostHandler {
 }
 
 impl HostHandler for Ssh2HostHandler {
-
     fn connect(&mut self, endpoint: &str) -> Result<(), Error> {
         // Check whether a session is already enabled or not (init() might have already been called
-            // on this host)
-            if self.is_connected() {
-                return Ok(());
-            }
+        // on this host)
+        if self.is_connected() {
+            return Ok(());
+        }
 
-            // finding out if address is "address" or "address:port" kind, to decide which port to use
-            let address: &str;
-            let ssh_port: u16;
+        // finding out if address is "address" or "address:port" kind, to decide which port to use
+        let address: &str;
+        let ssh_port: u16;
 
-            let mut iterator = endpoint.split(':');
+        let mut iterator = endpoint.split(':');
 
-            match iterator.next() {
-                Some(host_address) => {
-                    address = host_address;
-                    match iterator.next() {
-                        Some(port) => match port.parse::<u16>() {
-                            Ok(port) => {
-                                ssh_port = port;
-                            }
-                            Err(error_detail) => {
-                                return Err(Error::FailedInitialization(format!(
-                                    "failure to parse given port : {}",
-                                    error_detail
-                                )));
-                            }
-                        },
-                        None => {
-                            // No port specified, using default ssh port then
-                            ssh_port = 22;
+        match iterator.next() {
+            Some(host_address) => {
+                address = host_address;
+                match iterator.next() {
+                    Some(port) => match port.parse::<u16>() {
+                        Ok(port) => {
+                            ssh_port = port;
                         }
+                        Err(error_detail) => {
+                            return Err(Error::FailedInitialization(format!(
+                                "failure to parse given port : {}",
+                                error_detail
+                            )));
+                        }
+                    },
+                    None => {
+                        // No port specified, using default ssh port then
+                        ssh_port = 22;
                     }
                 }
-                None => {
-                    return Err(Error::FailedInitialization("empty address".to_string()));
+            }
+            None => {
+                return Err(Error::FailedInitialization("empty address".to_string()));
+            }
+        }
+
+        match TcpStream::connect(format!("{}:{}", address, ssh_port)) {
+            Ok(tcp) => {
+                self.session.set_tcp_stream(tcp);
+
+                if let Err(error_detail) = self.session.handshake() {
+                    return Err(Error::FailedInitialization(format!("{:?}", error_detail)));
+                }
+
+                match &self.auth {
+                    Ssh2AuthMethod::UsernamePassword(credentials) => {
+                        self.session
+                            .userauth_password(credentials.username(), credentials.password())
+                            .unwrap();
+                        if self.session.authenticated() {
+                            return Ok(());
+                        } else {
+                            return Err(Error::FailedInitialization(String::from(
+                                "Authentication failed",
+                            )));
+                        }
+                    }
+                    Ssh2AuthMethod::KeyFile((username, privatekeypath)) => {
+                        self.session
+                            .userauth_pubkey_file(username.as_str(), None, &privatekeypath, None)
+                            .unwrap(); // TODO : add pubkey and passphrase support
+                        if self.session.authenticated() {
+                            return Ok(());
+                        } else {
+                            return Err(Error::FailedInitialization(String::from(
+                                "Authentication failed",
+                            )));
+                        }
+                    }
+                    Ssh2AuthMethod::KeyMemory((username, pem)) => {
+                        self.session
+                            .userauth_pubkey_memory(
+                                username.as_str(),
+                                None,
+                                pem.to_string().as_str(), // Pem struct doesn't implement directly '.as_str()' but accepts '.to_string()'
+                                None,
+                            )
+                            .unwrap(); // TODO : add pubkey and passphrase support
+                        if self.session.authenticated() {
+                            return Ok(());
+                        } else {
+                            return Err(Error::FailedInitialization(String::from(
+                                "Authentication failed",
+                            )));
+                        }
+                    }
+                    // Ssh2AuthMethod::Agent(_agent) => {
+                    //     return Ok(());
+                    // }
+                    _ => return Err(Error::FailedInitialization(String::from("Other error"))),
                 }
             }
-
-            match TcpStream::connect(format!("{}:{}", address, ssh_port)) {
-                Ok(tcp) => {
-                    self.session.set_tcp_stream(tcp);
-
-                    if let Err(error_detail) = self.session.handshake() {
-                        return Err(Error::FailedInitialization(format!("{:?}", error_detail)));
-                    }
-
-                    match &self.auth {
-                        Ssh2AuthMethod::UsernamePassword(credentials) => {
-                            self.session
-                                .userauth_password(credentials.username(), credentials.password())
-                                .unwrap();
-                            if self.session.authenticated() {
-                                return Ok(());
-                            } else {
-                                return Err(Error::FailedInitialization(String::from(
-                                    "Authentication failed",
-                                )));
-                            }
-                        }
-                        Ssh2AuthMethod::KeyFile((username, privatekeypath)) => {
-                            self.session
-                                .userauth_pubkey_file(
-                                    username.as_str(),
-                                    None,
-                                    &privatekeypath,
-                                    None,
-                                )
-                                .unwrap(); // TODO : add pubkey and passphrase support
-                            if self.session.authenticated() {
-                                return Ok(());
-                            } else {
-                                return Err(Error::FailedInitialization(String::from(
-                                    "Authentication failed",
-                                )));
-                            }
-                        }
-                        Ssh2AuthMethod::KeyMemory((username, pem)) => {
-                            self.session
-                                .userauth_pubkey_memory(
-                                    username.as_str(),
-                                    None,
-                                    pem.to_string().as_str(), // Pem struct doesn't implement directly '.as_str()' but accepts '.to_string()'
-                                    None,
-                                )
-                                .unwrap(); // TODO : add pubkey and passphrase support
-                            if self.session.authenticated() {
-                                return Ok(());
-                            } else {
-                                return Err(Error::FailedInitialization(String::from(
-                                    "Authentication failed",
-                                )));
-                            }
-                        }
-                        // Ssh2AuthMethod::Agent(_agent) => {
-                        //     return Ok(());
-                        // }
-                        _ => return Err(Error::FailedInitialization(String::from("Other error"))),
-                    }
-                }
-                Err(e) => {
-                    return Err(Error::FailedTcpBinding(format!("{:?}", e)));
-                }
+            Err(e) => {
+                return Err(Error::FailedTcpBinding(format!("{:?}", e)));
             }
+        }
     }
 
     fn is_connected(&mut self) -> bool {
@@ -139,8 +133,15 @@ impl HostHandler for Ssh2HostHandler {
     }
 
     fn disconnect(&mut self) -> Result<(), Error> {
-        if let Err(ssh2_error_detail) = self.session.disconnect(Some(ssh2::DisconnectCode::ByApplication), "disconnection called", None) {
-            return Err(Error::AnyOtherError(format!("failed to close SSH2 session : {}", ssh2_error_detail)));
+        if let Err(ssh2_error_detail) = self.session.disconnect(
+            Some(ssh2::DisconnectCode::ByApplication),
+            "disconnection called",
+            None,
+        ) {
+            return Err(Error::AnyOtherError(format!(
+                "failed to close SSH2 session : {}",
+                ssh2_error_detail
+            )));
         }
         Ok(())
     }
@@ -172,11 +173,10 @@ impl HostHandler for Ssh2HostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<CommandResult, Error> {
-
         match self.session.channel_session() {
             Ok(mut channel) => {
                 let final_command = final_command(command, privilege, &WhichUser::CurrentUser);
-                
+
                 if let Err(error_detail) = channel.exec(&final_command) {
                     return Err(Error::FailureToRunCommand(format!("{:?}", error_detail)));
                 }
@@ -195,7 +195,7 @@ impl HostHandler for Ssh2HostHandler {
                 return Ok(CommandResult {
                     return_code: channel.exit_status().unwrap(),
                     stdout,
-                    stderr
+                    stderr,
                 });
             }
             Err(e) => {
@@ -209,20 +209,28 @@ impl Ssh2HostHandler {
     pub fn from(auth: Ssh2AuthMethod) -> Ssh2HostHandler {
         Ssh2HostHandler {
             auth,
-            session: Session::new().unwrap()
+            session: Session::new().unwrap(),
         }
     }
 
     pub fn username_password(username: &str, password: &str) -> Ssh2HostHandler {
-        Ssh2HostHandler::from(Ssh2AuthMethod::UsernamePassword(Credentials::from(username, password)))
+        Ssh2HostHandler::from(Ssh2AuthMethod::UsernamePassword(Credentials::from(
+            username, password,
+        )))
     }
 
     pub fn key_file(username: &str, key_file_path: &str) -> Ssh2HostHandler {
-        Ssh2HostHandler::from(Ssh2AuthMethod::KeyFile((username.to_string(), PathBuf::from(key_file_path))))
+        Ssh2HostHandler::from(Ssh2AuthMethod::KeyFile((
+            username.to_string(),
+            PathBuf::from(key_file_path),
+        )))
     }
 
     pub fn key_in_memory(username: &str, key_content: Pem) -> Ssh2HostHandler {
-        Ssh2HostHandler::from(Ssh2AuthMethod::KeyMemory((username.to_string(), key_content)))
+        Ssh2HostHandler::from(Ssh2AuthMethod::KeyMemory((
+            username.to_string(),
+            key_content,
+        )))
     }
 
     pub fn agent(agent_name: &str) -> Ssh2HostHandler {
@@ -260,4 +268,3 @@ impl std::fmt::Debug for Ssh2AuthMethod {
         }
     }
 }
-

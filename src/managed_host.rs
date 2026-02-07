@@ -53,7 +53,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ComplianceAssesment, Error> {
-        if ! self.is_connected() {
+        if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
         }
 
@@ -85,7 +85,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ComplianceAssesment, Error> {
-        if ! self.is_connected() {
+        if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
         }
 
@@ -137,7 +137,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ComplianceStatus, Error> {
-        if ! self.is_connected() {
+        if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
         }
 

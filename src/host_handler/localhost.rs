@@ -2,10 +2,10 @@ use crate::command::CommandResult;
 use crate::error::Error;
 use crate::host_handler::host_handler::HostHandler;
 use crate::host_handler::host_handler::final_command;
+use crate::host_handler::privilege::Credentials;
 use crate::host_handler::privilege::Privilege;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
-use crate::host_handler::privilege::Credentials;
 
 pub struct LocalHostHandler {
     pub user: WhichUser,
@@ -69,7 +69,9 @@ impl HostHandler for LocalHostHandler {
             WhichUser::UsernamePassword(credentials) => {
                 let command_content = format!(
                     "echo \"{}\" | su - {} -c \"{}\"",
-                    credentials.password(), credentials.username(), final_command
+                    credentials.password(),
+                    credentials.username(),
+                    final_command
                 );
 
                 Command::new("sh").arg("-c").arg(command_content).output()
@@ -93,5 +95,3 @@ pub enum WhichUser {
     PasswordLessUser(String), // The String being the username
     UsernamePassword(Credentials),
 }
-
-

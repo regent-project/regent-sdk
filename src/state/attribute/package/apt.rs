@@ -1,9 +1,9 @@
-use crate::managed_host::InternalApiCallOutcome;
-use crate::state::attribute::HostHandler;
-use crate::state::attribute::Remediation;
 use crate::error::Error;
-use crate::state::attribute::Privilege;
+use crate::managed_host::InternalApiCallOutcome;
 use crate::managed_host::{AssessCompliance, ReachCompliance};
+use crate::state::attribute::HostHandler;
+use crate::state::attribute::Privilege;
+use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -205,14 +205,23 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => (
-                format!("DEBIAN_FRONTEND=noninteractive apt-get install -y {}", package_name),
+                format!(
+                    "DEBIAN_FRONTEND=noninteractive apt-get install -y {}",
+                    package_name
+                ),
                 &self.privilege,
             ),
             AptModuleInternalApiCall::Remove(package_name) => (
-                format!("DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y {}", package_name),
+                format!(
+                    "DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y {}",
+                    package_name
+                ),
                 &self.privilege,
             ),
-            AptModuleInternalApiCall::Upgrade => ("apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y".to_string(), &self.privilege),
+            AptModuleInternalApiCall::Upgrade => (
+                "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y".to_string(),
+                &self.privilege,
+            ),
         };
 
         let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
@@ -245,32 +254,61 @@ fn is_package_installed<Handler: HostHandler>(host_handler: &mut Handler, packag
     if test.return_code == 0 { true } else { false }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::prelude::*;
+#[cfg(test)]
+mod tests {
 
-//     #[test]
-//     fn parsing_apt_module_block_from_yaml_str() {
-//         let raw_tasklist_description = "---
-// - name: Dummy steps to test deserialization and syntax of this module
-//   steps:
-//     - name: Package must be present
-//       apt:
-//         package: apache2
-//         state: present
-//     - name: Package must be absent
-//       apt:
-//         package: apache2
-//         state: absent
-//     - name: Package must be present with upgrade
-//       apt:
-//         package: apache2
-//         state: present
-//         upgrade: true
-//         ";
+    use super::*;
 
-//         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFormat::Yaml);
+    #[test]
+    fn parsing_apt_module_block_from_yaml_str() {
+        let raw_attributes = "---
+- package: apache2
+  state: present
 
-//         assert!(parsed_tasklist.is_ok());
-//     }
-// }
+- package: apache2
+  state: absent
+
+- upgrade: true
+    ";
+
+        let attributes: Vec<AptBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
+
+        assert_eq!(attributes[0].package, Some("apache2".to_string()));
+        assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));
+        assert_eq!(attributes[0].upgrade, None);
+
+        assert_eq!(attributes[1].package, Some("apache2".to_string()));
+        assert_eq!(attributes[1].state, Some(PackageExpectedState::Absent));
+        assert_eq!(attributes[1].upgrade, None);
+
+        assert_eq!(attributes[2].package, None);
+        assert_eq!(attributes[2].state, None);
+        assert_eq!(attributes[2].upgrade, Some(true));
+    }
+
+    #[test]
+    fn rejecting_incorrect_apt_module_block_from_yaml_str() {
+        let raw_attribute = "---
+- 
+    ";
+        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+
+        let raw_attribute = "---
+- package: apache2
+    ";
+        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+
+        let raw_attribute = "---
+- package:
+  state: absent
+    ";
+        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+
+        let raw_attribute = "---
+- package: apache2
+  state: absent
+  unknown_key: unknown_value
+    ";
+        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+    }
+}

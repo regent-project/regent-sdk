@@ -17,5 +17,5 @@ pub enum Error {
     AnyOtherError(String),
     IncoherentExpectedState(String),
     InternalLogicError(String),
-    NotConnectedToHost
+    NotConnectedToHost,
 }

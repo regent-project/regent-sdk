@@ -1,9 +1,9 @@
-use crate::managed_host::InternalApiCallOutcome;
-use crate::state::attribute::HostHandler;
-use crate::state::attribute::Remediation;
 use crate::error::Error;
-use crate::state::attribute::Privilege;
+use crate::managed_host::InternalApiCallOutcome;
 use crate::managed_host::{AssessCompliance, ReachCompliance};
+use crate::state::attribute::HostHandler;
+use crate::state::attribute::Privilege;
+use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -242,32 +242,61 @@ fn is_package_installed<Handler: HostHandler>(host_handler: &mut Handler, packag
     if test.return_code == 0 { true } else { false }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::prelude::*;
+#[cfg(test)]
+mod tests {
 
-//     #[test]
-//     fn parsing_pacman_module_block_from_yaml_str() {
-//         let raw_tasklist_description = "---
-// - name: Dummy steps to test deserialization and syntax of this module
-//   steps:
-//     - name: Package must be present
-//       pacman:
-//         package: apache
-//         state: present
-//     - name: Package must be absent
-//       pacman:
-//         package: apache
-//         state: absent
-//     - name: Package must be present with upgrade
-//       pacman:
-//         package: apache
-//         state: present
-//         upgrade: true
-//         ";
+    use super::*;
 
-//         let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFormat::Yaml);
+    #[test]
+    fn parsing_pacman_module_block_from_yaml_str() {
+        let raw_attributes = "---
+- package: apache
+  state: present
 
-//         assert!(parsed_tasklist.is_ok());
-//     }
-// }
+- package: apache
+  state: absent
+
+- upgrade: true
+    ";
+
+        let attributes: Vec<PacmanBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
+
+        assert_eq!(attributes[0].package, Some("apache".to_string()));
+        assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));
+        assert_eq!(attributes[0].upgrade, None);
+
+        assert_eq!(attributes[1].package, Some("apache".to_string()));
+        assert_eq!(attributes[1].state, Some(PackageExpectedState::Absent));
+        assert_eq!(attributes[1].upgrade, None);
+
+        assert_eq!(attributes[2].package, None);
+        assert_eq!(attributes[2].state, None);
+        assert_eq!(attributes[2].upgrade, Some(true));
+    }
+
+    #[test]
+    fn rejecting_incorrect_pacman_module_block_from_yaml_str() {
+        let raw_attribute = "---
+- 
+    ";
+        assert!(serde_yaml::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
+
+        let raw_attribute = "---
+- package: apache
+    ";
+        assert!(serde_yaml::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
+
+        let raw_attribute = "---
+- package:
+  state: absent
+    ";
+        assert!(serde_yaml::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
+
+        let raw_attribute = "---
+- package: apache
+  state: absent
+  unknown_key: unknown_value
+    ";
+        assert!(serde_yaml::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
+    }
+}

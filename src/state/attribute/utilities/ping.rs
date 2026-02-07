@@ -1,0 +1,51 @@
+use crate::error::Error;
+use crate::managed_host::InternalApiCallOutcome;
+use crate::managed_host::{AssessCompliance, ReachCompliance};
+use crate::state::attribute::HostHandler;
+use crate::state::attribute::Privilege;
+use crate::state::attribute::Remediation;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PingBlockExpectedState {}
+
+// impl Check for PingBlockExpectedState {
+//     fn check(&self) -> Result<(), Error> {
+//         Ok(())
+//     }
+// }
+
+impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState {
+    fn assess_compliance(
+        &self,
+        host_handler: &mut Handler,
+        privilege: &Privilege,
+    ) -> Result<Option<Vec<Remediation>>, Error> {
+        let cmd = String::from("id");
+        let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
+
+        if cmd_result.return_code == 0 {
+            return Ok(None);
+        } else {
+            return Err(Error::FailedDryRunEvaluation(
+                "Host unreachable".to_string(),
+            ));
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PingApiCall {
+    privilege: Privilege,
+}
+
+impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
+    // fn display(&self) -> String {
+    //     return format!("Check SSH connectivity with remote host");
+    // }
+
+    fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
+        Ok(InternalApiCallOutcome::Success)
+    }
+}

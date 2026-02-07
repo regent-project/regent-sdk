@@ -1,7 +1,8 @@
 use regent_sdk::{
     host_handler::{
         localhost::{LocalHostHandler, WhichUser},
-        privilege::Privilege, ssh2::Ssh2HostHandler,
+        privilege::Privilege,
+        ssh2::Ssh2HostHandler,
     },
     managed_host::ManagedHost,
     state::{
@@ -31,10 +32,7 @@ fn main() {
         .unwrap();
 
     let expected_state = ExpectedState::new()
-        .with_attribute(Attribute::apt(
-            apache_expected_state,
-            Privilege::WithSudo,
-        ))
+        .with_attribute(Attribute::apt(apache_expected_state, Privilege::WithSudo))
         .build();
 
     match managed_host.assess_compliance(&expected_state) {

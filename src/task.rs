@@ -16,7 +16,6 @@ use crate::state::ExpectedState;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Serialize, Deserialize)]
 pub struct TaskDescription<Handler: HostHandler> {
     host: ManagedHost<Handler>,
@@ -26,15 +25,17 @@ pub struct TaskDescription<Handler: HostHandler> {
 }
 
 impl<Handler: HostHandler> TaskDescription<Handler> {
-    pub fn from(host: ManagedHost<Handler>,
-    expected_state: ExpectedState,
-    mission: Mission,
-    correlation_id: Option<String>) -> Self {
+    pub fn from(
+        host: ManagedHost<Handler>,
+        expected_state: ExpectedState,
+        mission: Mission,
+        correlation_id: Option<String>,
+    ) -> Self {
         Self {
             host,
             expected_state,
             mission,
-            correlation_id
+            correlation_id,
         }
     }
 

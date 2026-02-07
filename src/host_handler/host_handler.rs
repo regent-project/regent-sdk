@@ -4,7 +4,6 @@ use crate::{command::CommandResult, host_handler::privilege::Privilege};
 
 use serde::{Deserialize, Serialize};
 pub trait HostHandler: Sized {
-
     fn connect(&mut self, endpoint: &str) -> Result<(), Error>;
 
     fn is_connected(&mut self) -> bool;
