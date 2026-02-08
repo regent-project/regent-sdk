@@ -1,5 +1,7 @@
 pub mod package;
 pub mod utilities;
+pub mod system;
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
@@ -10,6 +12,8 @@ use crate::state::attribute::package::apt::AptApiCall;
 use crate::state::attribute::package::apt::AptBlockExpectedState;
 use crate::state::attribute::package::yumdnf::YumDnfApiCall;
 use crate::state::attribute::package::yumdnf::YumDnfBlockExpectedState;
+use crate::state::attribute::system::service::ServiceApiCall;
+use crate::state::attribute::system::service::ServiceBlockExpectedState;
 use crate::state::attribute::utilities::debug::DebugApiCall;
 use crate::state::attribute::utilities::debug::DebugBlockExpectedState;
 use crate::state::attribute::utilities::lineinfile::LineInFileApiCall;
@@ -68,6 +72,7 @@ pub enum AttributeDetail {
     LineInFile(LineInFileBlockExpectedState),
     Debug(DebugBlockExpectedState),
     Ping(PingBlockExpectedState),
+    Service(ServiceBlockExpectedState),
 }
 
 impl AttributeDetail {
@@ -93,6 +98,9 @@ impl AttributeDetail {
                 expected_state_criteria.assess_compliance(host_handler, privilege)
             }
             AttributeDetail::Ping(expected_state_criteria) => {
+                expected_state_criteria.assess_compliance(host_handler, privilege)
+            }
+            AttributeDetail::Service(expected_state_criteria) => {
                 expected_state_criteria.assess_compliance(host_handler, privilege)
             }
         }
@@ -188,6 +196,17 @@ impl AttributeDetail {
                                     }
                                 }
                             }
+                            Remediation::Service(attribute_api_call) => {
+                                match attribute_api_call.call(host_handler) {
+                                    Ok(internal_api_call_outcome) => {
+                                        actions_taken
+                                            .push((remediation, internal_api_call_outcome));
+                                    }
+                                    Err(error_detail) => {
+                                        return Err(error_detail);
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -211,4 +230,5 @@ pub enum Remediation {
     LineInFile(LineInFileApiCall),
     Debug(DebugApiCall),
     Ping(PingApiCall),
+    Service(ServiceApiCall),
 }

@@ -49,3 +49,19 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
         Ok(InternalApiCallOutcome::Success)
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn parsing_ping_module_block_from_yaml_str() {
+        // This is weird to deserialize an empty content. Options may come later for the ping module (timeout for example)
+        let raw_attributes = "---
+    ";
+
+        let attribute: PingBlockExpectedState = serde_yaml::from_str(raw_attributes).unwrap();
+    }
+}

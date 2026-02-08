@@ -431,39 +431,28 @@ mod tests {
 
     #[test]
     fn parsing_lineinfile_module_block_from_yaml_str() {
-        let raw_tasklist_description = "---
-- name: Dummy steps to test deserialization and syntax of this module
-  steps:
-    - name: Add a line at the top
-      lineinfile:
-        filepath: /path/to/my/file
-        line: the first line
-        state: present
-        position: top
+        let raw_attributes = "---
 
-    - name: Add a line at the 2nd place
-      lineinfile:
-        filepath: /path/to/my/file
-        line: 2nd line
-        state: present
-        position: 2
-        
-    - name: Add a line at the bottom
-      lineinfile:
-        filepath: /path/to/my/file
-        line: the last line
-        state: present
-        position: bottom
+- filepath: /path/to/my/file
+  line: the first line
+  state: present
+  position: top
 
-    - name: Remove all occurences of a line based on its content
-      lineinfile:
-        filepath: /path/to/my/file
-        line: the content expected not to be present at all
-        state: absent
-        ";
+- filepath: /path/to/my/file
+  line: 2nd line
+  state: present
+  position: 2
 
-        let parsed_tasklist = TaskList::from_str(raw_tasklist_description, TaskListFormat::Yaml);
+- filepath: /path/to/my/file
+  line: the last line
+  state: present
+  position: bottom
 
-        assert!(parsed_tasklist.is_ok());
+- filepath: /path/to/my/file
+  line: the content expected not to be present at all
+  state: absent
+    ";
+
+        let attributes: Vec<LineInFileBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
     }
 }

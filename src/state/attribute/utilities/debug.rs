@@ -41,3 +41,20 @@ impl<Handler: HostHandler> ReachCompliance<Handler>  for DebugApiCall {
         Ok(InternalApiCallOutcome::Success)
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn parsing_debug_module_block_from_yaml_str() {
+        let attribute = "---
+msg: some content
+    ";
+
+        let attribute: DebugBlockExpectedState = serde_yaml::from_str(attribute).unwrap();
+
+        assert_eq!(attribute.msg, "some content".to_string());
+    }
+}
