@@ -5,6 +5,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
+use crate::state::compliance::AttributeComplianceAssessment;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum YumDnfModuleInternalApiCall {
@@ -104,7 +105,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         let package_manager: RedHatFlavoredPackageManager;
 
         if host_handler
@@ -191,11 +192,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
             match remediation {
                 Remediation::None(_) => {}
                 _ => {
-                    return Ok(Some(remediations));
+                    return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
                 }
             }
         }
-        return Ok(None);
+        return Ok(AttributeComplianceAssessment::Compliant);
     }
 }
 
@@ -332,7 +333,8 @@ mod tests {
 - upgrade: true
     ";
 
-        let attributes: Vec<YumDnfBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
+        let attributes: Vec<YumDnfBlockExpectedState> =
+            serde_yaml::from_str(raw_attributes).unwrap();
 
         assert_eq!(attributes[0].package, Some("httpd".to_string()));
         assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));

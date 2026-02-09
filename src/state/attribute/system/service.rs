@@ -5,6 +5,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
+use crate::state::compliance::AttributeComplianceAssessment;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ServiceModuleInternalApiCall {
@@ -120,7 +121,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         // Prechecks
 
         if !host_handler
@@ -209,10 +210,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                 match service_auto_start_expected_state {
                     ServiceExpectedAutoStart::Enabled => {
                         if service_is_enabled {
-                            remediations.push(Remediation::None(format!(
-                                "{} already enabled",
-                                &self.name
-                            )));
+                            remediations
+                                .push(Remediation::None(format!("{} already enabled", &self.name)));
                         } else {
                             // SERVICE MUST BE ENABLED
                             remediations.push(Remediation::Service(ServiceApiCall::from(
@@ -244,11 +243,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
             match change {
                 Remediation::None(_) => {}
                 _ => {
-                    return Ok(Some(remediations));
+                    return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
                 }
             }
         }
-        return Ok(None);
+        return Ok(AttributeComplianceAssessment::Compliant);
     }
 }
 
@@ -277,16 +276,13 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
     // }
 
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
-        
         let (cmd, privilege) = match &self.api_call {
-            ServiceModuleInternalApiCall::Start(service_name) => (
-                format!("systemctl start {}", service_name),
-                &self.privilege,
-            ),
-            ServiceModuleInternalApiCall::Stop(service_name) => (
-                format!("systemctl stop {}", service_name),
-                &self.privilege,
-            ),
+            ServiceModuleInternalApiCall::Start(service_name) => {
+                (format!("systemctl start {}", service_name), &self.privilege)
+            }
+            ServiceModuleInternalApiCall::Stop(service_name) => {
+                (format!("systemctl stop {}", service_name), &self.privilege)
+            }
             ServiceModuleInternalApiCall::Enable(service_name) => (
                 format!("systemctl enable {}", service_name),
                 &self.privilege,
@@ -339,7 +335,10 @@ fn service_is_active<Handler: HostHandler>(
                     Ok(false)
                 }
             }
-            _ => Err(format!("Unknown return code : RC : {}, STDOUT : {}, STDERR : {}", test_result.return_code, test_result.stdout, test_result.stderr)),
+            _ => Err(format!(
+                "Unknown return code : RC : {}, STDOUT : {}, STDERR : {}",
+                test_result.return_code, test_result.stdout, test_result.stderr
+            )),
         },
         Err(e) => Err(format!("Unable to check service status : {:?}", e)),
     }
@@ -366,7 +365,10 @@ fn service_is_enabled<Handler: HostHandler>(
                         Ok(false)
                     }
                 }
-                _ => Err(format!("Unknown return code : RC : {}, STDOUT : {}, STDERR : {}", test_result.return_code, test_result.stdout, test_result.stderr)),
+                _ => Err(format!(
+                    "Unknown return code : RC : {}, STDOUT : {}, STDERR : {}",
+                    test_result.return_code, test_result.stdout, test_result.stderr
+                )),
             }
         }
         Err(e) => Err(format!("Unable to check service status : {:?}", e)),
@@ -389,6 +391,7 @@ mod tests {
   auto_start: disabled
         ";
 
-        let attributes: Vec<ServiceBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
+        let attributes: Vec<ServiceBlockExpectedState> =
+            serde_yaml::from_str(raw_attributes).unwrap();
     }
 }

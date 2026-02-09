@@ -5,6 +5,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
+use crate::state::compliance::AttributeComplianceAssessment;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum PacmanModuleInternalApiCall {
@@ -103,7 +104,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
             .is_this_command_available("pacman", &Privilege::None)
             .unwrap()
@@ -167,11 +168,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
             match remediation {
                 Remediation::None(_) => {}
                 _ => {
-                    return Ok(Some(remediations));
+                    return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
                 }
             }
         }
-        return Ok(None);
+        return Ok(AttributeComplianceAssessment::Compliant);
     }
 }
 
@@ -259,7 +260,8 @@ mod tests {
 - upgrade: true
     ";
 
-        let attributes: Vec<PacmanBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
+        let attributes: Vec<PacmanBlockExpectedState> =
+            serde_yaml::from_str(raw_attributes).unwrap();
 
         assert_eq!(attributes[0].package, Some("apache".to_string()));
         assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));

@@ -5,6 +5,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
+use crate::state::compliance::AttributeComplianceAssessment;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -21,12 +22,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         let cmd = String::from("id");
         let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
 
         if cmd_result.return_code == 0 {
-            return Ok(None);
+            return Ok(AttributeComplianceAssessment::Compliant);
         } else {
             return Err(Error::FailedDryRunEvaluation(
                 "Host unreachable".to_string(),
@@ -49,7 +50,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
         Ok(InternalApiCallOutcome::Success)
     }
 }
-
 
 #[cfg(test)]
 mod tests {

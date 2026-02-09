@@ -5,6 +5,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
+use crate::state::compliance::AttributeComplianceAssessment;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum LineInFileModuleInternalApiCall {
@@ -74,7 +75,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
             .is_this_command_available("sed", &privilege)
             .unwrap()
@@ -220,16 +221,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                     None => {
                         // Line is absent and needs to be added
                         match &self.position {
-                            Some(expected_position) => {
-                                Remediation::LineInFile(LineInFileApiCall {
-                                    api_call: LineInFileModuleInternalApiCall::Add(
-                                        expected_position.clone(),
-                                    ),
-                                    line_content: self.line.as_ref().unwrap().clone(),
-                                    file_path: self.filepath.clone(),
-                                    privilege,
-                                })
-                            }
+                            Some(expected_position) => Remediation::LineInFile(LineInFileApiCall {
+                                api_call: LineInFileModuleInternalApiCall::Add(
+                                    expected_position.clone(),
+                                ),
+                                line_content: self.line.as_ref().unwrap().clone(),
+                                file_path: self.filepath.clone(),
+                                privilege,
+                            }),
                             None => {
                                 // Defaults to bottom
                                 Remediation::LineInFile(LineInFileApiCall {
@@ -268,9 +267,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
         };
 
         if let Remediation::None(_message) = remediation {
-            Ok(None)
+            Ok(AttributeComplianceAssessment::Compliant)
         } else {
-            Ok(Some(Vec::from([remediation])))
+            Ok(AttributeComplianceAssessment::NonCompliant(Vec::from([remediation])))
         }
     }
 }
@@ -333,11 +332,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                         }
                         LineExpectedPosition::SpecificLineNumber(_any_other_line_number) => {
                             // Position = <any other value> which is out of range anyway
-                            return Ok(InternalApiCallOutcome::Failure(
-                                String::from(
-                                    "Position value out of range (use \"bottom\" instead)",
-                                )
-                            ));
+                            return Ok(InternalApiCallOutcome::Failure(String::from(
+                                "Position value out of range (use \"bottom\" instead)",
+                            )));
                         }
                     }
                 } else {
@@ -357,17 +354,17 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                     );
                 }
 
-                let cmd_result = host_handler.run_command(cmd.as_str(), &self.privilege).unwrap();
+                let cmd_result = host_handler
+                    .run_command(cmd.as_str(), &self.privilege)
+                    .unwrap();
 
                 if cmd_result.return_code == 0 {
                     return Ok(InternalApiCallOutcome::Success);
                 } else {
-                    return Ok(InternalApiCallOutcome::Failure(
-                        format!(
-                            "Failed to add line. RC : {}, STDOUT : {}, STDERR : {}",
-                            cmd_result.return_code, cmd_result.stdout, cmd_result.stderr
-                        )
-                    ));
+                    return Ok(InternalApiCallOutcome::Failure(format!(
+                        "Failed to add line. RC : {}, STDOUT : {}, STDERR : {}",
+                        cmd_result.return_code, cmd_result.stdout, cmd_result.stderr
+                    )));
                 }
             }
             LineInFileModuleInternalApiCall::Delete(line_numbers) => {
@@ -383,17 +380,17 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                     .0; // Delete the last ';
 
                 let cmd = format!("sed -i \'{}\' {}", formatted_line_numbers, self.file_path);
-                let cmd_result = host_handler.run_command(cmd.as_str(), &self.privilege).unwrap();
+                let cmd_result = host_handler
+                    .run_command(cmd.as_str(), &self.privilege)
+                    .unwrap();
 
                 if cmd_result.return_code == 0 {
                     return Ok(InternalApiCallOutcome::Success);
                 } else {
-                    return Ok(InternalApiCallOutcome::Failure(
-                        format!(
-                            "Failed to remove line. RC : {}, STDOUT : {}, STDERR : {}",
-                            cmd_result.return_code, cmd_result.stdout, cmd_result.stderr
-                        )
-                    ));
+                    return Ok(InternalApiCallOutcome::Failure(format!(
+                        "Failed to remove line. RC : {}, STDOUT : {}, STDERR : {}",
+                        cmd_result.return_code, cmd_result.stdout, cmd_result.stderr
+                    )));
                 }
             }
         }
@@ -453,6 +450,7 @@ mod tests {
   state: absent
     ";
 
-        let attributes: Vec<LineInFileBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
+        let attributes: Vec<LineInFileBlockExpectedState> =
+            serde_yaml::from_str(raw_attributes).unwrap();
     }
 }

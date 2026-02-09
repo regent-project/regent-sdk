@@ -5,6 +5,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
+use crate::state::compliance::AttributeComplianceAssessment;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -24,15 +25,15 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
-        return Ok(Some(Vec::from([Remediation::None(self.msg.clone())])));
+    ) -> Result<AttributeComplianceAssessment, Error> {
+        return Ok(AttributeComplianceAssessment::NonCompliant(Vec::from([Remediation::None(self.msg.clone())])));
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DebugApiCall {}
 
-impl<Handler: HostHandler> ReachCompliance<Handler>  for DebugApiCall {
+impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
     // fn display(&self) -> String {
     //     "Debug module".into()
     // }

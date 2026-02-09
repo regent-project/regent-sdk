@@ -1,17 +1,18 @@
 pub mod package;
-pub mod utilities;
+pub mod shell;
 pub mod system;
+pub mod utilities;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
-use crate::managed_host::AttributeLevelOperationOutcome;
-use crate::managed_host::HostLevelOperationOutcome;
 use crate::managed_host::InternalApiCallOutcome;
 use crate::state::attribute::package::apt::AptApiCall;
 use crate::state::attribute::package::apt::AptBlockExpectedState;
 use crate::state::attribute::package::yumdnf::YumDnfApiCall;
 use crate::state::attribute::package::yumdnf::YumDnfBlockExpectedState;
+use crate::state::attribute::shell::command::CommandApiCall;
+use crate::state::attribute::shell::command::CommandBlockExpectedState;
 use crate::state::attribute::system::service::ServiceApiCall;
 use crate::state::attribute::system::service::ServiceBlockExpectedState;
 use crate::state::attribute::utilities::debug::DebugApiCall;
@@ -20,16 +21,16 @@ use crate::state::attribute::utilities::lineinfile::LineInFileApiCall;
 use crate::state::attribute::utilities::lineinfile::LineInFileBlockExpectedState;
 use crate::state::attribute::utilities::ping::PingApiCall;
 use crate::state::attribute::utilities::ping::PingBlockExpectedState;
+use crate::state::compliance::AttributeComplianceStatus;
 use crate::{
     host_handler::{host_handler::HostHandler, privilege::Privilege},
     managed_host::{AssessCompliance, ReachCompliance},
-    state::{
-        attribute::package::pacman::{PacmanApiCall, PacmanBlockExpectedState},
-        compliance::ComplianceStatus,
-    },
+    state::attribute::package::pacman::{PacmanApiCall, PacmanBlockExpectedState},
 };
+use crate::state::compliance::AttributeComplianceAssessment;
+use crate::state::compliance::AttributeComplianceResult;
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attribute {
     pub privilege: Privilege,
     detail: AttributeDetail,
@@ -44,14 +45,14 @@ impl Attribute {
     pub fn assess<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         self.detail.assess(host_handler, &self.privilege)
     }
 
     pub fn reach_compliance<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
-    ) -> Result<AttributeLevelOperationOutcome, Error> {
+    ) -> Result<AttributeComplianceResult, Error> {
         self.detail.reach_compliance(host_handler, &self.privilege)
     }
 
@@ -64,7 +65,7 @@ impl Attribute {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AttributeDetail {
     Apt(AptBlockExpectedState),
     YumDnf(YumDnfBlockExpectedState),
@@ -73,6 +74,7 @@ pub enum AttributeDetail {
     Debug(DebugBlockExpectedState),
     Ping(PingBlockExpectedState),
     Service(ServiceBlockExpectedState),
+    Command(CommandBlockExpectedState),
 }
 
 impl AttributeDetail {
@@ -80,7 +82,7 @@ impl AttributeDetail {
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         match self {
             AttributeDetail::Apt(expected_state_criteria) => {
                 expected_state_criteria.assess_compliance(host_handler, privilege)
@@ -103,6 +105,9 @@ impl AttributeDetail {
             AttributeDetail::Service(expected_state_criteria) => {
                 expected_state_criteria.assess_compliance(host_handler, privilege)
             }
+            AttributeDetail::Command(expected_state_criteria) => {
+                expected_state_criteria.assess_compliance(host_handler, privilege)
+            }
         }
     }
 
@@ -110,10 +115,11 @@ impl AttributeDetail {
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<AttributeLevelOperationOutcome, Error> {
+    ) -> Result<AttributeComplianceResult, Error> {
         match self.assess(host_handler, privilege) {
-            Ok(optional_remediations) => match optional_remediations {
-                Some(remediations) => {
+            Ok(attribute_compliance) => match attribute_compliance {
+                AttributeComplianceAssessment::Compliant => Ok(AttributeComplianceResult::from(AttributeComplianceStatus::AlreadyCompliant, None)),
+                AttributeComplianceAssessment::NonCompliant(remediations) => {
                     if remediations.len() == 0 {
                         return Err(Error::InternalLogicError(format!(
                             "This should not have been called as the ManagedHost is already compliant"
@@ -123,7 +129,7 @@ impl AttributeDetail {
                     let mut actions_taken: Vec<(Remediation, InternalApiCallOutcome)> = Vec::new();
 
                     for remediation in remediations {
-                        match &remediation {
+                        let (remediation, internal_api_call_outcome) = match &remediation {
                             Remediation::None(message) => {
                                 return Err(Error::InternalLogicError(format!(
                                     "Remediation::None({}) : get rid of this",
@@ -133,8 +139,7 @@ impl AttributeDetail {
                             Remediation::Pacman(attribute_api_call) => {
                                 match attribute_api_call.call(host_handler) {
                                     Ok(internal_api_call_outcome) => {
-                                        actions_taken
-                                            .push((remediation, internal_api_call_outcome));
+                                        (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
@@ -144,8 +149,7 @@ impl AttributeDetail {
                             Remediation::Apt(attribute_api_call) => {
                                 match attribute_api_call.call(host_handler) {
                                     Ok(internal_api_call_outcome) => {
-                                        actions_taken
-                                            .push((remediation, internal_api_call_outcome));
+                                        (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
@@ -155,30 +159,27 @@ impl AttributeDetail {
                             Remediation::YumDnf(attribute_api_call) => {
                                 match attribute_api_call.call(host_handler) {
                                     Ok(internal_api_call_outcome) => {
-                                        actions_taken
-                                            .push((remediation, internal_api_call_outcome));
+                                        (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
                                     }
                                 }
                             }
-                            Remediation::LineInFile(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler) {
-                                    Ok(internal_api_call_outcome) => {
-                                        actions_taken
-                                            .push((remediation, internal_api_call_outcome));
-                                    }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
-                                    }
+                            Remediation::LineInFile(attribute_api_call) => match attribute_api_call
+                                .call(host_handler)
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
                                 }
-                            }
+                                Err(error_detail) => {
+                                    return Err(error_detail);
+                                }
+                            },
                             Remediation::Debug(attribute_api_call) => {
                                 match attribute_api_call.call(host_handler) {
                                     Ok(internal_api_call_outcome) => {
-                                        actions_taken
-                                            .push((remediation, internal_api_call_outcome));
+                                        (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
@@ -188,8 +189,7 @@ impl AttributeDetail {
                             Remediation::Ping(attribute_api_call) => {
                                 match attribute_api_call.call(host_handler) {
                                     Ok(internal_api_call_outcome) => {
-                                        actions_taken
-                                            .push((remediation, internal_api_call_outcome));
+                                        (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
@@ -199,22 +199,34 @@ impl AttributeDetail {
                             Remediation::Service(attribute_api_call) => {
                                 match attribute_api_call.call(host_handler) {
                                     Ok(internal_api_call_outcome) => {
-                                        actions_taken
-                                            .push((remediation, internal_api_call_outcome));
+                                        (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
                                     }
                                 }
                             }
+                            Remediation::Command(attribute_api_call) => {
+                                match attribute_api_call.call(host_handler) {
+                                    Ok(internal_api_call_outcome) => {
+                                        (remediation, internal_api_call_outcome)
+                                    }
+                                    Err(error_detail) => {
+                                        return Err(error_detail);
+                                    }
+                                }
+                            }
+                        };
+
+                        actions_taken.push((remediation, internal_api_call_outcome.clone()));
+
+                        if let InternalApiCallOutcome::Failure(_detail) = &internal_api_call_outcome {
+                            return Ok(AttributeComplianceResult::from(AttributeComplianceStatus::FailedReachedCompliance, Some(actions_taken)));
                         }
                     }
 
-                    Ok(AttributeLevelOperationOutcome::ComplianceReached(
-                        actions_taken,
-                    ))
+                    Ok(AttributeComplianceResult::from(AttributeComplianceStatus::ReachedCompliance, Some(actions_taken)))
                 }
-                None => Ok(AttributeLevelOperationOutcome::AlreadyCompliant),
             },
             Err(error_detail) => Err(error_detail),
         }
@@ -231,4 +243,28 @@ pub enum Remediation {
     Debug(DebugApiCall),
     Ping(PingApiCall),
     Service(ServiceApiCall),
+    Command(CommandApiCall),
+}
+
+impl Remediation {
+    pub fn reach_compliance<Handler: HostHandler>(
+        &self,
+        host_handler: &mut Handler,
+    ) -> Result<InternalApiCallOutcome, Error> {
+        match self {
+            Remediation::None(_) => {
+                // This case should not occur here according to current logic
+                Err(Error::InternalLogicError(String::from("Unexpected remediation"))
+                )
+            }
+            Remediation::Pacman(api_call) => api_call.call(host_handler),
+            Remediation::Apt(api_call) => api_call.call(host_handler),
+            Remediation::YumDnf(api_call) => api_call.call(host_handler),
+            Remediation::LineInFile(api_call) => api_call.call(host_handler),
+            Remediation::Debug(api_call) => api_call.call(host_handler),
+            Remediation::Ping(api_call) => api_call.call(host_handler),
+            Remediation::Service(api_call) => api_call.call(host_handler),
+            Remediation::Command(api_call) => api_call.call(host_handler),
+        }
+    }
 }

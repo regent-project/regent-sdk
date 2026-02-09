@@ -5,6 +5,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use serde::{Deserialize, Serialize};
+use crate::state::compliance::AttributeComplianceAssessment;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum AptModuleInternalApiCall {
@@ -103,7 +104,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
         &self,
         host_handler: &mut Handler,
         privilege: &Privilege,
-    ) -> Result<Option<Vec<Remediation>>, Error> {
+    ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
             .is_this_command_available("apt-get", &Privilege::None)
             .unwrap()
@@ -173,11 +174,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
             match remediation {
                 Remediation::None(_) => {}
                 _ => {
-                    return Ok(Some(remediations));
+                    return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
                 }
             }
         }
-        return Ok(None);
+        return Ok(AttributeComplianceAssessment::Compliant);
     }
 }
 
