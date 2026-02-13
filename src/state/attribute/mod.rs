@@ -21,14 +21,14 @@ use crate::state::attribute::utilities::lineinfile::LineInFileApiCall;
 use crate::state::attribute::utilities::lineinfile::LineInFileBlockExpectedState;
 use crate::state::attribute::utilities::ping::PingApiCall;
 use crate::state::attribute::utilities::ping::PingBlockExpectedState;
+use crate::state::compliance::AttributeComplianceAssessment;
+use crate::state::compliance::AttributeComplianceResult;
 use crate::state::compliance::AttributeComplianceStatus;
 use crate::{
     host_handler::{host_handler::HostHandler, privilege::Privilege},
     managed_host::{AssessCompliance, ReachCompliance},
     state::attribute::package::pacman::{PacmanApiCall, PacmanBlockExpectedState},
 };
-use crate::state::compliance::AttributeComplianceAssessment;
-use crate::state::compliance::AttributeComplianceResult;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Attribute {
@@ -56,12 +56,38 @@ impl Attribute {
         self.detail.reach_compliance(host_handler, &self.privilege)
     }
 
+    // Convenience methods for attributes building
+
     pub fn apt(details: AptBlockExpectedState, privilege: Privilege) -> Attribute {
         Attribute::from(AttributeDetail::Apt(details), privilege)
     }
 
     pub fn pacman(details: PacmanBlockExpectedState, privilege: Privilege) -> Attribute {
         Attribute::from(AttributeDetail::Pacman(details), privilege)
+    }
+
+    pub fn yumdnf(details: YumDnfBlockExpectedState, privilege: Privilege) -> Attribute {
+        Attribute::from(AttributeDetail::YumDnf(details), privilege)
+    }
+
+    pub fn command(details: CommandBlockExpectedState, privilege: Privilege) -> Attribute {
+        Attribute::from(AttributeDetail::Command(details), privilege)
+    }
+
+    pub fn service(details: ServiceBlockExpectedState, privilege: Privilege) -> Attribute {
+        Attribute::from(AttributeDetail::Service(details), privilege)
+    }
+
+    pub fn debug(details: DebugBlockExpectedState, privilege: Privilege) -> Attribute {
+        Attribute::from(AttributeDetail::Debug(details), privilege)
+    }
+
+    pub fn lineinfile(details: LineInFileBlockExpectedState, privilege: Privilege) -> Attribute {
+        Attribute::from(AttributeDetail::LineInFile(details), privilege)
+    }
+
+    pub fn ping(details: PingBlockExpectedState, privilege: Privilege) -> Attribute {
+        Attribute::from(AttributeDetail::Ping(details), privilege)
     }
 }
 
@@ -118,7 +144,10 @@ impl AttributeDetail {
     ) -> Result<AttributeComplianceResult, Error> {
         match self.assess(host_handler, privilege) {
             Ok(attribute_compliance) => match attribute_compliance {
-                AttributeComplianceAssessment::Compliant => Ok(AttributeComplianceResult::from(AttributeComplianceStatus::AlreadyCompliant, None)),
+                AttributeComplianceAssessment::Compliant => Ok(AttributeComplianceResult::from(
+                    AttributeComplianceStatus::AlreadyCompliant,
+                    None,
+                )),
                 AttributeComplianceAssessment::NonCompliant(remediations) => {
                     if remediations.len() == 0 {
                         return Err(Error::InternalLogicError(format!(
@@ -166,16 +195,16 @@ impl AttributeDetail {
                                     }
                                 }
                             }
-                            Remediation::LineInFile(attribute_api_call) => match attribute_api_call
-                                .call(host_handler)
-                            {
-                                Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                            Remediation::LineInFile(attribute_api_call) => {
+                                match attribute_api_call.call(host_handler) {
+                                    Ok(internal_api_call_outcome) => {
+                                        (remediation, internal_api_call_outcome)
+                                    }
+                                    Err(error_detail) => {
+                                        return Err(error_detail);
+                                    }
                                 }
-                                Err(error_detail) => {
-                                    return Err(error_detail);
-                                }
-                            },
+                            }
                             Remediation::Debug(attribute_api_call) => {
                                 match attribute_api_call.call(host_handler) {
                                     Ok(internal_api_call_outcome) => {
@@ -220,12 +249,19 @@ impl AttributeDetail {
 
                         actions_taken.push((remediation, internal_api_call_outcome.clone()));
 
-                        if let InternalApiCallOutcome::Failure(_detail) = &internal_api_call_outcome {
-                            return Ok(AttributeComplianceResult::from(AttributeComplianceStatus::FailedReachedCompliance, Some(actions_taken)));
+                        if let InternalApiCallOutcome::Failure(_detail) = &internal_api_call_outcome
+                        {
+                            return Ok(AttributeComplianceResult::from(
+                                AttributeComplianceStatus::FailedReachedCompliance,
+                                Some(actions_taken),
+                            ));
                         }
                     }
 
-                    Ok(AttributeComplianceResult::from(AttributeComplianceStatus::ReachedCompliance, Some(actions_taken)))
+                    Ok(AttributeComplianceResult::from(
+                        AttributeComplianceStatus::ReachedCompliance,
+                        Some(actions_taken),
+                    ))
                 }
             },
             Err(error_detail) => Err(error_detail),
@@ -254,8 +290,9 @@ impl Remediation {
         match self {
             Remediation::None(_) => {
                 // This case should not occur here according to current logic
-                Err(Error::InternalLogicError(String::from("Unexpected remediation"))
-                )
+                Err(Error::InternalLogicError(String::from(
+                    "Unexpected remediation",
+                )))
             }
             Remediation::Pacman(api_call) => api_call.call(host_handler),
             Remediation::Apt(api_call) => api_call.call(host_handler),

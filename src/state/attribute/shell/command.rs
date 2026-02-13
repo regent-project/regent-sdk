@@ -4,8 +4,8 @@ use crate::managed_host::{AssessCompliance, ReachCompliance};
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
-use serde::{Deserialize, Serialize};
 use crate::state::compliance::AttributeComplianceAssessment;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,7 +65,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {

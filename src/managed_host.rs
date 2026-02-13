@@ -6,13 +6,10 @@ use crate::host_handler::host_handler::HostHandler;
 use crate::host_handler::privilege::Privilege;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
-use crate::state::compliance::AttributeComplianceStatus;
-use crate::state::compliance::HostComplianceAssessment;
-use crate::state::compliance::HostComplianceStatus;
-use crate::state::attribute::Attribute;
+use crate::state::compliance::Action;
 use crate::state::compliance::AttributeComplianceAssessment;
-use crate::state::compliance::AttributeComplianceResult;
-use crate::state::compliance::HostComplianceResult;
+use crate::state::compliance::HostStatus;
+use crate::state::compliance::ManagedHostStatus;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ManagedHost<Handler>
@@ -20,59 +17,73 @@ where
     Handler: HostHandler,
 {
     endpoint: String,
-    handler: Handler,
+    pub handler: Handler,
     vars: HashMap<String, String>,
 }
 
 impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
-    pub fn from(
-        endpoint: &str,
-        handler: Handler,
-        vars: HashMap<String, String>,
-    ) -> ManagedHost<Handler> {
+    pub fn new(endpoint: &str, handler: Handler) -> ManagedHost<Handler> {
         ManagedHost {
             endpoint: endpoint.to_string(),
             handler,
-            vars,
+            vars: HashMap::new(),
         }
+    }
+
+    pub fn from(
+        endpoint: &str,
+        handler: Handler,
+        vars: impl IntoIterator<Item = (String, String)>,
+    ) -> ManagedHost<Handler> {
+        let mut final_vars: HashMap<String, String> = HashMap::new();
+
+        for (key, value) in vars.into_iter() {
+            final_vars.insert(key, value);
+        }
+        ManagedHost {
+            endpoint: endpoint.to_string(),
+            handler,
+            vars: final_vars,
+        }
+    }
+
+    pub fn add_var(&mut self, key: String, value: String) {
+        self.vars.insert(key, value);
     }
 
     pub fn connect(&mut self) -> Result<(), Error> {
         self.handler.connect(&self.endpoint)
     }
+
     pub fn is_connected(&mut self) -> bool {
         self.handler.is_connected()
     }
+
     pub fn disconnect(&mut self) -> Result<(), Error> {
         self.handler.disconnect()
     }
-    // fn is_this_command_available(&mut self, command: &str) -> Result<bool, Error> {
-    //     self.handler.is_this_command_available(command)
-    // }
-    // fn run_command(&mut self, command: &str) -> Result<CommandResult, Error> {
-    //     self.handler.run_command(command)
-    // }
 
     // Defaults to sequential assessment
     pub fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
-    ) -> Result<HostComplianceAssessment, Error> {
+    ) -> Result<ManagedHostStatus, Error> {
         if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
         }
 
         let mut already_compliant = true;
-        let mut attributes_compliance_assessment: Vec<(Attribute, AttributeComplianceAssessment)> = Vec::new();
-
+        let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
         for attribute in &expected_state.attributes {
             match attribute.assess(&mut self.handler) {
                 Ok(attribute_compliance) => {
-                    if let AttributeComplianceAssessment::NonCompliant(_remediations) = &attribute_compliance {
+                    if let AttributeComplianceAssessment::NonCompliant(remediations) =
+                        attribute_compliance
+                    {
                         already_compliant = false;
+                        final_remediations_list.extend(remediations);
                     }
-                    attributes_compliance_assessment.push((attribute.clone(), attribute_compliance));
                 }
                 Err(error_detail) => {
                     return Err(error_detail);
@@ -81,31 +92,25 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         }
 
         if already_compliant {
-            Ok(HostComplianceAssessment::from(
-                HostComplianceStatus::AlreadyCompliant,
-                attributes_compliance_assessment
-            ))
+            Ok(ManagedHostStatus::already_compliant())
         } else {
-            Ok(HostComplianceAssessment::from(
-                HostComplianceStatus::NonCompliant,
-                attributes_compliance_assessment
-            ))
+            Ok(ManagedHostStatus::not_compliant(final_remediations_list))
         }
     }
 
     pub fn assess_compliance_in_parallel(
         &mut self,
         expected_state: &ExpectedState,
-    ) -> Result<HostComplianceAssessment, Error> {
+    ) -> Result<ManagedHostStatus, Error> {
         if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
         }
 
         let mut already_compliant = true;
-        let mut attributes_compliance_assessment: Vec<(Attribute, AttributeComplianceAssessment)> = Vec::new();
+        let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
         let (sender, receiver) =
-            std::sync::mpsc::channel::<(Attribute, Result<AttributeComplianceAssessment, Error>)>();
+            std::sync::mpsc::channel::<Result<AttributeComplianceAssessment, Error>>();
 
         for attribute in &expected_state.attributes {
             let attribute_clone = attribute.clone();
@@ -114,19 +119,21 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
                 let mut host_handler = self.handler.clone();
                 move || {
                     let result = attribute_clone.assess(&mut host_handler);
-                    let _ = sender_clone.send((attribute_clone, result));
+                    let _ = sender_clone.send(result);
                 }
             });
         }
 
         for _ in 0..expected_state.attributes.len() {
             match receiver.recv() {
-                Ok((attribute, result_dry_run_attribute)) => match result_dry_run_attribute {
+                Ok(result_dry_run_attribute) => match result_dry_run_attribute {
                     Ok(attribute_compliance) => {
-                        if let AttributeComplianceAssessment::NonCompliant(_remediations) = &attribute_compliance {
+                        if let AttributeComplianceAssessment::NonCompliant(remediations) =
+                            attribute_compliance
+                        {
                             already_compliant = false;
+                            final_remediations_list.extend(remediations);
                         }
-                        attributes_compliance_assessment.push((attribute, attribute_compliance));
                     }
                     Err(error_detail) => {
                         return Err(error_detail);
@@ -139,55 +146,55 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         }
 
         if already_compliant {
-            Ok(HostComplianceAssessment::from(
-                HostComplianceStatus::AlreadyCompliant,
-                attributes_compliance_assessment
-            ))
+            Ok(ManagedHostStatus::already_compliant())
         } else {
-            Ok(HostComplianceAssessment::from(
-                HostComplianceStatus::NonCompliant,
-                attributes_compliance_assessment
-            ))
+            Ok(ManagedHostStatus::not_compliant(final_remediations_list))
         }
     }
 
     pub fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
-    ) -> Result<HostComplianceResult, Error> {
+    ) -> Result<ManagedHostStatus, Error> {
         if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
         }
 
-        let mut final_host_status = HostComplianceStatus::AlreadyCompliant;
+        let mut final_host_status = HostStatus::AlreadyCompliant;
         let mut reaching_compliance_failed = false;
-        let mut actions_taken: Vec<(Attribute, AttributeComplianceResult)> = Vec::new();
+        let mut actions_taken: Vec<Action> = Vec::new();
 
         for attribute in &expected_state.attributes {
             match attribute.assess(&mut self.handler) {
                 Ok(attribute_compliance) => {
                     match attribute_compliance {
                         AttributeComplianceAssessment::Compliant => {
-                            // Nothing to do except save this step in the final result
-                            actions_taken.push((attribute.clone(), AttributeComplianceResult::from(
-                                AttributeComplianceStatus::AlreadyCompliant, None)));
+                            // Nothing to do
                         }
                         AttributeComplianceAssessment::NonCompliant(remediations) => {
+                            // Host is not compliant as there are remediations to perform
+                            // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
+                            final_host_status = HostStatus::ReachComplianceSuccess;
+
                             // Try to remedy
-                            let mut attribute_results: Vec<(Remediation, InternalApiCallOutcome)> = Vec::new();
 
                             for remediation in remediations {
                                 match remediation.reach_compliance(&mut self.handler) {
                                     Ok(internal_api_call_outcome) => {
-                                        attribute_results.push((remediation, internal_api_call_outcome.clone()));
+                                        actions_taken.push(Action::from(
+                                            remediation,
+                                            Some(internal_api_call_outcome.clone()),
+                                        ));
 
-                                        if let InternalApiCallOutcome::Failure(_details) = internal_api_call_outcome {
+                                        if let InternalApiCallOutcome::Failure(_details) =
+                                            internal_api_call_outcome
+                                        {
                                             reaching_compliance_failed = true;
-                                            
-                                            // Stop processing remediations
+                                            final_host_status = HostStatus::ReachComplianceFailed;
+
+                                            // Stop processing more mediations for this attribute
                                             break;
                                         }
-                                        
                                     }
                                     Err(error_detail) => {
                                         // TODO : return the whole automation up to this point, and not just an error without context like this
@@ -197,20 +204,9 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
                             }
 
                             if reaching_compliance_failed {
-                                // Stop processing more attributes and save it as failed
-                                final_host_status = HostComplianceStatus::FailedReachedCompliance;
-                                actions_taken.push((attribute.clone(), AttributeComplianceResult::from(
-                                    AttributeComplianceStatus::FailedReachedCompliance, Some(attribute_results)
-                                )));
+                                // Stop processing more attributes
                                 break;
-                            } else {
-                                final_host_status = HostComplianceStatus::ReachedCompliance;
-                                // Save the result and move on to the next attribute
-                                actions_taken.push((attribute.clone(), AttributeComplianceResult::from(
-                                    AttributeComplianceStatus::ReachedCompliance, Some(attribute_results)
-                                )));
                             }
-                            
                         }
                     }
                 }
@@ -219,7 +215,12 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
                 }
             }
         }
-        Ok(HostComplianceResult::from(final_host_status, actions_taken))
+
+        if let HostStatus::ReachComplianceFailed = final_host_status {
+            Ok(ManagedHostStatus::reach_compliance_failed(actions_taken))
+        } else {
+            Ok(ManagedHostStatus::reach_compliance_success(actions_taken))
+        }
     }
 }
 
@@ -237,20 +238,7 @@ pub trait ReachCompliance<Handler: HostHandler> {
 }
 
 #[derive(Serialize, Deserialize)]
-pub enum HostLevelOperationOutcome {
-    HostHandlingFailed,
-    AssessComplianceFailed,
-    AlreadyCompliant,
-    NotCompliant(Vec<Remediation>),
-    ReachComplianceFailed(Vec<(Remediation, InternalApiCallOutcome)>),
-    ComplianceReachedWithAllowedFailure(Vec<(Remediation, InternalApiCallOutcome)>),
-    ComplianceReached(Vec<(Remediation, InternalApiCallOutcome)>),
-}
-
-#[derive(Serialize, Deserialize)]
 pub enum AttributeLevelOperationOutcome {
-    // HostHandlingFailed,
-    // AssessComplianceFailed,
     AlreadyCompliant,
     NotCompliant(Vec<Remediation>),
     ReachComplianceFailed(InternalApiCallOutcome),
