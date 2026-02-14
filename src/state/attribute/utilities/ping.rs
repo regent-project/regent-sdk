@@ -41,10 +41,14 @@ pub struct PingApiCall {
     privilege: Privilege,
 }
 
+impl PingApiCall {
+    pub fn display(&self) -> String {
+        return format!("Check SSH connectivity with remote host");
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
-    // fn display(&self) -> String {
-    //     return format!("Check SSH connectivity with remote host");
-    // }
+    
 
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success)

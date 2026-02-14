@@ -304,4 +304,18 @@ impl Remediation {
             Remediation::Command(api_call) => api_call.call(host_handler),
         }
     }
+
+    pub fn display(&self) -> String {
+        match self {
+            Remediation::None(s) => format!("None({})", s),
+            Remediation::Pacman(api_call) => api_call.display(),
+            Remediation::Apt(api_call) => api_call.display(),
+            Remediation::YumDnf(api_call) => api_call.display(),
+            Remediation::LineInFile(api_call) => api_call.display(),
+            Remediation::Debug(api_call) => api_call.display(),
+            Remediation::Ping(api_call) => api_call.display(),
+            Remediation::Service(api_call) => api_call.display(),
+            Remediation::Command(api_call) => api_call.display(),
+        }
+    }
 }

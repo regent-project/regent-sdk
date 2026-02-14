@@ -257,24 +257,28 @@ pub struct ServiceApiCall {
     privilege: Privilege,
 }
 
-impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
-    // fn display(&self) -> String {
-    //     match &self.api_call {
-    //         ServiceModuleInternalApiCall::Start(service_name) => {
-    //             return format!("Start service {}", service_name);
-    //         }
-    //         ServiceModuleInternalApiCall::Stop(service_name) => {
-    //             return format!("Stop service {}", service_name);
-    //         }
-    //         ServiceModuleInternalApiCall::Enable(service_name) => {
-    //             return format!("Enable service {}", service_name);
-    //         }
-    //         ServiceModuleInternalApiCall::Disable(service_name) => {
-    //             return format!("Disable service {}", service_name);
-    //         }
-    //     }
-    // }
+impl ServiceApiCall {
+    pub fn display(&self) -> String {
+        match &self.api_call {
+            ServiceModuleInternalApiCall::Start(service_name) => {
+                return format!("Start service {}", service_name);
+            }
+            ServiceModuleInternalApiCall::Stop(service_name) => {
+                return format!("Stop service {}", service_name);
+            }
+            ServiceModuleInternalApiCall::Enable(service_name) => {
+                return format!("Enable service {}", service_name);
+            }
+            ServiceModuleInternalApiCall::Disable(service_name) => {
+                return format!("Disable service {}", service_name);
+            }
+        }
+    }
 
+}
+
+impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
+    
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             ServiceModuleInternalApiCall::Start(service_name) => {

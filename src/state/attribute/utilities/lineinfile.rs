@@ -284,20 +284,24 @@ pub struct LineInFileApiCall {
     privilege: Privilege,
 }
 
+impl LineInFileApiCall {
+    pub fn display(&self) -> String {
+        match &self.api_call {
+            LineInFileModuleInternalApiCall::Add(line_expected_position) => {
+                return format!(
+                    "Line missing -> needs to be added here {:?}",
+                    line_expected_position
+                );
+            }
+            LineInFileModuleInternalApiCall::Delete(line_numbers) => {
+                return format!("Line present {:?} -> needs to be removed", line_numbers);
+            }
+        }
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
-    // fn display(&self) -> String {
-    //     match &self.api_call {
-    //         LineInFileModuleInternalApiCall::Add(line_expected_position) => {
-    //             return format!(
-    //                 "Line missing -> needs to be added here {:?}",
-    //                 line_expected_position
-    //             );
-    //         }
-    //         LineInFileModuleInternalApiCall::Delete(line_numbers) => {
-    //             return format!("Line present {:?} -> needs to be removed", line_numbers);
-    //         }
-    //     }
-    // }
+    
 
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         match &self.api_call {

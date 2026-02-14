@@ -188,20 +188,24 @@ pub struct AptApiCall {
     privilege: Privilege,
 }
 
+impl AptApiCall {
+    pub fn display(&self) -> String {
+        match &self.api_call {
+            AptModuleInternalApiCall::Install(package_name) => {
+                return format!("Install - {}", package_name);
+            }
+            AptModuleInternalApiCall::Remove(package_name) => {
+                return format!("Remove - {}", package_name);
+            }
+            AptModuleInternalApiCall::Upgrade => {
+                return String::from("Upgrade");
+            }
+        }
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
-    // fn display(&self) -> String {
-    //     match &self.api_call {
-    //         AptModuleInternalApiCall::Install(package_name) => {
-    //             return format!("Install - {}", package_name);
-    //         }
-    //         AptModuleInternalApiCall::Remove(package_name) => {
-    //             return format!("Remove - {}", package_name);
-    //         }
-    //         AptModuleInternalApiCall::Upgrade => {
-    //             return String::from("Upgrade");
-    //         }
-    //     }
-    // }
+    
 
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {

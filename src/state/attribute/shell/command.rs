@@ -44,11 +44,13 @@ pub struct CommandApiCall {
     privilege: Privilege,
 }
 
-impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
-    // fn display(&self) -> String {
-    //     return format!("Run command : {}", self.cmd);
-    // }
+impl CommandApiCall {
+    pub fn display(&self) -> String {
+        return format!("Run command : {}", self.cmd);
+    }
+}
 
+impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let cmd_result = host_handler
             .run_command(self.cmd.as_str(), &self.privilege)

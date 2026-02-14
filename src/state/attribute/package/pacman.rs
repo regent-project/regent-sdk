@@ -182,21 +182,23 @@ pub struct PacmanApiCall {
     privilege: Privilege,
 }
 
-impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
-    // fn display(&self) -> String {
-    //     match &self.api_call {
-    //         PacmanModuleInternalApiCall::Install(package_name) => {
-    //             return format!("Install - {}", package_name);
-    //         }
-    //         PacmanModuleInternalApiCall::Remove(package_name) => {
-    //             return format!("Remove - {}", package_name);
-    //         }
-    //         PacmanModuleInternalApiCall::Upgrade => {
-    //             return String::from("Upgrade");
-    //         }
-    //     }
-    // }
+impl PacmanApiCall {
+    pub fn display(&self) -> String {
+        match &self.api_call {
+            PacmanModuleInternalApiCall::Install(package_name) => {
+                return format!("Install - {}", package_name);
+            }
+            PacmanModuleInternalApiCall::Remove(package_name) => {
+                return format!("Remove - {}", package_name);
+            }
+            PacmanModuleInternalApiCall::Upgrade => {
+                return String::from("Upgrade");
+            }
+        }
+    }
+}
 
+impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             PacmanModuleInternalApiCall::Install(package_name) => (
