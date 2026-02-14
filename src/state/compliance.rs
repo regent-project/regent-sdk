@@ -68,7 +68,10 @@ impl ManagedHostStatus {
             .as_ref()
             .unwrap()
             .iter()
-            .map(|action| action.remediation.clone())
+            .filter_map(|action| match &action.remediation {
+                Remediation::None(_) => None,
+                _ => Some(action.remediation.clone()),
+            })
             .collect()
     }
 
