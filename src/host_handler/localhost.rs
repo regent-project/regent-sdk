@@ -7,8 +7,15 @@ use crate::host_handler::privilege::Privilege;
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
+#[derive(Clone)]
 pub struct LocalHostHandler {
     pub user: WhichUser,
+}
+
+impl LocalHostHandler {
+    pub fn new(user: WhichUser) -> Self {
+        Self { user }
+    }
 }
 
 impl HostHandler for LocalHostHandler {
