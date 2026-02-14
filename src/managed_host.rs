@@ -11,7 +11,7 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ManagedHost<Handler>
 where
     Handler: HostHandler,
@@ -233,7 +233,6 @@ pub trait AssessCompliance<Handler: HostHandler> {
 }
 
 pub trait ReachCompliance<Handler: HostHandler> {
-    // fn display(&self) -> String;
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error>;
 }
 
