@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{managed_host::InternalApiCallOutcome, state::attribute::Remediation};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ManagedHostStatus {
     state: HostStatus,
     actions_taken: Option<Vec<Action>>,

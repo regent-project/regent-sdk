@@ -62,7 +62,7 @@ pub enum Job {
     Reach,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct RegentTaskResult {
     correlation_id: String,
     host_status: ManagedHostStatus,
