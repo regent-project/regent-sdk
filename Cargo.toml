@@ -1,10 +1,14 @@
 [package]
 name = "regent-sdk"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Rust SDK of the Regent project"
+authors = ["Romain SUZANNE <romzorus591@gmail.com>"]
 repository = "https://github.com/regent-project/regent-sdk"
 license = "Apache-2.0"
+description = "Multi-paradigm configuration management system as a library"
+keywords = ["automation", "configuration", "management", "infrastructure", "observability"]
+categories = ["config", "command-line-utilities"]
 
 [dependencies]
 serde = {version = "1.0.228", features= ["derive"]}
