@@ -1,21 +1,20 @@
 # Regent
-***Adapt the tool to the job***
+*Adapt the tool to the job*
+
+***Regent*** is a multi-paradigm configuration management system released as a library. It lets you embed a generic automation engine in any codebase that fits your use case. By leveraging Rust's powerful type system, fearless concurrency and rich ecosystem, ***regent*** allows you to industrialize automation, configuration management, and self-remediation systems at scale.
+
 ## Why
-Very often, automation frameworks will impose their architecture on you and thus limit their scope. You will end up accepting blind spots and manual interventions at scale, adapting your infrastructure to meet the tool's requirements or finding "workarounds" which will become the norm over time (a cron job which runs a bash script which runs an ansible playbook which connects to...). And very often, you have to assemble a solution to your specific use case with a mixture of official tooling, custom scripting, creativity and a little bit of trickery. With ***regent***, we are not even trying to build another unicorn. Instead, we acknowledge that your use case is unique to you, so must be your solution.
-
-## What
-
-***Regent*** is a multi-paradigm configuration management system released as a library. It lets you embed a generic automation engine in any codebase that fits your use case. No more mixture and trickery - you build what you need, nothing more, nothing less. By leveraging Rust's powerful type system, fearless concurrency and rich ecosystem, ***regent*** allows you to industrialize automation, configuration management, and self-remediation systems at scale.
+Very often, automation frameworks will impose their architecture on you and thus limit their scope. You will end up accepting blind spots and manual interventions at scale, adapting your infrastructure to meet the tool's requirements or finding "workarounds" which will become the norm over time (a cron job which runs a bash script which runs an ansible playbook which connects to...). And very often, you have to assemble a solution to your specific use case with a mixture of official tooling, custom scripting, creativity and a little bit of trickery. With ***regent***, we are not even trying to build another unicorn. Instead, we acknowledge that your use case is unique to you, so must be your solution. No more mixture and trickery - you build what you need, nothing more, nothing less.
 
 ## A couple use cases
 
 ***Regent*** integrates nicely with the rest of the ecosystem and with crates you already know.
 
-- Need a small CLI tool to run some configuration changes on a group of hosts? Wrap **regent** with [clap](https://docs.rs/clap/latest/clap/).
-- Thousands of hosts to handle at once, no async allowed? Build a Vec of **RegentTasks** and unleash [rayon](https://docs.rs/rayon/latest/rayon/) on it.
-- You want to distribute work? [Serialize](https://docs.rs/serde/latest/serde/index.html) your **RegentTasks**, send them across a wire (http, gRPC, RabbitMQ...), and have them run by some worker node.
-- You want to make any host observable? Have some [axum](https://docs.rs/axum/latest/axum/) handler behind a `/health` route run a regent assessment on localhost and respond accordingly. Then have this host regularly checked by your external monitoring service (Centreon, Nagios, Zabbix...).
-- **your use case**
+- *Need a small CLI tool to run some configuration changes on a group of hosts?* Wrap **regent** with [clap](https://docs.rs/clap/latest/clap/).
+- *Thousands of hosts to handle at once, no async allowed?* Build a Vec of **RegentTasks** and unleash [rayon](https://docs.rs/rayon/latest/rayon/) on it.
+- *You want to distribute work?* [Serialize](https://docs.rs/serde/latest/serde/index.html) your **RegentTasks**, send them across a wire (http, gRPC, RabbitMQ...), and have them run by some worker node.
+- *Make any host observable?* Have some [axum](https://docs.rs/axum/latest/axum/) handler behind a `/health` route run a ***regent*** compliance assessment on localhost and respond accordingly. Then have this host regularly checked by your external monitoring service (Centreon, Nagios, Zabbix...).
+
 
 ## Getting Started
 
