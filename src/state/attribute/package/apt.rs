@@ -205,8 +205,6 @@ impl AptApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
-    
-
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => (

@@ -39,11 +39,9 @@ impl DebugApiCall {
     pub fn display(&self) -> String {
         "Debug module".into()
     }
-
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
-    
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success)
     }

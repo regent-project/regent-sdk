@@ -239,8 +239,6 @@ impl YumDnfApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
-    
-
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             YumDnfModuleInternalApiCall::Install(package_name) => (

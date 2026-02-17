@@ -48,8 +48,6 @@ impl PingApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
-    
-
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success)
     }

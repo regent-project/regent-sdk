@@ -274,11 +274,9 @@ impl ServiceApiCall {
             }
         }
     }
-
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
-    
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             ServiceModuleInternalApiCall::Start(service_name) => {

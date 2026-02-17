@@ -301,8 +301,6 @@ impl LineInFileApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
-    
-
     fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {
