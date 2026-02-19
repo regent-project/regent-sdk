@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::error::Error;
-use crate::host_handler::host_handler::HostHandler;
-use crate::host_handler::privilege::Privilege;
+use crate::hosts::handlers::HostHandler;
+use crate::hosts::privilege::Privilege;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::Action;

@@ -1,6 +1,9 @@
+pub mod localhost;
+pub mod ssh2;
+
 use crate::error::Error;
-use crate::host_handler::localhost::WhichUser;
-use crate::{command::CommandResult, host_handler::privilege::Privilege};
+use crate::hosts::handlers::localhost::WhichUser;
+use crate::{command::CommandResult, hosts::privilege::Privilege};
 
 use serde::{Deserialize, Serialize};
 pub trait HostHandler: Sized {

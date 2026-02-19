@@ -6,7 +6,8 @@ pub mod utilities;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
-use crate::managed_host::InternalApiCallOutcome;
+use crate::hosts::managed_host::InternalApiCallOutcome;
+use crate::hosts::privilege::Privilege;
 use crate::state::attribute::package::apt::AptApiCall;
 use crate::state::attribute::package::apt::AptBlockExpectedState;
 use crate::state::attribute::package::yumdnf::YumDnfApiCall;
@@ -25,8 +26,8 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::AttributeComplianceResult;
 use crate::state::compliance::AttributeComplianceStatus;
 use crate::{
-    host_handler::{host_handler::HostHandler, privilege::Privilege},
-    managed_host::{AssessCompliance, ReachCompliance},
+    hosts::handlers::HostHandler,
+    hosts::managed_host::{AssessCompliance, ReachCompliance},
     state::attribute::package::pacman::{PacmanApiCall, PacmanBlockExpectedState},
 };
 

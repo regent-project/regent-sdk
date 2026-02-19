@@ -1,6 +1,6 @@
 use crate::error::Error;
-use crate::managed_host::InternalApiCallOutcome;
-use crate::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::InternalApiCallOutcome;
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;

@@ -9,8 +9,8 @@
 //! ```
 
 use crate::error::Error;
-use crate::host_handler::host_handler::HostHandler;
-use crate::managed_host::ManagedHost;
+use crate::hosts::handlers::HostHandler;
+use crate::hosts::managed_host::ManagedHost;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
 

@@ -1,10 +1,10 @@
 use crate::command::CommandResult;
 use crate::error::Error;
-use crate::host_handler::host_handler::HostHandler;
-use crate::host_handler::host_handler::final_command;
-use crate::host_handler::localhost::WhichUser;
-use crate::host_handler::privilege::Credentials;
-use crate::host_handler::privilege::Privilege;
+use crate::hosts::handlers::HostHandler;
+use crate::hosts::handlers::final_command;
+use crate::hosts::handlers::localhost::WhichUser;
+use crate::hosts::privilege::Credentials;
+use crate::hosts::privilege::Privilege;
 use pem::Pem;
 use ssh2::Session;
 use std::io::Read;
