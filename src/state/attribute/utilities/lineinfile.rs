@@ -455,6 +455,6 @@ mod tests {
     ";
 
         let attributes: Vec<LineInFileBlockExpectedState> =
-            serde_yaml::from_str(raw_attributes).unwrap();
+            yaml_serde::from_str(raw_attributes).unwrap();
     }
 }
