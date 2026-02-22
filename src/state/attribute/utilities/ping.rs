@@ -64,6 +64,6 @@ mod tests {
         let raw_attributes = "---
     ";
 
-        let attribute: PingBlockExpectedState = serde_yaml::from_str(raw_attributes).unwrap();
+        let attribute: PingBlockExpectedState = yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

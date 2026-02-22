@@ -78,6 +78,6 @@ mod tests {
 - cmd: ls -ltrh";
 
         let attributes: Vec<CommandBlockExpectedState> =
-            serde_yaml::from_str(raw_attributes).unwrap();
+            yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

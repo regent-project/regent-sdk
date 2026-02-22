@@ -394,6 +394,6 @@ mod tests {
         ";
 
         let attributes: Vec<ServiceBlockExpectedState> =
-            serde_yaml::from_str(raw_attributes).unwrap();
+            yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

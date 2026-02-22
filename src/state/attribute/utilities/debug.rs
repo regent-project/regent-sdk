@@ -58,7 +58,7 @@ mod tests {
 msg: some content
     ";
 
-        let attribute: DebugBlockExpectedState = serde_yaml::from_str(attribute).unwrap();
+        let attribute: DebugBlockExpectedState = yaml_serde::from_str(attribute).unwrap();
 
         assert_eq!(attribute.msg, "some content".to_string());
     }

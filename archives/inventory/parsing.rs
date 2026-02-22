@@ -181,7 +181,7 @@ impl InventoryFile {
 // TODO : So far, we assume the hostlist file is in YAML format. More formats will come later.
 pub fn hostlist_parser(hostlistfilecontent: &str) -> Result<Inventory, Error> {
     // First we parse the content as YAML, host vars not parsed yet (unproper YAML syntax)
-    match serde_yaml::from_str::<RawInventoryContent>(&hostlistfilecontent) {
+    match yaml_serde::from_str::<RawInventoryContent>(&hostlistfilecontent) {
         Ok(yaml_parsed_result) => {
             // Second we parse the host vars
             let host_vars_parsed_result = yaml_parsed_result.parse_host_vars();
