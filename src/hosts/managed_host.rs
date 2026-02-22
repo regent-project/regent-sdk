@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::LocalHostHandler;
+use crate::Ssh2AuthMethod;
+use crate::Ssh2HostHandler;
 use crate::error::Error;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::privilege::Privilege;
@@ -250,4 +253,72 @@ pub enum InternalApiCallOutcome {
     Success,
     Failure(String),
     AllowedFailure(String),
+}
+
+
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ManagedHostIntermediateRepresentation
+{
+    endpoint: String,
+    connection: HostConnectionInfo,
+    vars: Option<HashMap<String, String>>
+}
+
+impl ManagedHostIntermediateRepresentation {
+    pub fn to_managed_host<Handler: HostHandler + Clone + Send + 'static>(
+        self
+    ) -> ManagedHost<Handler> {
+
+        let endpoint: String = self.endpoint;
+        
+        let mut vars: HashMap<String, String> = HashMap::new();
+        if let Some(vars_list) = self.vars {
+            vars.extend(vars_list);
+        }
+
+        match self.connection.kind {
+            HandlerKind::Localhost(local_host_handler) => {
+                ManagedHost::from(endpoint, handler, vars) { endpoint, handler: local_host_handler, vars }
+                
+            }
+            HandlerKind::Ssh2(ssh2_auth_method) => {
+                Ssh2HostHandler::from(ssh2_auth_method)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct HostConnectionInfo
+{
+    endpoint: String,
+    kind: HandlerKind
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum HandlerKind
+{
+    Localhost(LocalHostHandler),
+    Ssh2(Ssh2AuthMethod)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::LocalHostHandler;
+
+    use super::*;
+
+    #[test]
+    fn test_deserialize_localhost_managed_host_from_yaml() {
+        let yaml_content = r#"
+endpoint: "localhost"
+handler:
+    user: CurrentUser
+vars: {}
+"#;
+
+        let managed_host: ManagedHost<LocalHostHandler> = serde_yaml::from_str(yaml_content).unwrap();
+        assert_eq!(managed_host.endpoint, "localhost");
+    }
 }

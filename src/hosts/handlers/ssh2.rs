@@ -6,6 +6,8 @@ use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use pem::Pem;
+use serde::Deserialize;
+use serde::Serialize;
 use ssh2::Session;
 use std::io::Read;
 use std::net::TcpStream;
@@ -238,7 +240,7 @@ impl Ssh2HostHandler {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Ssh2AuthMethod {
     UsernamePassword(Credentials),
     KeyFile((String, PathBuf)), // (username, private key's path)
