@@ -274,7 +274,7 @@ mod tests {
 - upgrade: true
     ";
 
-        let attributes: Vec<AptBlockExpectedState> = serde_yaml::from_str(raw_attributes).unwrap();
+        let attributes: Vec<AptBlockExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
 
         assert_eq!(attributes[0].package, Some("apache2".to_string()));
         assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));
@@ -294,24 +294,24 @@ mod tests {
         let raw_attribute = "---
 - 
     ";
-        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
 - package: apache2
     ";
-        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
 - package:
   state: absent
     ";
-        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
 - package: apache2
   state: absent
   unknown_key: unknown_value
     ";
-        assert!(serde_yaml::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
     }
 }

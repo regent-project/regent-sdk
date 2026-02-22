@@ -15,7 +15,7 @@ pub struct Inventory {
 impl Inventory {
     pub fn from_str(raw_content: &str) -> Result<Inventory, Error> {
         // First we parse the content as YAML, host vars not parsed yet (unproper YAML syntax)
-        match serde_yaml::from_str::<HostList>(raw_content) {
+        match yaml_serde::from_str::<HostList>(raw_content) {
             Ok(host_list) => {
                 Ok(host_list)
             }

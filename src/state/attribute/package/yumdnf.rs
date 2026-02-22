@@ -336,7 +336,7 @@ mod tests {
     ";
 
         let attributes: Vec<YumDnfBlockExpectedState> =
-            serde_yaml::from_str(raw_attributes).unwrap();
+            yaml_serde::from_str(raw_attributes).unwrap();
 
         assert_eq!(attributes[0].package, Some("httpd".to_string()));
         assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));
@@ -356,24 +356,24 @@ mod tests {
         let raw_attribute = "---
 - 
     ";
-        assert!(serde_yaml::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
 - package: httpd
     ";
-        assert!(serde_yaml::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
 - package:
   state: absent
     ";
-        assert!(serde_yaml::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
 - package: httpd
   state: absent
   unknown_key: unknown_value
     ";
-        assert!(serde_yaml::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
     }
 }
