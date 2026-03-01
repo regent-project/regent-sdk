@@ -7,6 +7,7 @@ use crate::Ssh2HostHandler;
 use crate::error::Error;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::privilege::Privilege;
+use crate::hosts::properties::HostProperties;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::Action;
@@ -22,6 +23,7 @@ where
     endpoint: String,
     pub handler: Handler,
     vars: HashMap<String, String>,
+    host_properties: Option<HostProperties>,
 }
 
 impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
@@ -30,6 +32,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
             endpoint: endpoint.to_string(),
             handler,
             vars: HashMap::new(),
+            host_properties: None,
         }
     }
 
@@ -37,6 +40,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         endpoint: &str,
         handler: Handler,
         vars: impl IntoIterator<Item = (String, String)>,
+        host_properties: Option<HostProperties>,
     ) -> ManagedHost<Handler> {
         let mut final_vars: HashMap<String, String> = HashMap::new();
 
@@ -47,11 +51,30 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
             endpoint: endpoint.to_string(),
             handler,
             vars: final_vars,
+            host_properties,
         }
     }
 
     pub fn add_var(&mut self, key: String, value: String) {
         self.vars.insert(key, value);
+    }
+
+    pub fn set_host_properties(&mut self, host_properties: Option<HostProperties>) {
+        self.host_properties = host_properties;
+    }
+
+    pub fn collect_properties(&mut self) -> Result<(), Error> {
+        match HostProperties::collect_dynamically(&mut self.handler) {
+            Ok(host_properties) => {
+                self.host_properties = Some(host_properties);
+                Ok(())
+            }
+            Err(error_detail) => Err(error_detail),
+        }
+    }
+
+    pub fn get_host_properties(&self) -> &Option<HostProperties> {
+        &self.host_properties
     }
 
     pub fn connect(&mut self) -> Result<(), Error> {
@@ -79,7 +102,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
         for attribute in &expected_state.attributes {
-            match attribute.assess(&mut self.handler) {
+            match attribute.assess(&mut self.handler, &self.host_properties) {
                 Ok(attribute_compliance) => {
                     if let AttributeComplianceAssessment::NonCompliant(remediations) =
                         attribute_compliance
@@ -120,8 +143,9 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
             let sender_clone = sender.clone();
             std::thread::spawn({
                 let mut host_handler = self.handler.clone();
+                let host_properties = self.host_properties.clone();
                 move || {
-                    let result = attribute_clone.assess(&mut host_handler);
+                    let result = attribute_clone.assess(&mut host_handler, &host_properties);
                     let _ = sender_clone.send(result);
                 }
             });
@@ -168,7 +192,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         let mut actions_taken: Vec<Action> = Vec::new();
 
         for attribute in &expected_state.attributes {
-            match attribute.assess(&mut self.handler) {
+            match attribute.assess(&mut self.handler, &self.host_properties) {
                 Ok(attribute_compliance) => {
                     match attribute_compliance {
                         AttributeComplianceAssessment::Compliant => {
@@ -182,7 +206,9 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
                             // Try to remedy
 
                             for remediation in remediations {
-                                match remediation.reach_compliance(&mut self.handler) {
+                                match remediation
+                                    .reach_compliance(&mut self.handler, &self.host_properties)
+                                {
                                     Ok(internal_api_call_outcome) => {
                                         actions_taken.push(Action::from(
                                             remediation,
@@ -231,12 +257,17 @@ pub trait AssessCompliance<Handler: HostHandler> {
     fn assess_compliance(
         &self,
         host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error>;
 }
 
 pub trait ReachCompliance<Handler: HostHandler> {
-    fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error>;
+    fn call(
+        &self,
+        host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
+    ) -> Result<InternalApiCallOutcome, Error>;
 }
 
 #[derive(Serialize, Deserialize)]

@@ -1,9 +1,9 @@
 use crate::error::Error;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::properties::HostProperties;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
-use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 
@@ -21,6 +21,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
     fn assess_compliance(
         &self,
         host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let cmd = String::from("id");
@@ -48,7 +49,11 @@ impl PingApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
-    fn call(&self, host_handler: &mut Handler) -> Result<InternalApiCallOutcome, Error> {
+    fn call(
+        &self,
+        host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
+    ) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success)
     }
 }

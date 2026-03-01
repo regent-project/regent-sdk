@@ -18,4 +18,5 @@ pub enum Error {
     IncoherentExpectedState(String),
     InternalLogicError(String),
     NotConnectedToHost,
+    ConnectionLevel(String),
 }
