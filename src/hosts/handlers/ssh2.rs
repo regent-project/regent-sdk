@@ -356,6 +356,8 @@ mod tests {
 
     #[test]
     fn test_deserialize_key_memory() {
+
+        // THIS KEY IS NOT USED ANYWHERE. IT HAS BEEN GENERATED TO PROVIDE REALISTIC CONTENT FOR THIS TEST ONLY.
         let yaml = r#"
             !KeyMemory
               - "testuser"
