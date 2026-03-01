@@ -5,6 +5,7 @@ use crate::hosts::handlers::final_command;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +93,32 @@ impl HostHandler for LocalHostHandler {
                 stderr: String::from_utf8_lossy(&output.stderr).to_string(),
             }),
             Err(e) => Err(Error::FailureToRunCommand(format!("{}", e))),
+        }
+    }
+
+    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, Error> {
+        match Command::new("cmd").args(&["/C", command]).output() {
+            Ok(output) => Ok(CommandResult {
+                return_code: output.status.code().unwrap(),
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            }),
+            Err(e) => Err(Error::FailureToRunCommand(format!("{}", e))),
+        }
+    }
+
+    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, Error> {
+        if !self.is_connected() {
+            return Err(Error::FailedInitialization(
+                "Not connected to host".to_string(),
+            ));
+        }
+
+        match std::fs::read(path) {
+            Ok(file_content) => Ok(file_content),
+            Err(error_detail) => {
+                return Err(Error::FailureToRunCommand(format!("{:?}", error_detail)));
+            }
         }
     }
 }

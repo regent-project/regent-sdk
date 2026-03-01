@@ -11,12 +11,28 @@ use serde::Serialize;
 use ssh2::Session;
 use std::io::Read;
 use std::net::TcpStream;
+use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Clone)]
 pub struct Ssh2HostHandler {
     auth: Ssh2AuthMethod,
     session: Session,
+}
+
+impl<'de> Deserialize<'de> for Ssh2HostHandler {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Ssh2HostHandlerHelper {
+            auth: Ssh2AuthMethod,
+        }
+
+        let helper = Ssh2HostHandlerHelper::deserialize(deserializer)?;
+        Ok(Ssh2HostHandler::from(helper.auth))
+    }
 }
 
 impl std::fmt::Debug for Ssh2HostHandler {
@@ -205,6 +221,70 @@ impl HostHandler for Ssh2HostHandler {
             }
         }
     }
+
+    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, Error> {
+        match self.session.channel_session() {
+            Ok(mut channel) => {
+                let final_command = format!("cmd /C {}", command);
+
+                if let Err(error_detail) = channel.exec(&final_command) {
+                    return Err(Error::FailureToRunCommand(format!("{:?}", error_detail)));
+                }
+                let mut stdout = String::new();
+                let mut stderr = String::new();
+
+                let mut ssh_stdout = channel.stream(0);
+                let mut ssh_stderr = channel.stderr();
+
+                ssh_stdout.read_to_string(&mut stdout).unwrap();
+                ssh_stderr.read_to_string(&mut stderr).unwrap();
+
+                // channel.read_to_string(&mut s).unwrap();
+                channel.wait_close().unwrap();
+
+                return Ok(CommandResult {
+                    return_code: channel.exit_status().unwrap(),
+                    stdout,
+                    stderr,
+                });
+            }
+            Err(e) => {
+                return Err(Error::FailureToEstablishConnection(format!("{e}")));
+            }
+        }
+    }
+
+    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, Error> {
+        if !self.is_connected() {
+            return Err(Error::FailedInitialization(
+                "Not connected to host".to_string(),
+            ));
+        }
+
+        let (mut file_channel, stat) = self.session.scp_recv(&path).unwrap();
+
+        let mut buffer: Vec<u8> = match stat.size().try_into() {
+            Ok(size) => Vec::with_capacity(size),
+            Err(_) => Vec::new(),
+        };
+        file_channel.read_to_end(&mut buffer).unwrap();
+
+        // Close the channel and wait for the whole content to be tranferred
+        if let Err(error_detail) = file_channel.send_eof() {
+            return Err(Error::ConnectionLevel(format!("{:?}", error_detail)));
+        }
+        if let Err(error_detail) = file_channel.wait_eof() {
+            return Err(Error::ConnectionLevel(format!("{:?}", error_detail)));
+        }
+        if let Err(error_detail) = file_channel.close() {
+            return Err(Error::ConnectionLevel(format!("{:?}", error_detail)));
+        }
+        if let Err(error_detail) = file_channel.wait_close() {
+            return Err(Error::ConnectionLevel(format!("{:?}", error_detail)));
+        }
+
+        Ok(buffer)
+    }
 }
 
 impl Ssh2HostHandler {
@@ -246,6 +326,60 @@ pub enum Ssh2AuthMethod {
     KeyFile((String, PathBuf)), // (username, private key's path)
     KeyMemory((String, Pem)),   // (username, PEM encoded key from memory)
     Agent(String),              // Name of SSH agent
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_username_password() {
+        let yaml = r#"
+            !UsernamePassword
+              username: "testuser"
+              password: "testpass"
+        "#;
+        let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
+        matches!(auth_method, Ssh2AuthMethod::UsernamePassword(_));
+    }
+
+    #[test]
+    fn test_deserialize_key_file() {
+        let yaml = r#"
+            !KeyFile
+              - "testuser"
+              - "/path/to/private/key"
+        "#;
+        let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
+        matches!(auth_method, Ssh2AuthMethod::KeyFile(_));
+    }
+
+    #[test]
+    fn test_deserialize_key_memory() {
+        let yaml = r#"
+            !KeyMemory
+              - "testuser"
+              - "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
+QyNTUxOQAAACAwn3SGLS+W9Kh8B7eSysF7rYuAyUNuFuhGUbT2wf0O8QAAAJhAq7a2QKu2
+tgAAAAtzc2gtZWQyNTUxOQAAACAwn3SGLS+W9Kh8B7eSysF7rYuAyUNuFuhGUbT2wf0O8Q
+AAAEB1D2VaOhrGOqiNkiQpeCPzT1WgI53LjxQWSZIqiiclKTCfdIYtL5b0qHwHt5LKwXut
+i4DJQ24W6EZRtPbB/Q7xAAAAE3JvbXpvckBsYXB0b3BsZW5vdm8BAg==
+-----END OPENSSH PRIVATE KEY-----"
+        "#;
+        let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
+        matches!(auth_method, Ssh2AuthMethod::KeyMemory(_));
+    }
+
+    #[test]
+    fn test_deserialize_agent() {
+        let yaml = r#"
+            !Agent
+                "default"
+        "#;
+        let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
+        matches!(auth_method, Ssh2AuthMethod::Agent(_));
+    }
 }
 
 impl std::fmt::Debug for Ssh2AuthMethod {

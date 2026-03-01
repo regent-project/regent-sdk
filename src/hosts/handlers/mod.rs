@@ -1,6 +1,8 @@
 pub mod localhost;
 pub mod ssh2;
 
+use std::path::PathBuf;
+
 use crate::error::Error;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::{command::CommandResult, hosts::privilege::Privilege};
@@ -21,6 +23,10 @@ pub trait HostHandler: Sized {
 
     fn run_command(&mut self, command: &str, privilege: &Privilege)
     -> Result<CommandResult, Error>;
+
+    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, Error>;
+
+    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, Error>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
