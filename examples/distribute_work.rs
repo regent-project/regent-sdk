@@ -3,6 +3,8 @@ use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
 use regent_sdk::{Attribute, ExpectedState};
 use regent_sdk::{Error, LocalHostHandler, ManagedHost, Privilege, WhichUser};
+use regent_sdk::secrets::environment_variables::EnvVarSecretProvider;
+use regent_sdk::secrets::SecretsManagementSolution;
 
 fn main() {
     // Sending end
@@ -19,8 +21,11 @@ fn main() {
 }
 
 fn create_a_regent_task() -> String {
+    // Build a SecretProvider
+    let env_var_secret_provider = SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());// EnvVarSecretProvider::new();
+
     // Describe the ManagedHost
-    let managed_host = ManagedHost::new("localhost", LocalHostHandler::new(WhichUser::CurrentUser));
+    let managed_host = ManagedHost::new("localhost", env_var_secret_provider, LocalHostHandler::new(WhichUser::CurrentUser));
 
     // Describe the expected state
     let apache_expected_state = PacmanBlockExpectedState::builder()

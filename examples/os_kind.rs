@@ -1,9 +1,15 @@
 use regent_sdk::{LocalHostHandler, ManagedHost};
+use regent_sdk::secrets::environment_variables::EnvVarSecretProvider;
+use regent_sdk::secrets::SecretsManagementSolution;
 
 fn main() {
+    // Build a SecretProvider
+    let env_var_secret_provider = SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());// EnvVarSecretProvider::new();
+
     // Describe the ManagedHost
     let mut managed_host = ManagedHost::new(
         "localhost",
+        env_var_secret_provider,
         LocalHostHandler::new(regent_sdk::WhichUser::CurrentUser),
     );
 

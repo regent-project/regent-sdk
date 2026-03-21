@@ -1,11 +1,17 @@
 use regent_sdk::attribute::package::apt::{AptBlockExpectedState, PackageExpectedState};
+use regent_sdk::secrets::SecretsManagementSolution;
+use regent_sdk::secrets::environment_variables::EnvVarSecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 use regent_sdk::{ManagedHost, Privilege, Ssh2HostHandler};
 
 fn main() {
+    // Build a SecretProvider
+    let env_var_secret_provider = SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());// EnvVarSecretProvider::new();
+    
     // Describe the ManagedHost
     let mut managed_host = ManagedHost::new(
         "<host-endpoint>:<port>",
+        env_var_secret_provider,
         Ssh2HostHandler::key_file("regent-user", "<path/to/private/key>"),
     );
 

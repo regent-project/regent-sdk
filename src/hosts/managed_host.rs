@@ -8,31 +8,36 @@ use crate::error::Error;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
+use crate::secrets::SecretProvider;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::Action;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
+use crate::secrets::SecretsManagementSolution;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ManagedHost<Handler>
 where
-    Handler: HostHandler,
+    Handler: HostHandler
 {
     endpoint: String,
     pub handler: Handler,
     vars: HashMap<String, String>,
     host_properties: Option<HostProperties>,
+    secret_provider: SecretsManagementSolution
 }
 
 impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
-    pub fn new(endpoint: &str, handler: Handler) -> ManagedHost<Handler> {
+
+    pub fn new(endpoint: &str, secret_provider: SecretsManagementSolution, handler: Handler) -> ManagedHost<Handler> {
         ManagedHost {
             endpoint: endpoint.to_string(),
             handler,
             vars: HashMap::new(),
             host_properties: None,
+            secret_provider
         }
     }
 
@@ -41,6 +46,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         handler: Handler,
         vars: impl IntoIterator<Item = (String, String)>,
         host_properties: Option<HostProperties>,
+        secret_provider: SecretsManagementSolution,
     ) -> ManagedHost<Handler> {
         let mut final_vars: HashMap<String, String> = HashMap::new();
 
@@ -52,6 +58,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
             handler,
             vars: final_vars,
             host_properties,
+            secret_provider
         }
     }
 
@@ -288,13 +295,16 @@ pub enum InternalApiCallOutcome {
 
 
 
-// #[derive(Clone, Serialize, Deserialize, Debug)]
-// pub struct ManagedHostIntermediateRepresentation
-// {
-//     endpoint: String,
-//     connection: HostConnectionInfo,
-//     vars: Option<HashMap<String, String>>
-// }
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ManagedHostIntermediateRepresentation
+{
+    alias: String,
+    endpoint: String,
+    connection_type: ConnectionType,
+    #[serde(skip_serializing)] 
+    connection_secrets_ref: String,
+    vars: Option<HashMap<String, String>>
+}
 
 // impl ManagedHostIntermediateRepresentation {
 //     pub fn to_managed_host<Handler: HostHandler + Clone + Send + 'static>(
@@ -320,36 +330,31 @@ pub enum InternalApiCallOutcome {
 //     }
 // }
 
-// #[derive(Clone, Serialize, Deserialize, Debug)]
-// pub struct HostConnectionInfo
-// {
-//     endpoint: String,
-//     kind: HandlerKind
-// }
 
-// #[derive(Clone, Serialize, Deserialize, Debug)]
-// pub enum HandlerKind
-// {
-//     Localhost(LocalHostHandler),
-//     Ssh2(Ssh2AuthMethod)
-// }
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum ConnectionType
+{
+    Localhost,
+    Ssh2
+}
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::LocalHostHandler;
+#[cfg(test)]
+mod tests {
+    use crate::{LocalHostHandler, secrets::environment_variables::EnvVarSecretProvider};
 
-//     use super::*;
+    use super::*;
 
-//     #[test]
-//     fn test_deserialize_localhost_managed_host_from_yaml() {
-//         let yaml_content = r#"
-// endpoint: "localhost"
-// handler:
-//     user: CurrentUser
-// vars: {}
-// "#;
+    #[test]
+    fn test_deserialize_localhost_managed_host_from_yaml() {
+        let yaml_content = r#"
+endpoint: "localhost"
+handler:
+    user: CurrentUser
+vars: {}
+secret_provider: !EnvironmentVariable
+"#; // EnvVarSecretProvider
 
-//         let managed_host: ManagedHost<LocalHostHandler> = serde_yaml::from_str(yaml_content).unwrap();
-//         assert_eq!(managed_host.endpoint, "localhost");
-//     }
-// }
+        let managed_host: ManagedHost<LocalHostHandler> = yaml_serde::from_str(yaml_content).unwrap();
+        assert_eq!(managed_host.endpoint, "localhost");
+    }
+}

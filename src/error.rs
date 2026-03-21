@@ -9,6 +9,7 @@ pub enum Error {
     FailedTaskDryRun(String),
     FailedDryRunEvaluation(String),
     FailedToApplyExpectedState(String),
+    FailedToGetSecret(String),
     MissingInitialization(String),
     GroupNotFound,
     MissingGroupsList,
