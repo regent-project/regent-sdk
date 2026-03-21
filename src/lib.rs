@@ -3,6 +3,7 @@ pub mod error;
 pub mod hosts;
 pub mod state;
 pub mod task;
+pub mod secrets;
 
 pub use error::Error;
 pub use hosts::handlers::localhost::{LocalHostHandler, WhichUser};
