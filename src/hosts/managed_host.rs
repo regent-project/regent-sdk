@@ -2,11 +2,13 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::LocalHostHandler;
-use crate::hosts::handlers::Handler;
 use crate::WhichUser;
 use crate::error::Error;
+use crate::hosts::handlers::ConnectionMethod;
+use crate::hosts::handlers::Handler;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::TargetUserKind;
+use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretsManagementSolution;
@@ -16,8 +18,6 @@ use crate::state::compliance::Action;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
-use crate::hosts::handlers::ConnectionMethod;
-use crate::hosts::privilege::Credentials;
 
 pub struct ManagedHostBuilder {
     endpoint: String,
@@ -28,9 +28,7 @@ pub struct ManagedHostBuilder {
 }
 
 impl ManagedHostBuilder {
-    pub fn new(
-        endpoint: &str
-    ) -> Self {
+    pub fn new(endpoint: &str) -> Self {
         Self {
             endpoint: endpoint.to_string(),
             connection_method: None,
@@ -53,11 +51,9 @@ impl ManagedHostBuilder {
     pub fn build(self) -> Result<ManagedHost, Error> {
         // Check that each required field is set
         if let None = self.connection_method {
-            return Err(
-                Error::WrongInitialization(
-                    format!("connection method unset")
-                )
-            );
+            return Err(Error::WrongInitialization(format!(
+                "connection method unset"
+            )));
         }
 
         // Retrieve connection secrets when needed
@@ -71,58 +67,46 @@ impl ManagedHostBuilder {
                         match target_user.user_kind {
                             TargetUserKind::CurrentUser => {
                                 // No secret required
-                                Ok(
-                                    ManagedHost::new(
-                                        &self.endpoint,
-                                        self.secret_provider,
-                                        Handler::localhost(LocalHostHandler::from(WhichUser::CurrentUser))
-                                    )
-                                )
+                                Ok(ManagedHost::new(
+                                    &self.endpoint,
+                                    self.secret_provider,
+                                    Handler::localhost(LocalHostHandler::from(
+                                        WhichUser::CurrentUser,
+                                    )),
+                                ))
                             }
-                            TargetUserKind::User(secret_reference) => {
-                                match self.secret_provider {
-                                    Some(secret_provider) => {
-                                        match secret_provider.get_secret::<Credentials>(&secret_reference) {
-                                            Ok(secret) => {
-                                                Ok(
-                                                    ManagedHost::new(
-                                                        &self.endpoint,
-                                                        Some(secret_provider),
-                                                        Handler::localhost(LocalHostHandler::from(WhichUser::UsernamePassword(secret.inner())))
-                                                    )
-                                                )
-                                            }
-                                            Err(error_detail) => {
-                                                Err(error_detail)
-                                            }
-                                        }
-                                    }
-                                    None => {
-                                        Err(
-                                            Error::WrongInitialization(
-                                                format!("secret required to connect to host but secret_provider unset")
-                                            )
-                                        )
+                            TargetUserKind::User(secret_reference) => match self.secret_provider {
+                                Some(secret_provider) => {
+                                    match secret_provider
+                                        .get_secret::<Credentials>(&secret_reference)
+                                    {
+                                        Ok(secret) => Ok(ManagedHost::new(
+                                            &self.endpoint,
+                                            Some(secret_provider),
+                                            Handler::localhost(LocalHostHandler::from(
+                                                WhichUser::UsernamePassword(secret.inner()),
+                                            )),
+                                        )),
+                                        Err(error_detail) => Err(error_detail),
                                     }
                                 }
-                            }
+                                None => Err(Error::WrongInitialization(format!(
+                                    "secret required to connect to host but secret_provider unset"
+                                ))),
+                            },
                         }
                     }
                 }
             }
-            None => {
-                Err(
-                    Error::WrongInitialization(
-                        format!("connection_method unset")
-                    )
-                )
-            }
+            None => Err(Error::WrongInitialization(format!(
+                "connection_method unset"
+            ))),
         }
     }
 }
 
 //     pub fn build(self) -> Result<ManagedHost, Error> {
-        
+
 //         match self.handler_descriptor.retrieve_secrets_for_host_connection(&self.secret_provider.clone()) {
 //             Ok(host_handler) => {
 //                 Ok(ManagedHost::from(
@@ -155,7 +139,6 @@ impl ManagedHost {
         secret_provider: Option<SecretsManagementSolution>,
         handler: Handler,
     ) -> ManagedHost {
-
         ManagedHost {
             endpoint: endpoint.to_string(),
             handler,
@@ -209,7 +192,8 @@ impl ManagedHost {
     }
 
     pub fn connect(&mut self) -> Result<(), Error> {
-        self.handler.connect(&self.endpoint, &self.secret_provider.clone().unwrap())
+        self.handler
+            .connect(&self.endpoint, &self.secret_provider.clone().unwrap())
     }
 
     pub fn is_connected(&mut self) -> bool {

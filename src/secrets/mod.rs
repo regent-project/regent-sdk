@@ -1,16 +1,17 @@
 pub mod local;
 pub mod remote;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 use crate::secrets::local::environment_variables::EnvVarSecretProvider;
+use crate::secrets::local::files::FilesSecretProvider;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SecretsManagementSolution {
-    // Files,
+    Files(FilesSecretProvider),
     EnvironmentVariable(EnvVarSecretProvider),
     // AwsSecretsManager,
     // GcpSecretManager,
@@ -19,16 +20,21 @@ pub enum SecretsManagementSolution {
 }
 
 impl SecretsManagementSolution {
-    pub fn get_secret<T: DeserializeOwned>(&self, secret_reference: &str) -> Result<Secret<T>, Error> {
+    pub fn get_secret<T: DeserializeOwned>(
+        &self,
+        secret_reference: &str,
+    ) -> Result<Secret<T>, Error> {
         match self {
-            // SecretsManagementSolution::Files => {}
-            SecretsManagementSolution::EnvironmentVariable(env_var_secret_provider) => {
-                env_var_secret_provider.get_secret(secret_reference)
+            SecretsManagementSolution::Files(secret_provider) => {
+                secret_provider.get_secret(secret_reference)
             }
-            // SecretsManagementSolution::AwsSecretsManager => {}
-            // SecretsManagementSolution::GcpSecretManager => {}
-            // SecretsManagementSolution::DelineaSecretServer => {}
-            // SecretsManagementSolution::HashicorpVault => {}
+
+            SecretsManagementSolution::EnvironmentVariable(secret_provider) => {
+                secret_provider.get_secret(secret_reference)
+            } // SecretsManagementSolution::AwsSecretsManager => {}
+              // SecretsManagementSolution::GcpSecretManager => {}
+              // SecretsManagementSolution::DelineaSecretServer => {}
+              // SecretsManagementSolution::HashicorpVault => {}
         }
     }
 }

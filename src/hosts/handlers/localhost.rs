@@ -10,22 +10,23 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalHostHandler {
-    pub user: WhichUser
+    pub user: WhichUser,
 }
 
 impl LocalHostHandler {
     pub fn from(user: WhichUser) -> Self {
-        Self {
-            user
-        }
+        Self { user }
     }
 }
 
 impl HostHandler for LocalHostHandler {
-    fn connect(&mut self,_endpoint: &str, _secret_provider: &SecretsManagementSolution) -> Result<(), Error> {
+    fn connect(
+        &mut self,
+        _endpoint: &str,
+        _secret_provider: &SecretsManagementSolution,
+    ) -> Result<(), Error> {
         Ok(())
     }
 

@@ -47,7 +47,11 @@ impl std::fmt::Debug for Ssh2HostHandler {
 }
 
 impl HostHandler for Ssh2HostHandler {
-    fn connect(&mut self, endpoint: &str, secret_provider: &SecretsManagementSolution) -> Result<(), Error> {
+    fn connect(
+        &mut self,
+        endpoint: &str,
+        secret_provider: &SecretsManagementSolution,
+    ) -> Result<(), Error> {
         // Check whether a session is already enabled or not (init() might have already been called
         // on this host)
         if self.is_connected() {

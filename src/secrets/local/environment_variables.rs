@@ -1,6 +1,5 @@
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::str::FromStr;
 
 use crate::error::Error;
 use crate::secrets::Secret;
@@ -31,7 +30,10 @@ impl SecretProvider for EnvVarSecretProvider {
                     std::any::type_name::<T>()
                 ))),
             },
-            Err(error_detail) => Err(Error::FailedToGetSecret(format!("{} : {}", secret_reference, error_detail))),
+            Err(error_detail) => Err(Error::FailedToGetSecret(format!(
+                "{} : {}",
+                secret_reference, error_detail
+            ))),
         }
     }
 }

@@ -1,46 +1,50 @@
 pub mod localhost;
 pub mod ssh2;
 
-use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 use crate::error::Error;
 use crate::hosts::handlers::localhost::WhichUser;
-use crate::{command::CommandResult, hosts::privilege::Privilege};
 use crate::secrets::SecretsManagementSolution;
 use crate::{LocalHostHandler, Ssh2HostHandler};
+use crate::{command::CommandResult, hosts::privilege::Privilege};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TargetUserKind {
     CurrentUser,
-    User(String)
+    User(String),
 }
 
 pub struct TargetUser {
-    pub user_kind: TargetUserKind
+    pub user_kind: TargetUserKind,
 }
 
 impl TargetUser {
     pub fn current_user() -> Self {
         Self {
-            user_kind: TargetUserKind::CurrentUser
+            user_kind: TargetUserKind::CurrentUser,
         }
     }
 
     pub fn user(secret_reference: &str) -> Self {
         Self {
-            user_kind: TargetUserKind::User(secret_reference.to_string())
+            user_kind: TargetUserKind::User(secret_reference.to_string()),
         }
     }
 }
 
 pub enum ConnectionMethod {
     Localhost(TargetUser),
-    Ssh2
+    Ssh2,
 }
 
 pub trait HostHandler: Sized {
-    fn connect(&mut self, endpoint: &str, secret_provider: &SecretsManagementSolution) -> Result<(), Error>;
+    fn connect(
+        &mut self,
+        endpoint: &str,
+        secret_provider: &SecretsManagementSolution,
+    ) -> Result<(), Error>;
 
     fn is_connected(&mut self) -> bool;
 
@@ -63,7 +67,7 @@ pub trait HostHandler: Sized {
 #[derive(Clone, Debug)]
 pub enum Handler {
     LocalHost(LocalHostHandler),
-    Ssh2(Ssh2HostHandler)
+    Ssh2(Ssh2HostHandler),
 }
 
 impl Handler {
@@ -77,7 +81,11 @@ impl Handler {
 }
 
 impl HostHandler for Handler {
-    fn connect(&mut self, endpoint: &str, secret_provider: &SecretsManagementSolution) -> Result<(), Error> {
+    fn connect(
+        &mut self,
+        endpoint: &str,
+        secret_provider: &SecretsManagementSolution,
+    ) -> Result<(), Error> {
         match self {
             Handler::LocalHost(handler) => handler.connect(endpoint, secret_provider),
             Handler::Ssh2(handler) => handler.connect(endpoint, secret_provider),
@@ -109,7 +117,11 @@ impl HostHandler for Handler {
         }
     }
 
-    fn run_command(&mut self, command: &str, privilege: &Privilege) -> Result<CommandResult, Error> {
+    fn run_command(
+        &mut self,
+        command: &str,
+        privilege: &Privilege,
+    ) -> Result<CommandResult, Error> {
         match self {
             Handler::LocalHost(handler) => handler.run_command(command, privilege),
             Handler::Ssh2(handler) => handler.run_command(command, privilege),
@@ -130,10 +142,6 @@ impl HostHandler for Handler {
         }
     }
 }
-
-
-
-
 
 // #[derive(Debug, Clone, Serialize, Deserialize)]
 // pub enum ConnectionDetails {
