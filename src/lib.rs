@@ -1,9 +1,9 @@
 pub mod command;
 pub mod error;
 pub mod hosts;
+pub mod secrets;
 pub mod state;
 pub mod task;
-pub mod secrets;
 
 pub use error::Error;
 pub use hosts::handlers::localhost::{LocalHostHandler, WhichUser};

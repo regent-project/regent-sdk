@@ -5,6 +5,8 @@ use crate::hosts::handlers::final_command;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
+use crate::secrets::SecretsManagementSolution;
+
 use pem::Pem;
 use serde::Deserialize;
 use serde::Serialize;
@@ -45,7 +47,7 @@ impl std::fmt::Debug for Ssh2HostHandler {
 }
 
 impl HostHandler for Ssh2HostHandler {
-    fn connect(&mut self, endpoint: &str) -> Result<(), Error> {
+    fn connect(&mut self, endpoint: &str, secret_provider: &SecretsManagementSolution) -> Result<(), Error> {
         // Check whether a session is already enabled or not (init() might have already been called
         // on this host)
         if self.is_connected() {
@@ -356,7 +358,6 @@ mod tests {
 
     #[test]
     fn test_deserialize_key_memory() {
-
         // THIS KEY IS NOT USED ANYWHERE. IT HAS BEEN GENERATED TO PROVIDE REALISTIC CONTENT FOR THIS TEST ONLY.
         let yaml = r#"
             !KeyMemory

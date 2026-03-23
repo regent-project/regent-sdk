@@ -2,42 +2,166 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::LocalHostHandler;
-use crate::Ssh2AuthMethod;
-use crate::Ssh2HostHandler;
+use crate::hosts::handlers::Handler;
+use crate::WhichUser;
 use crate::error::Error;
 use crate::hosts::handlers::HostHandler;
+use crate::hosts::handlers::TargetUserKind;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretsManagementSolution;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::Action;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
-use crate::secrets::SecretsManagementSolution;
+use crate::hosts::handlers::ConnectionMethod;
+use crate::hosts::privilege::Credentials;
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ManagedHost<Handler>
-where
-    Handler: HostHandler
-{
+pub struct ManagedHostBuilder {
+    endpoint: String,
+    connection_method: Option<ConnectionMethod>,
+    host_properties: Option<HostProperties>,
+    secret_provider: Option<SecretsManagementSolution>,
+    vars: HashMap<String, String>,
+}
+
+impl ManagedHostBuilder {
+    pub fn new(
+        endpoint: &str
+    ) -> Self {
+        Self {
+            endpoint: endpoint.to_string(),
+            connection_method: None,
+            host_properties: None,
+            secret_provider: None,
+            vars: HashMap::new(),
+        }
+    }
+
+    pub fn secret_provider(mut self, secret_provider: SecretsManagementSolution) -> Self {
+        self.secret_provider = Some(secret_provider);
+        self
+    }
+
+    pub fn connection_method(mut self, connection_method: ConnectionMethod) -> Self {
+        self.connection_method = Some(connection_method);
+        self
+    }
+
+    pub fn build(self) -> Result<ManagedHost, Error> {
+        // Check that each required field is set
+        if let None = self.connection_method {
+            return Err(
+                Error::WrongInitialization(
+                    format!("connection method unset")
+                )
+            );
+        }
+
+        // Retrieve connection secrets when needed
+        match self.connection_method {
+            Some(connection) => {
+                match connection {
+                    ConnectionMethod::Ssh2 => {
+                        todo!()
+                    }
+                    ConnectionMethod::Localhost(target_user) => {
+                        match target_user.user_kind {
+                            TargetUserKind::CurrentUser => {
+                                // No secret required
+                                Ok(
+                                    ManagedHost::new(
+                                        &self.endpoint,
+                                        self.secret_provider,
+                                        Handler::localhost(LocalHostHandler::from(WhichUser::CurrentUser))
+                                    )
+                                )
+                            }
+                            TargetUserKind::User(secret_reference) => {
+                                match self.secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider.get_secret::<Credentials>(&secret_reference) {
+                                            Ok(secret) => {
+                                                Ok(
+                                                    ManagedHost::new(
+                                                        &self.endpoint,
+                                                        Some(secret_provider),
+                                                        Handler::localhost(LocalHostHandler::from(WhichUser::UsernamePassword(secret.inner())))
+                                                    )
+                                                )
+                                            }
+                                            Err(error_detail) => {
+                                                Err(error_detail)
+                                            }
+                                        }
+                                    }
+                                    None => {
+                                        Err(
+                                            Error::WrongInitialization(
+                                                format!("secret required to connect to host but secret_provider unset")
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None => {
+                Err(
+                    Error::WrongInitialization(
+                        format!("connection_method unset")
+                    )
+                )
+            }
+        }
+    }
+}
+
+//     pub fn build(self) -> Result<ManagedHost, Error> {
+        
+//         match self.handler_descriptor.retrieve_secrets_for_host_connection(&self.secret_provider.clone()) {
+//             Ok(host_handler) => {
+//                 Ok(ManagedHost::from(
+//                     &self.endpoint,
+//                     host_handler,
+//                     self.vars,
+//                     self.host_properties,
+//                     self.secret_provider
+//                 ))
+//             }
+//             Err(error_detail) => {
+//                 Err(error_detail)
+//             }
+//         }
+//     }
+// }
+
+#[derive(Clone, Debug)]
+pub struct ManagedHost {
     endpoint: String,
     pub handler: Handler,
     vars: HashMap<String, String>,
     host_properties: Option<HostProperties>,
-    secret_provider: SecretsManagementSolution
+    secret_provider: Option<SecretsManagementSolution>,
 }
 
-impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
+impl ManagedHost {
+    pub fn new(
+        endpoint: &str,
+        secret_provider: Option<SecretsManagementSolution>,
+        handler: Handler,
+    ) -> ManagedHost {
 
-    pub fn new(endpoint: &str, secret_provider: SecretsManagementSolution, handler: Handler) -> ManagedHost<Handler> {
         ManagedHost {
             endpoint: endpoint.to_string(),
             handler,
             vars: HashMap::new(),
             host_properties: None,
-            secret_provider
+            secret_provider,
         }
     }
 
@@ -47,7 +171,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
         vars: impl IntoIterator<Item = (String, String)>,
         host_properties: Option<HostProperties>,
         secret_provider: SecretsManagementSolution,
-    ) -> ManagedHost<Handler> {
+    ) -> ManagedHost {
         let mut final_vars: HashMap<String, String> = HashMap::new();
 
         for (key, value) in vars.into_iter() {
@@ -58,7 +182,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
             handler,
             vars: final_vars,
             host_properties,
-            secret_provider
+            secret_provider: Some(secret_provider),
         }
     }
 
@@ -85,7 +209,7 @@ impl<Handler: HostHandler + Send + Clone + 'static> ManagedHost<Handler> {
     }
 
     pub fn connect(&mut self) -> Result<(), Error> {
-        self.handler.connect(&self.endpoint)
+        self.handler.connect(&self.endpoint, &self.secret_provider.clone().unwrap())
     }
 
     pub fn is_connected(&mut self) -> bool {
@@ -293,26 +417,23 @@ pub enum InternalApiCallOutcome {
     AllowedFailure(String),
 }
 
-
-
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct ManagedHostIntermediateRepresentation
-{
-    alias: String,
-    endpoint: String,
-    connection_type: ConnectionType,
-    #[serde(skip_serializing)] 
-    connection_secrets_ref: String,
-    vars: Option<HashMap<String, String>>
-}
+// #[derive(Clone, Serialize, Deserialize, Debug)]
+// pub struct ManagedHostIntermediateRepresentation {
+//     alias: String,
+//     endpoint: String,
+//     connection_type: ConnectionType,
+//     #[serde(skip_serializing)]
+//     connection_secrets_ref: String,
+//     vars: Option<HashMap<String, String>>,
+// }
 
 // impl ManagedHostIntermediateRepresentation {
 //     pub fn to_managed_host<Handler: HostHandler + Clone + Send + 'static>(
 //         self
-//     ) -> ManagedHost<Handler> {
+//     ) -> ManagedHost {
 
 //         let endpoint: String = self.endpoint;
-        
+
 //         let mut vars: HashMap<String, String> = HashMap::new();
 //         if let Some(vars_list) = self.vars {
 //             vars.extend(vars_list);
@@ -321,7 +442,7 @@ pub struct ManagedHostIntermediateRepresentation
 //         match self.connection.kind {
 //             HandlerKind::Localhost(local_host_handler) => {
 //                 ManagedHost::from(endpoint, handler, vars) { endpoint, handler: local_host_handler, vars }
-                
+
 //             }
 //             HandlerKind::Ssh2(ssh2_auth_method) => {
 //                 Ssh2HostHandler::from(ssh2_auth_method)
@@ -330,31 +451,30 @@ pub struct ManagedHostIntermediateRepresentation
 //     }
 // }
 
+// #[derive(Clone, Serialize, Deserialize, Debug)]
+// pub enum ConnectionType {
+//     Localhost,
+//     Ssh2,
+// }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
-pub enum ConnectionType
-{
-    Localhost,
-    Ssh2
-}
+// #[cfg(test)]
+// mod tests {
+//     use crate::{LocalHostHandler, secrets::local::environment_variables::EnvVarSecretProvider};
 
-#[cfg(test)]
-mod tests {
-    use crate::{LocalHostHandler, secrets::environment_variables::EnvVarSecretProvider};
+//     use super::*;
 
-    use super::*;
+//     #[test]
+//     fn test_deserialize_localhost_managed_host_from_yaml() {
+//         let yaml_content = r#"
+// endpoint: "localhost"
+// handler:
+//     user: CurrentUser
+// vars: {}
+// secret_provider: !EnvironmentVariable
+// "#; // EnvVarSecretProvider
 
-    #[test]
-    fn test_deserialize_localhost_managed_host_from_yaml() {
-        let yaml_content = r#"
-endpoint: "localhost"
-handler:
-    user: CurrentUser
-vars: {}
-secret_provider: !EnvironmentVariable
-"#; // EnvVarSecretProvider
-
-        let managed_host: ManagedHost<LocalHostHandler> = yaml_serde::from_str(yaml_content).unwrap();
-        assert_eq!(managed_host.endpoint, "localhost");
-    }
-}
+//         let managed_host: ManagedHost<LocalHostHandler> =
+//             yaml_serde::from_str(yaml_content).unwrap();
+//         assert_eq!(managed_host.endpoint, "localhost");
+//     }
+// }

@@ -4,23 +4,28 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
+use crate::secrets::SecretsManagementSolution;
+
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalHostHandler {
-    pub user: WhichUser,
+    pub user: WhichUser
 }
 
 impl LocalHostHandler {
-    pub fn new(user: WhichUser) -> Self {
-        Self { user }
+    pub fn from(user: WhichUser) -> Self {
+        Self {
+            user
+        }
     }
 }
 
 impl HostHandler for LocalHostHandler {
-    fn connect(&mut self, _endpoint: &str) -> Result<(), Error> {
+    fn connect(&mut self,_endpoint: &str, _secret_provider: &SecretsManagementSolution) -> Result<(), Error> {
         Ok(())
     }
 
@@ -64,27 +69,7 @@ impl HostHandler for LocalHostHandler {
     ) -> Result<CommandResult, Error> {
         let final_command = final_command(command, privilege, &self.user);
 
-        let result = match &self.user {
-            WhichUser::CurrentUser => Command::new("sh").arg("-c").arg(final_command).output(),
-            WhichUser::PasswordLessUser(username) => Command::new("su")
-                .arg("-")
-                .arg(username)
-                .arg("-c")
-                .arg("sh")
-                .arg("-c")
-                .arg(final_command)
-                .output(),
-            WhichUser::UsernamePassword(credentials) => {
-                let command_content = format!(
-                    "echo \"{}\" | su - {} -c \"{}\"",
-                    credentials.password(),
-                    credentials.username(),
-                    final_command
-                );
-
-                Command::new("sh").arg("-c").arg(command_content).output()
-            }
-        };
+        let result = Command::new("sh").arg("-c").arg(final_command).output();
 
         match result {
             Ok(output) => Ok(CommandResult {
@@ -126,6 +111,5 @@ impl HostHandler for LocalHostHandler {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WhichUser {
     CurrentUser,
-    PasswordLessUser(String), // The String being the username
     UsernamePassword(Credentials),
 }

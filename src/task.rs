@@ -17,16 +17,16 @@ use crate::state::compliance::ManagedHostStatus;
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
-pub struct RegentTask<Handler: HostHandler> {
-    host: ManagedHost<Handler>,
+// #[derive(Serialize, Deserialize)]
+pub struct RegentTask {
+    host: ManagedHost,
     expected_state: ExpectedState,
     job: Job,
     correlation_id: String,
 }
 
-impl<Handler: HostHandler + Send + Clone + 'static> RegentTask<Handler> {
-    pub fn from(host: ManagedHost<Handler>, expected_state: ExpectedState, job: Job) -> Self {
+impl RegentTask {
+    pub fn from(host: ManagedHost, expected_state: ExpectedState, job: Job) -> Self {
         Self {
             host,
             expected_state,
