@@ -106,7 +106,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
         &self,
         host_handler: &mut Handler,
 
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let package_manager: RedHatFlavoredPackageManager;
@@ -245,7 +245,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
     fn call(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             YumDnfModuleInternalApiCall::Install(package_name) => (

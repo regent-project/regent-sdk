@@ -24,9 +24,9 @@ pub struct DebugBlockExpectedState {
 impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState {
     fn assess_compliance(
         &self,
-        host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
-        privilege: &Privilege,
+        _host_handler: &mut Handler,
+        _host_properties: &Option<HostProperties>,
+        _privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         return Ok(AttributeComplianceAssessment::NonCompliant(Vec::from([
             Remediation::None(self.msg.clone()),
@@ -46,8 +46,8 @@ impl DebugApiCall {
 impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
     fn call(
         &self,
-        host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_handler: &mut Handler,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success)
     }

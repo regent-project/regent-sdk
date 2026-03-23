@@ -121,7 +121,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
     fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         // Prechecks
@@ -282,7 +282,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
     fn call(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             ServiceModuleInternalApiCall::Start(service_name) => {
@@ -399,7 +399,7 @@ mod tests {
   auto_start: disabled
         ";
 
-        let attributes: Vec<ServiceBlockExpectedState> =
+        let _attributes: Vec<ServiceBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

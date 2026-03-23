@@ -2,13 +2,17 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::LocalHostHandler;
+use crate::Ssh2AuthMethod;
+use crate::Ssh2HostHandler;
 use crate::WhichUser;
 use crate::error::Error;
 use crate::hosts::handlers::ConnectionMethod;
 use crate::hosts::handlers::Handler;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::TargetUserKind;
+use crate::hosts::handlers::ssh2::Ssh2AuthReference;
 use crate::hosts::privilege::Credentials;
+use crate::hosts::privilege::LoginKeyPath;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretsManagementSolution;
@@ -19,6 +23,7 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ManagedHostBuilder {
     endpoint: String,
     connection_method: Option<ConnectionMethod>,
@@ -60,19 +65,18 @@ impl ManagedHostBuilder {
         match self.connection_method {
             Some(connection) => {
                 match connection {
-                    ConnectionMethod::Ssh2 => {
-                        todo!()
-                    }
                     ConnectionMethod::Localhost(target_user) => {
                         match target_user.user_kind {
                             TargetUserKind::CurrentUser => {
                                 // No secret required
                                 Ok(ManagedHost::new(
                                     &self.endpoint,
-                                    self.secret_provider,
                                     Handler::localhost(LocalHostHandler::from(
                                         WhichUser::CurrentUser,
                                     )),
+                                    self.vars,
+                                    self.host_properties,
+                                    self.secret_provider,
                                 ))
                             }
                             TargetUserKind::User(secret_reference) => match self.secret_provider {
@@ -82,10 +86,12 @@ impl ManagedHostBuilder {
                                     {
                                         Ok(secret) => Ok(ManagedHost::new(
                                             &self.endpoint,
-                                            Some(secret_provider),
                                             Handler::localhost(LocalHostHandler::from(
                                                 WhichUser::UsernamePassword(secret.inner()),
                                             )),
+                                            self.vars,
+                                            self.host_properties,
+                                            Some(secret_provider),
                                         )),
                                         Err(error_detail) => Err(error_detail),
                                     }
@@ -94,6 +100,70 @@ impl ManagedHostBuilder {
                                     "secret required to connect to host but secret_provider unset"
                                 ))),
                             },
+                        }
+                    }
+                    ConnectionMethod::Ssh2(ssh2_auth_reference) => {
+                        match ssh2_auth_reference.auth_method {
+                            Ssh2AuthReference::UsernamePassword(secret_reference) => {
+                                match &self.secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret::<Credentials>(&secret_reference)
+                                        {
+                                            Ok(secret) => Ok(ManagedHost::new(
+                                                &self.endpoint,
+                                                Handler::ss2(Ssh2HostHandler::from(
+                                                    Ssh2AuthMethod::UsernamePassword(
+                                                        secret.inner(),
+                                                    ),
+                                                )),
+                                                self.vars,
+                                                self.host_properties,
+                                                self.secret_provider,
+                                            )),
+                                            Err(error_detail) => Err(error_detail),
+                                        }
+                                    }
+                                    None => Err(Error::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
+                                }
+                            }
+                            Ssh2AuthReference::KeyFile(secret_reference) => {
+                                match &self.secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret::<LoginKeyPath>(&secret_reference)
+                                        {
+                                            Ok(secret) => Ok(ManagedHost::new(
+                                                &self.endpoint,
+                                                Handler::ss2(Ssh2HostHandler::from(
+                                                    Ssh2AuthMethod::KeyFile(secret.inner()),
+                                                )),
+                                                self.vars,
+                                                self.host_properties,
+                                                self.secret_provider,
+                                            )),
+                                            Err(error_detail) => Err(error_detail),
+                                        }
+                                    }
+                                    None => Err(Error::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
+                                }
+                            }
+                            Ssh2AuthReference::Agent(agent_name) => {
+                                // No secret required
+                                Ok(ManagedHost::new(
+                                    &self.endpoint,
+                                    Handler::ss2(Ssh2HostHandler::from(
+                                        crate::Ssh2AuthMethod::Agent(agent_name),
+                                    )),
+                                    self.vars,
+                                    self.host_properties,
+                                    self.secret_provider,
+                                ))
+                            }
                         }
                     }
                 }
@@ -136,14 +206,16 @@ pub struct ManagedHost {
 impl ManagedHost {
     pub fn new(
         endpoint: &str,
-        secret_provider: Option<SecretsManagementSolution>,
         handler: Handler,
+        vars: HashMap<String, String>,
+        host_properties: Option<HostProperties>,
+        secret_provider: Option<SecretsManagementSolution>,
     ) -> ManagedHost {
         ManagedHost {
             endpoint: endpoint.to_string(),
             handler,
-            vars: HashMap::new(),
-            host_properties: None,
+            vars,
+            host_properties,
             secret_provider,
         }
     }

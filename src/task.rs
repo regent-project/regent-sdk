@@ -8,27 +8,29 @@
 //!     .
 //! ```
 
-use crate::error::Error;
-use crate::hosts::handlers::HostHandler;
-use crate::hosts::managed_host::ManagedHost;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
+use crate::{error::Error, hosts::managed_host::ManagedHostBuilder};
 
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 
-// #[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 pub struct RegentTask {
-    host: ManagedHost,
+    managed_host_builder: ManagedHostBuilder,
     expected_state: ExpectedState,
     job: Job,
     correlation_id: String,
 }
 
 impl RegentTask {
-    pub fn from(host: ManagedHost, expected_state: ExpectedState, job: Job) -> Self {
+    pub fn from(
+        managed_host_builder: ManagedHostBuilder,
+        expected_state: ExpectedState,
+        job: Job,
+    ) -> Self {
         Self {
-            host,
+            managed_host_builder,
             expected_state,
             job,
             correlation_id: nanoid!(),
@@ -40,13 +42,14 @@ impl RegentTask {
     }
 
     pub fn run(&mut self) -> Result<RegentTaskResult, Error> {
-        // Try to connect to the host
+        // Build a ManagedHost
+        let mut managed_host = self.managed_host_builder.clone().build()?;
 
-        self.host.connect()?;
+        managed_host.connect()?;
 
         let host_status = match self.job {
-            Job::Assess => self.host.assess_compliance(&self.expected_state)?,
-            Job::Reach => self.host.reach_compliance(&self.expected_state)?,
+            Job::Assess => managed_host.assess_compliance(&self.expected_state)?,
+            Job::Reach => managed_host.reach_compliance(&self.expected_state)?,
         };
 
         Ok(RegentTaskResult::from(

@@ -6,16 +6,20 @@ use std::path::PathBuf;
 
 use crate::error::Error;
 use crate::hosts::handlers::localhost::WhichUser;
+use crate::hosts::handlers::ssh2::Ssh2Auth;
 use crate::secrets::SecretsManagementSolution;
 use crate::{LocalHostHandler, Ssh2HostHandler};
 use crate::{command::CommandResult, hosts::privilege::Privilege};
 
+// Intermediary representation of a WhichUser
+// WhichUser holds secrets, TargetUser holds references to secrets
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TargetUserKind {
     CurrentUser,
     User(String),
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TargetUser {
     pub user_kind: TargetUserKind,
 }
@@ -34,9 +38,10 @@ impl TargetUser {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConnectionMethod {
     Localhost(TargetUser),
-    Ssh2,
+    Ssh2(Ssh2Auth),
 }
 
 pub trait HostHandler: Sized {

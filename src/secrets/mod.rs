@@ -28,7 +28,6 @@ impl SecretsManagementSolution {
             SecretsManagementSolution::Files(secret_provider) => {
                 secret_provider.get_secret(secret_reference)
             }
-
             SecretsManagementSolution::EnvironmentVariable(secret_provider) => {
                 secret_provider.get_secret(secret_reference)
             } // SecretsManagementSolution::AwsSecretsManager => {}

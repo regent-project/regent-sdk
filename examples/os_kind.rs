@@ -1,20 +1,23 @@
-use regent_sdk::{LocalHostHandler, ManagedHost};
-use regent_sdk::secrets::environment_variables::EnvVarSecretProvider;
+use regent_sdk::hosts::handlers::ConnectionMethod;
+use regent_sdk::hosts::handlers::TargetUser;
+use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretsManagementSolution;
+use regent_sdk::secrets::local::environment_variables::EnvVarSecretProvider;
 
 fn main() {
     // Build a SecretProvider
-    let env_var_secret_provider = SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());// EnvVarSecretProvider::new();
+    let secret_provider =
+        SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());
 
     // Describe the ManagedHost
-    let mut managed_host = ManagedHost::new(
-        "localhost",
-        env_var_secret_provider,
-        LocalHostHandler::new(regent_sdk::WhichUser::CurrentUser),
-    );
+    let mut managed_host = ManagedHostBuilder::new("localhost")
+        .secret_provider(secret_provider)
+        .connection_method(ConnectionMethod::Localhost(TargetUser::current_user()))
+        .build()
+        .unwrap();
 
     // Open connection with this ManageHost
-    managed_host.connect().unwrap();
+    assert!(managed_host.connect().is_ok());
 
     // What kind of Os are we dealing with ?
     match managed_host.collect_properties() {

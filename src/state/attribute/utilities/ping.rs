@@ -21,7 +21,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
     fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let cmd = String::from("id");
@@ -51,8 +51,8 @@ impl PingApiCall {
 impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
     fn call(
         &self,
-        host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_handler: &mut Handler,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success)
     }
@@ -69,6 +69,6 @@ mod tests {
         let raw_attributes = "---
     ";
 
-        let attribute: PingBlockExpectedState = yaml_serde::from_str(raw_attributes).unwrap();
+        let _attribute: PingBlockExpectedState = yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

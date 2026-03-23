@@ -75,7 +75,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
     fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
@@ -306,7 +306,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
     fn call(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {
@@ -460,7 +460,7 @@ mod tests {
   state: absent
     ";
 
-        let attributes: Vec<LineInFileBlockExpectedState> =
+        let _attributes: Vec<LineInFileBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

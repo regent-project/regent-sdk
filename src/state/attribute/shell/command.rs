@@ -23,8 +23,8 @@ pub struct CommandBlockExpectedState {
 impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedState {
     fn assess_compliance(
         &self,
-        host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_handler: &mut Handler,
+        _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let mut remediations: Vec<Remediation> = Vec::new();
@@ -56,7 +56,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
     fn call(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let cmd_result = host_handler
             .run_command(self.cmd.as_str(), &self.privilege)
@@ -83,7 +83,7 @@ mod tests {
         let raw_attributes = "---
 - cmd: ls -ltrh";
 
-        let attributes: Vec<CommandBlockExpectedState> =
+        let _attributes: Vec<CommandBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

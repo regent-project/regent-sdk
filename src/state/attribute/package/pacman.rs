@@ -104,7 +104,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
     fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
@@ -204,7 +204,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
     fn call(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             PacmanModuleInternalApiCall::Install(package_name) => (

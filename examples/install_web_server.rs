@@ -1,22 +1,32 @@
+use regent_sdk::Privilege;
 use regent_sdk::attribute::package::apt::{AptBlockExpectedState, PackageExpectedState};
+use regent_sdk::hosts::handlers::ConnectionMethod;
+use regent_sdk::hosts::handlers::TargetUser;
+use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretsManagementSolution;
-use regent_sdk::secrets::environment_variables::EnvVarSecretProvider;
+use regent_sdk::secrets::local::environment_variables::EnvVarSecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
-use regent_sdk::{ManagedHost, Privilege, Ssh2HostHandler};
 
 fn main() {
     // Build a SecretProvider
-    let env_var_secret_provider = SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());// EnvVarSecretProvider::new();
-    
+    let secret_provider =
+        SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());
+
     // Describe the ManagedHost
-    let mut managed_host = ManagedHost::new(
-        "<host-endpoint>:<port>",
-        env_var_secret_provider,
-        Ssh2HostHandler::key_file("regent-user", "<path/to/private/key>"),
-    );
+    // let mut managed_host = ManagedHost::new(
+    //     "<host-endpoint>:<port>",
+    //     env_var_secret_provider,
+    //     Ssh2HostHandler::key_file("regent-user", "<path/to/private/key>"),
+    // );
+
+    let mut managed_host = ManagedHostBuilder::new("<host-endpoint>:<port>")
+        .secret_provider(secret_provider)
+        .connection_method(ConnectionMethod::Localhost(TargetUser::current_user()))
+        .build()
+        .unwrap();
 
     // Open connection with this ManageHost
-    managed_host.connect().unwrap();
+    assert!(managed_host.connect().is_ok());
 
     // Describe the expected state
     let apache_expected_state = AptBlockExpectedState::builder()

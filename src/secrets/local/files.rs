@@ -37,14 +37,3 @@ impl SecretProvider for FilesSecretProvider {
         }
     }
 }
-
-// match std::env::var(secret_reference) {
-//     Ok(raw_content) => match serde_json::from_str::<T>(&raw_content) {
-//         Ok(content) => Ok(Secret::from(content)),
-//         Err(_parse_error_detail) => Err(Error::FailureToParseContent(format!(
-//             "Content received from secret provider but failure to parse as {}",
-//             std::any::type_name::<T>()
-//         ))),
-//     },
-//     Err(error_detail) => Err(Error::FailedToGetSecret(format!("{} : {}", secret_reference, error_detail))),
-// }

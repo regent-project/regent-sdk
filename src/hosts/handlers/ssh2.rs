@@ -4,16 +4,15 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::privilege::Credentials;
+use crate::hosts::privilege::LoginKeyPath;
 use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretsManagementSolution;
 
-use pem::Pem;
 use serde::Deserialize;
 use serde::Serialize;
 use ssh2::Session;
 use std::io::Read;
 use std::net::TcpStream;
-use std::path::Path;
 use std::path::PathBuf;
 
 #[derive(Clone)]
@@ -50,7 +49,7 @@ impl HostHandler for Ssh2HostHandler {
     fn connect(
         &mut self,
         endpoint: &str,
-        secret_provider: &SecretsManagementSolution,
+        _secret_provider: &SecretsManagementSolution,
     ) -> Result<(), Error> {
         // Check whether a session is already enabled or not (init() might have already been called
         // on this host)
@@ -111,24 +110,12 @@ impl HostHandler for Ssh2HostHandler {
                             )));
                         }
                     }
-                    Ssh2AuthMethod::KeyFile((username, privatekeypath)) => {
+                    Ssh2AuthMethod::KeyFile(login_key_path) => {
                         self.session
-                            .userauth_pubkey_file(username.as_str(), None, &privatekeypath, None)
-                            .unwrap(); // TODO : add pubkey and passphrase support
-                        if self.session.authenticated() {
-                            return Ok(());
-                        } else {
-                            return Err(Error::FailedInitialization(String::from(
-                                "Authentication failed",
-                            )));
-                        }
-                    }
-                    Ssh2AuthMethod::KeyMemory((username, pem)) => {
-                        self.session
-                            .userauth_pubkey_memory(
-                                username.as_str(),
+                            .userauth_pubkey_file(
+                                login_key_path.username(),
                                 None,
-                                pem.to_string().as_str(), // Pem struct doesn't implement directly '.as_str()' but accepts '.to_string()'
+                                login_key_path.key_path(),
                                 None,
                             )
                             .unwrap(); // TODO : add pubkey and passphrase support
@@ -308,16 +295,9 @@ impl Ssh2HostHandler {
     }
 
     pub fn key_file(username: &str, key_file_path: &str) -> Ssh2HostHandler {
-        Ssh2HostHandler::from(Ssh2AuthMethod::KeyFile((
+        Ssh2HostHandler::from(Ssh2AuthMethod::KeyFile(LoginKeyPath::from(
             username.to_string(),
             PathBuf::from(key_file_path),
-        )))
-    }
-
-    pub fn key_in_memory(username: &str, key_content: Pem) -> Ssh2HostHandler {
-        Ssh2HostHandler::from(Ssh2AuthMethod::KeyMemory((
-            username.to_string(),
-            key_content,
         )))
     }
 
@@ -329,9 +309,42 @@ impl Ssh2HostHandler {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Ssh2AuthMethod {
     UsernamePassword(Credentials),
-    KeyFile((String, PathBuf)), // (username, private key's path)
-    KeyMemory((String, Pem)),   // (username, PEM encoded key from memory)
-    Agent(String),              // Name of SSH agent
+    KeyFile(LoginKeyPath), // (username, private key's path)
+    Agent(String),         // Name of SSH agent
+}
+
+// Intermediary representation of a Ssh2AuthMethod
+// Ssh2AuthMethod holds secrets, Ssh2AuthReference holds references to secrets
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Ssh2AuthReference {
+    UsernamePassword(String),
+    KeyFile(String),
+    Agent(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Ssh2Auth {
+    pub auth_method: Ssh2AuthReference,
+}
+
+impl Ssh2Auth {
+    pub fn username_password(secret_reference: &str) -> Self {
+        Self {
+            auth_method: Ssh2AuthReference::UsernamePassword(secret_reference.to_string()),
+        }
+    }
+
+    pub fn key_file(secret_reference: &str) -> Self {
+        Self {
+            auth_method: Ssh2AuthReference::KeyFile(secret_reference.to_string()),
+        }
+    }
+
+    pub fn agent(agent_name: &str) -> Self {
+        Self {
+            auth_method: Ssh2AuthReference::Agent(agent_name.to_string()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -361,24 +374,6 @@ mod tests {
     }
 
     #[test]
-    fn test_deserialize_key_memory() {
-        // THIS KEY IS NOT USED ANYWHERE. IT HAS BEEN GENERATED TO PROVIDE REALISTIC CONTENT FOR THIS TEST ONLY.
-        let yaml = r#"
-            !KeyMemory
-              - "testuser"
-              - "-----BEGIN OPENSSH PRIVATE KEY-----
-b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
-QyNTUxOQAAACAwn3SGLS+W9Kh8B7eSysF7rYuAyUNuFuhGUbT2wf0O8QAAAJhAq7a2QKu2
-tgAAAAtzc2gtZWQyNTUxOQAAACAwn3SGLS+W9Kh8B7eSysF7rYuAyUNuFuhGUbT2wf0O8Q
-AAAEB1D2VaOhrGOqiNkiQpeCPzT1WgI53LjxQWSZIqiiclKTCfdIYtL5b0qHwHt5LKwXut
-i4DJQ24W6EZRtPbB/Q7xAAAAE3JvbXpvckBsYXB0b3BsZW5vdm8BAg==
------END OPENSSH PRIVATE KEY-----"
-        "#;
-        let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
-        matches!(auth_method, Ssh2AuthMethod::KeyMemory(_));
-    }
-
-    #[test]
     fn test_deserialize_agent() {
         let yaml = r#"
             !Agent
@@ -399,11 +394,13 @@ impl std::fmt::Debug for Ssh2AuthMethod {
                     creds.username()
                 )
             }
-            Ssh2AuthMethod::KeyFile((username, key_path)) => {
-                write!(f, "KeyFile(({:?}, {:?}))", username, key_path)
-            }
-            Ssh2AuthMethod::KeyMemory((username, _key_content)) => {
-                write!(f, "KeyMemory(({:?}, \"********\"))", username)
+            Ssh2AuthMethod::KeyFile(login_key_path) => {
+                write!(
+                    f,
+                    "KeyFile(({:?}, {:?}))",
+                    login_key_path.username(),
+                    login_key_path.key_path()
+                )
             }
             Ssh2AuthMethod::Agent(agent_name) => {
                 write!(f, "Agent({:?})", agent_name)

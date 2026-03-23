@@ -104,7 +104,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
     fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
     ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
@@ -210,7 +210,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
     fn call(
         &self,
         host_handler: &mut Handler,
-        host_properties: &Option<HostProperties>,
+        _host_properties: &Option<HostProperties>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => (
