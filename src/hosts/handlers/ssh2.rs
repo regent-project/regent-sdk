@@ -6,6 +6,7 @@ use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKeyPath;
 use crate::hosts::privilege::Privilege;
+use crate::secrets::SecretReference;
 use crate::secrets::SecretsManagementSolution;
 
 use serde::Deserialize;
@@ -316,13 +317,15 @@ pub enum Ssh2AuthMethod {
 // Intermediary representation of a Ssh2AuthMethod
 // Ssh2AuthMethod holds secrets, Ssh2AuthReference holds references to secrets
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum Ssh2AuthReference {
-    UsernamePassword(String),
-    KeyFile(String),
+    UsernamePassword(SecretReference),
+    KeyFile(SecretReference),
     Agent(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct Ssh2Auth {
     pub auth_method: Ssh2AuthReference,
 }
@@ -330,13 +333,15 @@ pub struct Ssh2Auth {
 impl Ssh2Auth {
     pub fn username_password(secret_reference: &str) -> Self {
         Self {
-            auth_method: Ssh2AuthReference::UsernamePassword(secret_reference.to_string()),
+            auth_method: Ssh2AuthReference::UsernamePassword(SecretReference::from(
+                secret_reference,
+            )),
         }
     }
 
     pub fn key_file(secret_reference: &str) -> Self {
         Self {
-            auth_method: Ssh2AuthReference::KeyFile(secret_reference.to_string()),
+            auth_method: Ssh2AuthReference::KeyFile(SecretReference::from(secret_reference)),
         }
     }
 

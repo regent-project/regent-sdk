@@ -1,5 +1,4 @@
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
 use crate::secrets::Secret;
@@ -7,7 +6,7 @@ use crate::secrets::SecretProvider;
 
 // In here, every secret, encrypted or not, is reachable by the application through an environment variable
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub struct EnvVarSecretProvider {}
 
 impl EnvVarSecretProvider {

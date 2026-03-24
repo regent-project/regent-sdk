@@ -19,21 +19,20 @@ fn main() {
     // ...
 
     // Receiving end
-    let regent_task_result = run_a_given_regent_task(serialized_regent_task);
+    // Build a SecretProvider
+    let secret_provider =
+        SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());
+
+    let regent_task_result =
+        run_a_given_regent_task(serialized_regent_task, &Some(secret_provider));
     println!("{:?}", regent_task_result);
 }
 
 fn create_a_regent_task() -> String {
-    // Build a SecretProvider
-    let secret_provider =
-        SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new()); // EnvVarSecretProvider::new();
-
     // Describe the ManagedHost through a ManagedHostBuilder
-    let managed_host_builder = ManagedHostBuilder::new("localhost")
-        .secret_provider(secret_provider)
-        .connection_method(ConnectionMethod::Localhost(TargetUser::user(
-            "credentials.secret",
-        )));
+    let managed_host_builder = ManagedHostBuilder::new("localhost").connection_method(
+        ConnectionMethod::Localhost(TargetUser::user("credentials.secret")),
+    );
 
     // Describe the expected state
     let apache_expected_state = PacmanBlockExpectedState::builder()
@@ -53,8 +52,11 @@ fn create_a_regent_task() -> String {
     serde_json::to_string(&regent_task).unwrap()
 }
 
-fn run_a_given_regent_task(raw_regent_task: String) -> Result<RegentTaskResult, Error> {
+fn run_a_given_regent_task(
+    raw_regent_task: String,
+    secret_provider: &Option<SecretsManagementSolution>,
+) -> Result<RegentTaskResult, Error> {
     let mut regent_task = serde_json::from_str::<RegentTask>(&raw_regent_task).unwrap();
 
-    regent_task.run()
+    regent_task.run(secret_provider)
 }

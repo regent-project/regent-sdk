@@ -24,12 +24,12 @@ use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct ManagedHostBuilder {
     endpoint: String,
     connection_method: Option<ConnectionMethod>,
     host_properties: Option<HostProperties>,
-    secret_provider: Option<SecretsManagementSolution>,
-    vars: HashMap<String, String>,
+    vars: Option<HashMap<String, String>>,
 }
 
 impl ManagedHostBuilder {
@@ -38,14 +38,8 @@ impl ManagedHostBuilder {
             endpoint: endpoint.to_string(),
             connection_method: None,
             host_properties: None,
-            secret_provider: None,
-            vars: HashMap::new(),
+            vars: None,
         }
-    }
-
-    pub fn secret_provider(mut self, secret_provider: SecretsManagementSolution) -> Self {
-        self.secret_provider = Some(secret_provider);
-        self
     }
 
     pub fn connection_method(mut self, connection_method: ConnectionMethod) -> Self {
@@ -53,7 +47,24 @@ impl ManagedHostBuilder {
         self
     }
 
-    pub fn build(self) -> Result<ManagedHost, Error> {
+    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, Error> {
+        match yaml_serde::from_str::<Self>(raw_yaml) {
+            Ok(managed_host_builder) => Ok(managed_host_builder),
+            Err(error_detail) => Err(Error::FailureToParseContent(format!("{:?}", error_detail))),
+        }
+    }
+
+    pub fn from_raw_json(raw_json: &str) -> Result<Self, Error> {
+        match serde_json::from_str::<Self>(raw_json) {
+            Ok(managed_host_builder) => Ok(managed_host_builder),
+            Err(error_detail) => Err(Error::FailureToParseContent(format!("{:?}", error_detail))),
+        }
+    }
+
+    pub fn build(
+        self,
+        secret_provider: &Option<SecretsManagementSolution>,
+    ) -> Result<ManagedHost, Error> {
         // Check that each required field is set
         if let None = self.connection_method {
             return Err(Error::WrongInitialization(format!(
@@ -76,13 +87,13 @@ impl ManagedHostBuilder {
                                     )),
                                     self.vars,
                                     self.host_properties,
-                                    self.secret_provider,
+                                    secret_provider.clone(),
                                 ))
                             }
-                            TargetUserKind::User(secret_reference) => match self.secret_provider {
+                            TargetUserKind::User(secret_reference) => match secret_provider {
                                 Some(secret_provider) => {
                                     match secret_provider
-                                        .get_secret::<Credentials>(&secret_reference)
+                                        .get_secret::<Credentials>(secret_reference.sec_ref())
                                     {
                                         Ok(secret) => Ok(ManagedHost::new(
                                             &self.endpoint,
@@ -91,7 +102,7 @@ impl ManagedHostBuilder {
                                             )),
                                             self.vars,
                                             self.host_properties,
-                                            Some(secret_provider),
+                                            Some(secret_provider.clone()),
                                         )),
                                         Err(error_detail) => Err(error_detail),
                                     }
@@ -105,10 +116,10 @@ impl ManagedHostBuilder {
                     ConnectionMethod::Ssh2(ssh2_auth_reference) => {
                         match ssh2_auth_reference.auth_method {
                             Ssh2AuthReference::UsernamePassword(secret_reference) => {
-                                match &self.secret_provider {
+                                match secret_provider {
                                     Some(secret_provider) => {
                                         match secret_provider
-                                            .get_secret::<Credentials>(&secret_reference)
+                                            .get_secret::<Credentials>(secret_reference.sec_ref())
                                         {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 &self.endpoint,
@@ -119,7 +130,7 @@ impl ManagedHostBuilder {
                                                 )),
                                                 self.vars,
                                                 self.host_properties,
-                                                self.secret_provider,
+                                                Some(secret_provider.clone()),
                                             )),
                                             Err(error_detail) => Err(error_detail),
                                         }
@@ -129,29 +140,27 @@ impl ManagedHostBuilder {
                                     ))),
                                 }
                             }
-                            Ssh2AuthReference::KeyFile(secret_reference) => {
-                                match &self.secret_provider {
-                                    Some(secret_provider) => {
-                                        match secret_provider
-                                            .get_secret::<LoginKeyPath>(&secret_reference)
-                                        {
-                                            Ok(secret) => Ok(ManagedHost::new(
-                                                &self.endpoint,
-                                                Handler::ss2(Ssh2HostHandler::from(
-                                                    Ssh2AuthMethod::KeyFile(secret.inner()),
-                                                )),
-                                                self.vars,
-                                                self.host_properties,
-                                                self.secret_provider,
+                            Ssh2AuthReference::KeyFile(secret_reference) => match secret_provider {
+                                Some(secret_provider) => {
+                                    match secret_provider
+                                        .get_secret::<LoginKeyPath>(secret_reference.sec_ref())
+                                    {
+                                        Ok(secret) => Ok(ManagedHost::new(
+                                            &self.endpoint,
+                                            Handler::ss2(Ssh2HostHandler::from(
+                                                Ssh2AuthMethod::KeyFile(secret.inner()),
                                             )),
-                                            Err(error_detail) => Err(error_detail),
-                                        }
+                                            self.vars,
+                                            self.host_properties,
+                                            Some(secret_provider.clone()),
+                                        )),
+                                        Err(error_detail) => Err(error_detail),
                                     }
-                                    None => Err(Error::WrongInitialization(format!(
-                                        "secret required to connect to host but secret_provider unset"
-                                    ))),
                                 }
-                            }
+                                None => Err(Error::WrongInitialization(format!(
+                                    "secret required to connect to host but secret_provider unset"
+                                ))),
+                            },
                             Ssh2AuthReference::Agent(agent_name) => {
                                 // No secret required
                                 Ok(ManagedHost::new(
@@ -161,7 +170,7 @@ impl ManagedHostBuilder {
                                     )),
                                     self.vars,
                                     self.host_properties,
-                                    self.secret_provider,
+                                    secret_provider.clone(),
                                 ))
                             }
                         }
@@ -175,30 +184,11 @@ impl ManagedHostBuilder {
     }
 }
 
-//     pub fn build(self) -> Result<ManagedHost, Error> {
-
-//         match self.handler_descriptor.retrieve_secrets_for_host_connection(&self.secret_provider.clone()) {
-//             Ok(host_handler) => {
-//                 Ok(ManagedHost::from(
-//                     &self.endpoint,
-//                     host_handler,
-//                     self.vars,
-//                     self.host_properties,
-//                     self.secret_provider
-//                 ))
-//             }
-//             Err(error_detail) => {
-//                 Err(error_detail)
-//             }
-//         }
-//     }
-// }
-
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ManagedHost {
     endpoint: String,
     pub handler: Handler,
-    vars: HashMap<String, String>,
+    vars: Option<HashMap<String, String>>,
     host_properties: Option<HostProperties>,
     secret_provider: Option<SecretsManagementSolution>,
 }
@@ -207,7 +197,7 @@ impl ManagedHost {
     pub fn new(
         endpoint: &str,
         handler: Handler,
-        vars: HashMap<String, String>,
+        vars: Option<HashMap<String, String>>,
         host_properties: Option<HostProperties>,
         secret_provider: Option<SecretsManagementSolution>,
     ) -> ManagedHost {
@@ -223,15 +213,23 @@ impl ManagedHost {
     pub fn from(
         endpoint: &str,
         handler: Handler,
-        vars: impl IntoIterator<Item = (String, String)>,
+        vars: Option<impl IntoIterator<Item = (String, String)>>,
         host_properties: Option<HostProperties>,
         secret_provider: SecretsManagementSolution,
     ) -> ManagedHost {
-        let mut final_vars: HashMap<String, String> = HashMap::new();
+        let final_vars = match vars {
+            Some(vars_list) => {
+                let mut final_vars: HashMap<String, String> = HashMap::new();
 
-        for (key, value) in vars.into_iter() {
-            final_vars.insert(key, value);
-        }
+                for (key, value) in vars_list.into_iter() {
+                    final_vars.insert(key, value);
+                }
+
+                Some(final_vars)
+            }
+            None => None,
+        };
+
         ManagedHost {
             endpoint: endpoint.to_string(),
             handler,
@@ -242,7 +240,16 @@ impl ManagedHost {
     }
 
     pub fn add_var(&mut self, key: String, value: String) {
-        self.vars.insert(key, value);
+        match &mut self.vars {
+            Some(vars_list) => {
+                vars_list.insert(key, value);
+            }
+            None => {
+                let mut new_vars_list: HashMap<String, String> = HashMap::new();
+                new_vars_list.insert(key, value);
+                self.vars = Some(new_vars_list);
+            }
+        }
     }
 
     pub fn set_host_properties(&mut self, host_properties: Option<HostProperties>) {

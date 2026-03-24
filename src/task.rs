@@ -8,6 +8,7 @@
 //!     .
 //! ```
 
+use crate::secrets::SecretsManagementSolution;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
 use crate::{error::Error, hosts::managed_host::ManagedHostBuilder};
@@ -41,9 +42,12 @@ impl RegentTask {
         &self.correlation_id
     }
 
-    pub fn run(&mut self) -> Result<RegentTaskResult, Error> {
+    pub fn run(
+        &mut self,
+        secret_provider: &Option<SecretsManagementSolution>,
+    ) -> Result<RegentTaskResult, Error> {
         // Build a ManagedHost
-        let mut managed_host = self.managed_host_builder.clone().build()?;
+        let mut managed_host = self.managed_host_builder.clone().build(secret_provider)?;
 
         managed_host.connect()?;
 

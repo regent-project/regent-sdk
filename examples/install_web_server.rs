@@ -20,9 +20,8 @@ fn main() {
     // );
 
     let mut managed_host = ManagedHostBuilder::new("<host-endpoint>:<port>")
-        .secret_provider(secret_provider)
         .connection_method(ConnectionMethod::Localhost(TargetUser::current_user()))
-        .build()
+        .build(&Some(secret_provider))
         .unwrap();
 
     // Open connection with this ManageHost

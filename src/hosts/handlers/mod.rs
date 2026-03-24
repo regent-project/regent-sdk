@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use crate::error::Error;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::ssh2::Ssh2Auth;
+use crate::secrets::SecretReference;
 use crate::secrets::SecretsManagementSolution;
 use crate::{LocalHostHandler, Ssh2HostHandler};
 use crate::{command::CommandResult, hosts::privilege::Privilege};
@@ -16,7 +17,7 @@ use crate::{command::CommandResult, hosts::privilege::Privilege};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TargetUserKind {
     CurrentUser,
-    User(String),
+    User(SecretReference),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,12 +34,13 @@ impl TargetUser {
 
     pub fn user(secret_reference: &str) -> Self {
         Self {
-            user_kind: TargetUserKind::User(secret_reference.to_string()),
+            user_kind: TargetUserKind::User(SecretReference::from(secret_reference)),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum ConnectionMethod {
     Localhost(TargetUser),
     Ssh2(Ssh2Auth),

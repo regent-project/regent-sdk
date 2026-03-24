@@ -9,7 +9,7 @@ use crate::error::Error;
 use crate::secrets::local::environment_variables::EnvVarSecretProvider;
 use crate::secrets::local::files::FilesSecretProvider;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone)]
 pub enum SecretsManagementSolution {
     Files(FilesSecretProvider),
     EnvironmentVariable(EnvVarSecretProvider),
@@ -56,5 +56,23 @@ impl<T> Secret<T> {
 
     pub fn inner(self) -> T {
         self.inner
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct SecretReference {
+    sec_ref: String,
+}
+
+impl SecretReference {
+    pub fn from(sec_ref: &str) -> Self {
+        Self {
+            sec_ref: sec_ref.to_string(),
+        }
+    }
+
+    pub fn sec_ref(&self) -> &str {
+        &self.sec_ref
     }
 }

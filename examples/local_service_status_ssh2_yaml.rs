@@ -2,22 +2,25 @@ use regent_sdk::Privilege;
 use regent_sdk::attribute::system::service::{
     ServiceBlockExpectedState, ServiceExpectedAutoStart, ServiceExpectedStatus,
 };
-use regent_sdk::hosts::handlers::ConnectionMethod;
-use regent_sdk::hosts::handlers::ssh2::Ssh2Auth;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::SecretsManagementSolution;
 use regent_sdk::secrets::local::files::FilesSecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 
 fn main() {
-    let secret_provider = SecretsManagementSolution::Files(FilesSecretProvider::new());
+    let yaml_managed_host_builder = r#"---
+Endpoint: localhost
+ConnectionMethod: !Ssh2
+  AuthMethod: !UsernamePassword
+    SecRef: credentials.secret
+"#;
 
-    // Describe the ManagedHost
-    let mut managed_host = ManagedHostBuilder::new("localhost")
-        .connection_method(ConnectionMethod::Ssh2(Ssh2Auth::username_password(
-            "credentials.secret",
-        )))
-        .build(&Some(secret_provider))
+    let managed_host_builder =
+        ManagedHostBuilder::from_raw_yaml(yaml_managed_host_builder).unwrap();
+
+    let mut managed_host = managed_host_builder
+        .build(&Some(
+            regent_sdk::secrets::SecretsManagementSolution::Files(FilesSecretProvider::new()),
+        ))
         .unwrap();
 
     // Open connection with this ManageHost
