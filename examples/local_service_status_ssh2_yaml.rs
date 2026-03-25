@@ -3,7 +3,7 @@ use regent_sdk::attribute::system::service::{
     ServiceBlockExpectedState, ServiceExpectedAutoStart, ServiceExpectedStatus,
 };
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::local::files::FilesSecretProvider;
+use regent_sdk::secrets::SecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 
 fn main() {
@@ -18,9 +18,7 @@ ConnectionMethod: !Ssh2
         ManagedHostBuilder::from_raw_yaml(yaml_managed_host_builder).unwrap();
 
     let mut managed_host = managed_host_builder
-        .build(&Some(
-            regent_sdk::secrets::SecretsManagementSolution::Files(FilesSecretProvider::new()),
-        ))
+        .build(&Some(SecretProvider::files()))
         .unwrap();
 
     // Open connection with this ManageHost

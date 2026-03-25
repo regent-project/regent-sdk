@@ -10,7 +10,7 @@ use crate::secrets::local::environment_variables::EnvVarSecretProvider;
 use crate::secrets::local::files::FilesSecretProvider;
 
 #[derive(Clone)]
-pub enum SecretsManagementSolution {
+pub enum SecretProvider {
     Files(FilesSecretProvider),
     EnvironmentVariable(EnvVarSecretProvider),
     // AwsSecretsManager,
@@ -19,27 +19,33 @@ pub enum SecretsManagementSolution {
     // HashicorpVault,
 }
 
-impl SecretsManagementSolution {
+impl SecretProvider {
+    pub fn files() -> Self {
+        Self::Files(FilesSecretProvider::new())
+    }
+
+    pub fn env_var() -> Self {
+        Self::EnvironmentVariable(EnvVarSecretProvider::new())
+    }
+
     pub fn get_secret<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, Error> {
         match self {
-            SecretsManagementSolution::Files(secret_provider) => {
+            SecretProvider::Files(secret_provider) => secret_provider.get_secret(secret_reference),
+            SecretProvider::EnvironmentVariable(secret_provider) => {
                 secret_provider.get_secret(secret_reference)
-            }
-            SecretsManagementSolution::EnvironmentVariable(secret_provider) => {
-                secret_provider.get_secret(secret_reference)
-            } // SecretsManagementSolution::AwsSecretsManager => {}
-              // SecretsManagementSolution::GcpSecretManager => {}
-              // SecretsManagementSolution::DelineaSecretServer => {}
-              // SecretsManagementSolution::HashicorpVault => {}
+            } // SecretProvider::AwsSecretsManager => {}
+              // SecretProvider::GcpSecretManager => {}
+              // SecretProvider::DelineaSecretServer => {}
+              // SecretProvider::HashicorpVault => {}
         }
     }
 }
 
-// Each SecretsManagementSolution variant's nested type must implement this trait
-pub trait SecretProvider {
+// Each SecretProvider variant's nested type must implement this trait
+pub trait SecretProvidingSolution {
     fn connect() -> Result<(), Error>;
     fn get_secret<T: DeserializeOwned>(&self, secret_reference: &str) -> Result<Secret<T>, Error>;
 }

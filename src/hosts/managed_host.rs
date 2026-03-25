@@ -15,7 +15,7 @@ use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKeyPath;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
-use crate::secrets::SecretsManagementSolution;
+use crate::secrets::SecretProvider;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::Action;
@@ -61,10 +61,7 @@ impl ManagedHostBuilder {
         }
     }
 
-    pub fn build(
-        self,
-        secret_provider: &Option<SecretsManagementSolution>,
-    ) -> Result<ManagedHost, Error> {
+    pub fn build(self, secret_provider: &Option<SecretProvider>) -> Result<ManagedHost, Error> {
         // Check that each required field is set
         if let None = self.connection_method {
             return Err(Error::WrongInitialization(format!(
@@ -190,7 +187,7 @@ pub struct ManagedHost {
     pub handler: Handler,
     vars: Option<HashMap<String, String>>,
     host_properties: Option<HostProperties>,
-    secret_provider: Option<SecretsManagementSolution>,
+    secret_provider: Option<SecretProvider>,
 }
 
 impl ManagedHost {
@@ -199,7 +196,7 @@ impl ManagedHost {
         handler: Handler,
         vars: Option<HashMap<String, String>>,
         host_properties: Option<HostProperties>,
-        secret_provider: Option<SecretsManagementSolution>,
+        secret_provider: Option<SecretProvider>,
     ) -> ManagedHost {
         ManagedHost {
             endpoint: endpoint.to_string(),
@@ -215,7 +212,7 @@ impl ManagedHost {
         handler: Handler,
         vars: Option<impl IntoIterator<Item = (String, String)>>,
         host_properties: Option<HostProperties>,
-        secret_provider: SecretsManagementSolution,
+        secret_provider: SecretProvider,
     ) -> ManagedHost {
         let final_vars = match vars {
             Some(vars_list) => {

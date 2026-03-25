@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 use crate::secrets::Secret;
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidingSolution;
 
 // In here, every secret, encrypted or not, is stored in a reachable/readable file
 
@@ -15,7 +15,7 @@ impl FilesSecretProvider {
     }
 }
 
-impl SecretProvider for FilesSecretProvider {
+impl SecretProvidingSolution for FilesSecretProvider {
     fn connect() -> Result<(), Error> {
         Ok(())
     }

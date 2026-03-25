@@ -8,7 +8,7 @@
 //!     .
 //! ```
 
-use crate::secrets::SecretsManagementSolution;
+use crate::secrets::SecretProvider;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
 use crate::{error::Error, hosts::managed_host::ManagedHostBuilder};
@@ -44,7 +44,7 @@ impl RegentTask {
 
     pub fn run(
         &mut self,
-        secret_provider: &Option<SecretsManagementSolution>,
+        secret_provider: &Option<SecretProvider>,
     ) -> Result<RegentTaskResult, Error> {
         // Build a ManagedHost
         let mut managed_host = self.managed_host_builder.clone().build(secret_provider)?;

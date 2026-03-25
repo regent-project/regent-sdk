@@ -7,8 +7,8 @@ use std::path::PathBuf;
 use crate::error::Error;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::ssh2::Ssh2Auth;
+use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
-use crate::secrets::SecretsManagementSolution;
 use crate::{LocalHostHandler, Ssh2HostHandler};
 use crate::{command::CommandResult, hosts::privilege::Privilege};
 
@@ -47,11 +47,7 @@ pub enum ConnectionMethod {
 }
 
 pub trait HostHandler: Sized {
-    fn connect(
-        &mut self,
-        endpoint: &str,
-        secret_provider: &SecretsManagementSolution,
-    ) -> Result<(), Error>;
+    fn connect(&mut self, endpoint: &str, secret_provider: &SecretProvider) -> Result<(), Error>;
 
     fn is_connected(&mut self) -> bool;
 
@@ -88,11 +84,7 @@ impl Handler {
 }
 
 impl HostHandler for Handler {
-    fn connect(
-        &mut self,
-        endpoint: &str,
-        secret_provider: &SecretsManagementSolution,
-    ) -> Result<(), Error> {
+    fn connect(&mut self, endpoint: &str, secret_provider: &SecretProvider) -> Result<(), Error> {
         match self {
             Handler::LocalHost(handler) => handler.connect(endpoint, secret_provider),
             Handler::Ssh2(handler) => handler.connect(endpoint, secret_provider),

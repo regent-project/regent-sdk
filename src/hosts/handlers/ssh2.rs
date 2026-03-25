@@ -6,8 +6,8 @@ use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKeyPath;
 use crate::hosts::privilege::Privilege;
+use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
-use crate::secrets::SecretsManagementSolution;
 
 use serde::Deserialize;
 use serde::Serialize;
@@ -47,11 +47,7 @@ impl std::fmt::Debug for Ssh2HostHandler {
 }
 
 impl HostHandler for Ssh2HostHandler {
-    fn connect(
-        &mut self,
-        endpoint: &str,
-        _secret_provider: &SecretsManagementSolution,
-    ) -> Result<(), Error> {
+    fn connect(&mut self, endpoint: &str, _secret_provider: &SecretProvider) -> Result<(), Error> {
         // Check whether a session is already enabled or not (init() might have already been called
         // on this host)
         if self.is_connected() {

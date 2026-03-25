@@ -4,12 +4,11 @@ use regent_sdk::attribute::system::service::{
 };
 use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::SecretsManagementSolution;
-use regent_sdk::secrets::local::files::FilesSecretProvider;
+use regent_sdk::secrets::SecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 
 fn main() {
-    let secret_provider = SecretsManagementSolution::Files(FilesSecretProvider::new());
+    let secret_provider = SecretProvider::files();
 
     // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new("localhost")

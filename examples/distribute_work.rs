@@ -2,8 +2,7 @@ use regent_sdk::attribute::package::pacman::{PackageExpectedState, PacmanBlockEx
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::TargetUser;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::SecretsManagementSolution;
-use regent_sdk::secrets::local::environment_variables::EnvVarSecretProvider;
+use regent_sdk::secrets::SecretProvider;
 use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
 use regent_sdk::{Attribute, ExpectedState};
@@ -20,8 +19,7 @@ fn main() {
 
     // Receiving end
     // Build a SecretProvider
-    let secret_provider =
-        SecretsManagementSolution::EnvironmentVariable(EnvVarSecretProvider::new());
+    let secret_provider = SecretProvider::env_var();
 
     let regent_task_result =
         run_a_given_regent_task(serialized_regent_task, &Some(secret_provider));
@@ -54,7 +52,7 @@ fn create_a_regent_task() -> String {
 
 fn run_a_given_regent_task(
     raw_regent_task: String,
-    secret_provider: &Option<SecretsManagementSolution>,
+    secret_provider: &Option<SecretProvider>,
 ) -> Result<RegentTaskResult, Error> {
     let mut regent_task = serde_json::from_str::<RegentTask>(&raw_regent_task).unwrap();
 

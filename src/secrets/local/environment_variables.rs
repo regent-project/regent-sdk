@@ -2,7 +2,7 @@ use serde::de::DeserializeOwned;
 
 use crate::error::Error;
 use crate::secrets::Secret;
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidingSolution;
 
 // In here, every secret, encrypted or not, is reachable by the application through an environment variable
 
@@ -15,7 +15,7 @@ impl EnvVarSecretProvider {
     }
 }
 
-impl SecretProvider for EnvVarSecretProvider {
+impl SecretProvidingSolution for EnvVarSecretProvider {
     fn connect() -> Result<(), Error> {
         Ok(())
     }

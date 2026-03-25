@@ -4,7 +4,7 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
-use crate::secrets::SecretsManagementSolution;
+use crate::secrets::SecretProvider;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -22,11 +22,7 @@ impl LocalHostHandler {
 }
 
 impl HostHandler for LocalHostHandler {
-    fn connect(
-        &mut self,
-        _endpoint: &str,
-        _secret_provider: &SecretsManagementSolution,
-    ) -> Result<(), Error> {
+    fn connect(&mut self, _endpoint: &str, _secret_provider: &SecretProvider) -> Result<(), Error> {
         Ok(())
     }
 
