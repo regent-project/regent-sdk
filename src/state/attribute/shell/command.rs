@@ -14,6 +14,21 @@ pub struct CommandBlockExpectedState {
     cmd: String,
 }
 
+impl CommandBlockExpectedState {
+    pub fn builder(cmd: &str) -> CommandBlockExpectedState {
+        CommandBlockExpectedState {
+            cmd: cmd.to_string()
+        }
+    }
+
+    pub fn build(&self) -> Result<CommandBlockExpectedState, Error> {
+        // if let Err(error_detail) = self.check() {
+        //     return Err(error_detail);
+        // }
+        Ok(self.clone())
+    }
+}
+
 // impl Check for CommandBlockExpectedState {
 //     fn check(&self) -> Result<(), Error> {
 //         Ok(())
