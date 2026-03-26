@@ -11,7 +11,7 @@ fn main() {
     let secret_provider = SecretProvider::files();
 
     // Describe the ManagedHost
-    let mut managed_host = ManagedHostBuilder::new("localhost")
+    let mut managed_host = ManagedHostBuilder::new("<host-id>", "localhost")
         .connection_method(ConnectionMethod::Localhost(TargetUser::user(
             "credentials.secret",
         )))

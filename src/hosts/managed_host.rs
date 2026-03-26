@@ -26,6 +26,7 @@ use crate::state::compliance::ManagedHostStatus;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ManagedHostBuilder {
+    id: String,
     endpoint: String,
     connection_method: Option<ConnectionMethod>,
     host_properties: Option<HostProperties>,
@@ -33,8 +34,9 @@ pub struct ManagedHostBuilder {
 }
 
 impl ManagedHostBuilder {
-    pub fn new(endpoint: &str) -> Self {
+    pub fn new(id: &str, endpoint: &str) -> Self {
         Self {
+            id: id.to_string(),
             endpoint: endpoint.to_string(),
             connection_method: None,
             host_properties: None,
@@ -78,6 +80,7 @@ impl ManagedHostBuilder {
                             TargetUserKind::CurrentUser => {
                                 // No secret required
                                 Ok(ManagedHost::new(
+                                    self.id,
                                     &self.endpoint,
                                     Handler::localhost(LocalHostHandler::from(
                                         WhichUser::CurrentUser,
@@ -93,6 +96,7 @@ impl ManagedHostBuilder {
                                         .get_secret::<Credentials>(secret_reference.sec_ref())
                                     {
                                         Ok(secret) => Ok(ManagedHost::new(
+                                            self.id,
                                             &self.endpoint,
                                             Handler::localhost(LocalHostHandler::from(
                                                 WhichUser::UsernamePassword(secret.inner()),
@@ -119,6 +123,7 @@ impl ManagedHostBuilder {
                                             .get_secret::<Credentials>(secret_reference.sec_ref())
                                         {
                                             Ok(secret) => Ok(ManagedHost::new(
+                                                self.id,
                                                 &self.endpoint,
                                                 Handler::ss2(Ssh2HostHandler::from(
                                                     Ssh2AuthMethod::UsernamePassword(
@@ -143,6 +148,7 @@ impl ManagedHostBuilder {
                                         .get_secret::<LoginKeyPath>(secret_reference.sec_ref())
                                     {
                                         Ok(secret) => Ok(ManagedHost::new(
+                                            self.id,
                                             &self.endpoint,
                                             Handler::ss2(Ssh2HostHandler::from(
                                                 Ssh2AuthMethod::KeyFile(secret.inner()),
@@ -161,6 +167,7 @@ impl ManagedHostBuilder {
                             Ssh2AuthReference::Agent(agent_name) => {
                                 // No secret required
                                 Ok(ManagedHost::new(
+                                    self.id,
                                     &self.endpoint,
                                     Handler::ss2(Ssh2HostHandler::from(
                                         crate::Ssh2AuthMethod::Agent(agent_name),
@@ -183,6 +190,7 @@ impl ManagedHostBuilder {
 
 #[derive(Clone)]
 pub struct ManagedHost {
+    id: String,
     endpoint: String,
     pub handler: Handler,
     vars: Option<HashMap<String, String>>,
@@ -192,6 +200,7 @@ pub struct ManagedHost {
 
 impl ManagedHost {
     pub fn new(
+        id: String,
         endpoint: &str,
         handler: Handler,
         vars: Option<HashMap<String, String>>,
@@ -199,6 +208,7 @@ impl ManagedHost {
         secret_provider: Option<SecretProvider>,
     ) -> ManagedHost {
         ManagedHost {
+            id,
             endpoint: endpoint.to_string(),
             handler,
             vars,
@@ -208,6 +218,7 @@ impl ManagedHost {
     }
 
     pub fn from(
+        id: String,
         endpoint: &str,
         handler: Handler,
         vars: Option<impl IntoIterator<Item = (String, String)>>,
@@ -228,12 +239,17 @@ impl ManagedHost {
         };
 
         ManagedHost {
+            id,
             endpoint: endpoint.to_string(),
             handler,
             vars: final_vars,
             host_properties,
             secret_provider: Some(secret_provider),
         }
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
     pub fn add_var(&mut self, key: String, value: String) {

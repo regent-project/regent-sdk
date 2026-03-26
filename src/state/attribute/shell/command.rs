@@ -17,7 +17,7 @@ pub struct CommandBlockExpectedState {
 impl CommandBlockExpectedState {
     pub fn builder(cmd: &str) -> CommandBlockExpectedState {
         CommandBlockExpectedState {
-            cmd: cmd.to_string()
+            cmd: cmd.to_string(),
         }
     }
 

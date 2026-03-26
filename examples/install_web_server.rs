@@ -17,7 +17,7 @@ fn main() {
     //     Ssh2HostHandler::key_file("regent-user", "<path/to/private/key>"),
     // );
 
-    let mut managed_host = ManagedHostBuilder::new("<host-endpoint>:<port>")
+    let mut managed_host = ManagedHostBuilder::new("<host-id>", "<host-endpoint>:<port>")
         .connection_method(ConnectionMethod::Localhost(TargetUser::current_user()))
         .build(&Some(secret_provider))
         .unwrap();
