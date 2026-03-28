@@ -97,27 +97,28 @@ impl HostHandler for Ssh2HostHandler {
 
                 match &self.auth {
                     Ssh2AuthMethod::UsernamePassword(credentials) => {
-                        match self.session
-                            .userauth_password(credentials.username(), credentials.password()) {
-                                Ok(()) => Ok(()),
-                                Err(error_details) => {
-                                    Err(Error::FailedInitialization(format!("{:?}", error_details)))
-                                }
+                        match self
+                            .session
+                            .userauth_password(credentials.username(), credentials.password())
+                        {
+                            Ok(()) => Ok(()),
+                            Err(error_details) => {
+                                Err(Error::FailedInitialization(format!("{:?}", error_details)))
                             }
+                        }
                     }
                     Ssh2AuthMethod::Key(login_key) => {
-                        match self.session
-                            .userauth_pubkey_memory(
-                                login_key.username(),
-                                None,
-                                login_key.key(),
-                                None,
-                            ) {
-                                Ok(()) => Ok(()),
-                                Err(error_details) => {
-                                    Err(Error::FailedInitialization(format!("{:?}", error_details)))
-                                }
+                        match self.session.userauth_pubkey_memory(
+                            login_key.username(),
+                            None,
+                            login_key.key(),
+                            None,
+                        ) {
+                            Ok(()) => Ok(()),
+                            Err(error_details) => {
+                                Err(Error::FailedInitialization(format!("{:?}", error_details)))
                             }
+                        }
                     }
                     // Ssh2AuthMethod::Agent(_agent) => {
                     //     return Ok(());

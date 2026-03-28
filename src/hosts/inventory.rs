@@ -4,11 +4,11 @@ use std::collections::HashMap;
 
 use crate::ExpectedState;
 use crate::error::Error;
+use crate::hosts::handlers::ConnectionMethod;
 use crate::hosts::managed_host::ManagedHost;
 use crate::hosts::managed_host::ManagedHostBuilder;
 use crate::secrets::SecretProvider;
 use crate::state::compliance::ManagedHostStatus;
-use crate::hosts::handlers::ConnectionMethod;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -37,7 +37,6 @@ impl InventoryBuilder {
         let mut hosts: HashMap<String, ManagedHost> = HashMap::new();
 
         for mut host in self.hosts {
-
             if let None = host.connection_method {
                 if let Some(connection_method) = &self.connection_method {
                     host.set_connection_method(connection_method.clone());
