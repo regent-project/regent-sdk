@@ -2,19 +2,23 @@ use regent_sdk::Privilege;
 use regent_sdk::attribute::system::service::{
     ServiceBlockExpectedState, ServiceExpectedAutoStart, ServiceExpectedStatus,
 };
-use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 
 fn main() {
-    let secret_provider = SecretProvider::files();
+    let yaml_managed_host_builder = r#"---
+Endpoint: <address:port>
+ConnectionMethod: !Ssh2
+  AuthMethod: !UsernamePassword
+    SecRef: MY_CREDENTIALS_ENV_VAR_NAME
+"#;
 
-    // Describe the ManagedHost
-    let mut managed_host = ManagedHostBuilder::new("<host-id>", "localhost", Some(ConnectionMethod::Localhost(TargetUser::user(
-            "credentials.secret",
-        ))))
-        .build(&Some(secret_provider))
+    let managed_host_builder =
+        ManagedHostBuilder::from_raw_yaml(yaml_managed_host_builder).unwrap();
+
+    let mut managed_host = managed_host_builder
+        .build(&Some(SecretProvider::env_var()))
         .unwrap();
 
     // Open connection with this ManageHost

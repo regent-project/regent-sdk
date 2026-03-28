@@ -9,7 +9,7 @@ fn main() {
     let secret_provider = SecretProvider::EnvironmentVariable(EnvVarSecretProvider::new());
 
     // Describe the ManagedHost
-    let mut managed_host = ManagedHostBuilder::new("<host-id>", "localhost", Some(ConnectionMethod::Localhost(TargetUser::current_user())))
+    let mut managed_host = ManagedHostBuilder::new("<host-id>", "<address:port>", Some(ConnectionMethod::Localhost(TargetUser::current_user())))
         .build(&Some(secret_provider))
         .unwrap();
 

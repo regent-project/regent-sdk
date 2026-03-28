@@ -28,8 +28,8 @@ fn main() {
 
 fn create_a_regent_task() -> String {
     // Describe the ManagedHost through a ManagedHostBuilder
-    let managed_host_builder = ManagedHostBuilder::new("<host-id>", "localhost",
-        Some(ConnectionMethod::Localhost(TargetUser::user("credentials.secret"))),
+    let managed_host_builder = ManagedHostBuilder::new("<host-id>", "<address:port>",
+        Some(ConnectionMethod::Localhost(TargetUser::user("MY_CREDENTIALS_ENV_VAR_NAME"))),
     );
 
     // Describe the expected state

@@ -13,18 +13,18 @@ ConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
         Key:
-            SecRef: ssh/private.key
+            SecRef: /path/to/ssh/private.key
 
 Hosts:
 
-  - Id: localhost_1
-    Endpoint: localhost
+  - Id: my_first_host
+    Endpoint: <address:port>
 
-  - Id: localhost_2
-    Endpoint: localhost
+  - Id: my_second_host
+    Endpoint: <address:port>
     ConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
-        SecRef: credentials.secret
+        SecRef: /path/to/credentials/secret
 "#;
 
     let inventory_builder = InventoryBuilder::from_raw_yaml(yaml_inventory_builder).unwrap();
