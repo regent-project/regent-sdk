@@ -3,9 +3,6 @@
 
 ***Regent*** is a multi-paradigm configuration management system released as a library. It lets you embed a generic automation engine in any codebase that fits your use case. By leveraging Rust's powerful type system, fearless concurrency and rich ecosystem, ***regent*** allows you to industrialize automation, configuration management, and self-remediation systems at scale.
 
-## Why
-Very often, automation frameworks will impose their architecture on you and thus limit their scope. You will end up accepting blind spots and manual interventions at scale, adapting your infrastructure to meet the tool's requirements or finding "workarounds" which will become the norm over time (a cron job which runs a bash script which runs an ansible playbook which connects to...). And very often, you have to assemble a solution to your specific use case with a mixture of official tooling, custom scripting, creativity and a little bit of trickery. With ***regent***, we are not even trying to build another unicorn. Instead, we acknowledge that your use case is unique to you, so must be your solution. No more mixture and trickery - you build what you need, nothing more, nothing less.
-
 ## A couple use cases
 
 ***Regent*** integrates nicely with the rest of the ecosystem and with crates you already know.
@@ -16,75 +13,132 @@ Very often, automation frameworks will impose their architecture on you and thus
 - *Make any host observable?* Have some [axum](https://docs.rs/axum/latest/axum/) handler behind a `/health` route run a ***regent*** compliance assessment on localhost and respond accordingly. Then have this host regularly checked by your external monitoring service (Centreon, Nagios, Zabbix...).
 
 
-## Getting Started
+## 2 ways to use regent
+### The YAML API
 
-Import ***regent*** to your Rust project
-```bash
-cargo add regent-sdk
-```
-Then start using it. The usual example: let's make sure a web server is running!
 ```rust
-use regent_sdk::{ManagedHost, Privilege, Ssh2HostHandler};
-use regent_sdk::{ExpectedState, Attribute};
-use regent_sdk::attribute::system::service::{
-    ServiceBlockExpectedState, ServiceExpectedAutoStart, ServiceExpectedStatus,
-};
+let yaml_inventory_builder = r#"---
+ConnectionMethod: !Ssh2
+  AuthMethod: !Key
+    Username: regenter
+    Key:
+      SecRef: /path/to/ssh/private.key
 
-fn main() {
-    // Describe the ManagedHost and how to connect to it
-    let mut managed_host = ManagedHost::new(
-        "<host-endpoint>:<port>",
-        Ssh2HostHandler::key_file("regent-user", "<path/to/private/key>"),
-    );
+Hosts:
+- Id: my_first_host
+  Endpoint: <address:port>
 
-    // Open connection with this ManagedHost
-    managed_host.connect().unwrap();
+- Id: my_second_host
+  Endpoint: <address:port>
+  ConnectionMethod: !Ssh2
+    AuthMethod: !UsernamePassword
+      SecRef: /path/to/credentials/secret
+"#;
 
-    // Describe the expected state of this host
-    let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
-        .with_service_state(ServiceExpectedStatus::Active)
-        .with_autostart_state(ServiceExpectedAutoStart::Enabled)
-        .build()
-        .unwrap();
+let inventory_builder = InventoryBuilder::from_raw_yaml(yaml_inventory_builder).unwrap();
 
-    let localhost_expected_state = ExpectedState::new()
-        .with_attribute(Attribute::service(
-            httpd_service_active_and_enabled,
-            Privilege::None,
-        ))
-        .build();
+let mut inventory = inventory_builder
+    .build(&Some(SecretProvider::files()))
+    .unwrap();
 
-    // Assess whether the host is compliant or not with this expected state
-    match managed_host.assess_compliance(&expected_state) {
-        Ok(compliance_status) => {
+// Describe the expected state
+let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
+    .with_service_state(ServiceExpectedStatus::Active)
+    .with_autostart_state(ServiceExpectedAutoStart::Enabled)
+    .build()
+    .unwrap();
+
+let localhost_expected_state = ExpectedState::new()
+    .with_attribute(Attribute::service(
+        httpd_service_active_and_enabled,
+        Privilege::None,
+    ))
+    .build();
+
+// Open connections within this Inventory
+if let Err(details) = inventory.connect() {
+    println!("Failed to connect to hosts : {:?}", details);
+    std::process::exit(1);
+}
+
+// Assess whether the host is compliant or not
+match inventory.reach_compliance(&localhost_expected_state) {
+    Ok(inventory_comliance) => {
+        for (host_id, compliance_status) in inventory_comliance {
             if compliance_status.is_already_compliant() {
-                println!("Congratulations, host is already compliant!");
+                println!("Congratulations, {} is already compliant !", host_id);
             } else {
                 println!(
-                    "Oops! Host is not compliant. Here is the list of required remediations: {:#?}",
-                    compliance_status.all_remediations()
+                    "Oups ! {} is not compliant. Here is the list of required remediations :",
+                    host_id
                 );
 
-                // If not, try once to reach compliance
-                match managed_host.reach_compliance(&expected_state) {
-                    Ok(outcome) => {
-                        println!(
-                            "Try reach compliance outcome: {:#?}",
-                            outcome.actions_taken()
-                        );
-                    }
-                    Err(error_detail) => {
-                        println!("Unable to try to reach compliance: {:#?}", error_detail);
-                    }
+                for remediation in compliance_status.all_remediations() {
+                    println!("*** {:?}", remediation);
                 }
             }
         }
-        Err(error_detail) => {
-            println!("Failed to assess compliance: {:?}", error_detail);
-        }
+    }
+    Err(error_detail) => {
+        println!("Failed to assess compliance : {:?}", error_detail);
     }
 }
 ```
+### The Rusty API
+```rust
+let secret_provider = SecretProvider::files();
+
+// Describe the ManagedHost
+let mut managed_host = ManagedHostBuilder::new("<host-id>", "<address:port>", Some(ConnectionMethod::Ssh2(Ssh2Auth::username_password(
+        "/path/to/credentials/secret",
+    ))))
+    .build(&Some(secret_provider))
+    .unwrap();
+
+// Open connection with this ManageHost
+assert!(managed_host.connect().is_ok());
+
+// Describe the expected state
+let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
+    .with_service_state(ServiceExpectedStatus::Active)
+    .with_autostart_state(ServiceExpectedAutoStart::Enabled)
+    .build()
+    .unwrap();
+
+let localhost_expected_state = ExpectedState::new()
+    .with_attribute(Attribute::service(
+        httpd_service_active_and_enabled,
+        Privilege::None,
+    ))
+    .build();
+
+// Assess whether the host is compliant or not
+match managed_host.assess_compliance(&localhost_expected_state) {
+    Ok(compliance_status) => {
+        if compliance_status.is_already_compliant() {
+            println!("Congratulations, host is already compliant !");
+        } else {
+            println!(
+                "Oups ! Host is not compliant. Here is the list of required remediations :"
+            );
+
+            for remediation in compliance_status.all_remediations() {
+                println!("*** {:?}", remediation);
+            }
+        }
+    }
+    Err(error_detail) => {
+        println!("Failed to assess compliance : {:?}", error_detail);
+    }
+}
+```
+
+## Why
+Very often, automation frameworks will impose their architecture on you and thus limit their scope. You will end up accepting blind spots and manual interventions at scale, adapting your infrastructure to meet the tool's requirements or finding "workarounds" which will become the norm over time (a cron job which runs a bash script which runs an ansible playbook which connects to...). And very often, you have to assemble a solution to your specific use case with a mixture of official tooling, custom scripting, creativity and a little bit of trickery. With ***regent***, we are not even trying to build another unicorn. Instead, we acknowledge that your use case is unique to you, so must be your solution. No more mixture and trickery - you build what you need, nothing more, nothing less.
+
+## Secrets management
+As any other automation framework, regent will have to handle secrets. For this part, regent doesn't try to store and manage secrets itself but relies on the concept of *SecretProvider*. This object is regent's binding with any external secrets management solution which implements the *SecretProvidingSolution* trait. That way, you can pass your credentials, keys, and any other kind of secrets to regent as environment variables or files, but you can also store all your secrets in solutions like AWS Secrets Manager, GCP Secret Manager, Hashicorp Vault or even inside the Linux Kernel Key Retention Service and have regent retrieve them dynamically when needed ! (these bindings are still to be implemented)
+
 
 ## Contributing
 
