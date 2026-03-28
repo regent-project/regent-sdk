@@ -12,10 +12,9 @@ fn main() {
     let secret_provider = SecretProvider::files();
 
     // Describe the ManagedHost
-    let mut managed_host = ManagedHostBuilder::new("<host-id>", "localhost")
-        .connection_method(ConnectionMethod::Ssh2(Ssh2Auth::username_password(
+    let mut managed_host = ManagedHostBuilder::new("<host-id>", "localhost", Some(ConnectionMethod::Ssh2(Ssh2Auth::username_password(
             "credentials.secret",
-        )))
+        ))))
         .build(&Some(secret_provider))
         .unwrap();
 
