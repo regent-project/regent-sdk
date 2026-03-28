@@ -9,21 +9,22 @@ use regent_sdk::{Attribute, ExpectedState};
 
 fn main() {
     let yaml_inventory_builder = r#"---
+ConnectionMethod: !Ssh2
+    AuthMethod: !Key
+        Username: regenter
+        Key:
+            SecRef: ssh/private.key
+
 Hosts:
 
   - Id: localhost_1
     Endpoint: localhost
-    ConnectionMethod: !Ssh2
-      AuthMethod: !UsernamePassword
-        SecRef: credentials.secret
 
   - Id: localhost_2
     Endpoint: localhost
     ConnectionMethod: !Ssh2
-      AuthMethod: !Key
-        Username: regenter
-        Key:
-            SecRef: ssh/private.key
+      AuthMethod: !UsernamePassword
+        SecRef: credentials.secret
 "#;
 
     let inventory_builder = InventoryBuilder::from_raw_yaml(yaml_inventory_builder).unwrap();
@@ -40,7 +41,7 @@ Hosts:
         .unwrap();
 
     let very_long_operation = Attribute::command(
-        CommandBlockExpectedState::builder("sleep 5"),
+        CommandBlockExpectedState::builder("sleep 2"),
         Privilege::None,
     );
 
