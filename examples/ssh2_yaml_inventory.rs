@@ -20,8 +20,10 @@ Hosts:
   - Id: localhost_2
     Endpoint: localhost
     ConnectionMethod: !Ssh2
-      AuthMethod: !UsernamePassword
-        SecRef: credentials.secret
+      AuthMethod: !Key
+        Username: regenter
+        Key:
+            SecRef: ssh/private.key
 "#;
 
     let inventory_builder = InventoryBuilder::from_raw_yaml(yaml_inventory_builder).unwrap();
@@ -29,9 +31,6 @@ Hosts:
     let mut inventory = inventory_builder
         .build(&Some(SecretProvider::files()))
         .unwrap();
-
-    // Open connection with this ManageHost
-    assert!(inventory.connect().is_ok());
 
     // Describe the expected state
     let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
@@ -46,12 +45,18 @@ Hosts:
     );
 
     let localhost_expected_state = ExpectedState::new()
+        .with_attribute(very_long_operation)
         .with_attribute(Attribute::service(
             httpd_service_active_and_enabled,
             Privilege::None,
         ))
-        .with_attribute(very_long_operation)
         .build();
+
+    // Open connections within this Inventory
+    if let Err(details) = inventory.connect() {
+        println!("Failed to connect to hosts : {:?}", details);
+        std::process::exit(1);
+    }
 
     // Assess whether the host is compliant or not
     match inventory.reach_compliance(&localhost_expected_state) {

@@ -12,7 +12,7 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::TargetUserKind;
 use crate::hosts::handlers::ssh2::Ssh2AuthReference;
 use crate::hosts::privilege::Credentials;
-use crate::hosts::privilege::LoginKeyPath;
+use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
@@ -93,7 +93,7 @@ impl ManagedHostBuilder {
                             TargetUserKind::User(secret_reference) => match secret_provider {
                                 Some(secret_provider) => {
                                     match secret_provider
-                                        .get_secret::<Credentials>(secret_reference.sec_ref())
+                                        .get_secret_typed::<Credentials>(secret_reference.sec_ref())
                                     {
                                         Ok(secret) => Ok(ManagedHost::new(
                                             self.id,
@@ -119,9 +119,9 @@ impl ManagedHostBuilder {
                             Ssh2AuthReference::UsernamePassword(secret_reference) => {
                                 match secret_provider {
                                     Some(secret_provider) => {
-                                        match secret_provider
-                                            .get_secret::<Credentials>(secret_reference.sec_ref())
-                                        {
+                                        match secret_provider.get_secret_typed::<Credentials>(
+                                            secret_reference.sec_ref(),
+                                        ) {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
@@ -142,16 +142,17 @@ impl ManagedHostBuilder {
                                     ))),
                                 }
                             }
-                            Ssh2AuthReference::KeyFile(secret_reference) => match secret_provider {
+                            Ssh2AuthReference::Key(login_key_ref) => match secret_provider {
                                 Some(secret_provider) => {
-                                    match secret_provider
-                                        .get_secret::<LoginKeyPath>(secret_reference.sec_ref())
-                                    {
+                                    match secret_provider.get_secret_raw(login_key_ref.key_ref()) {
                                         Ok(secret) => Ok(ManagedHost::new(
                                             self.id,
                                             &self.endpoint,
                                             Handler::ss2(Ssh2HostHandler::from(
-                                                Ssh2AuthMethod::KeyFile(secret.inner()),
+                                                Ssh2AuthMethod::Key(LoginKey::from(
+                                                    login_key_ref.username().to_string(),
+                                                    secret.inner(),
+                                                )),
                                             )),
                                             self.vars,
                                             self.host_properties,

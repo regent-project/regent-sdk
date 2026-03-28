@@ -28,14 +28,30 @@ impl SecretProvider {
         Self::EnvironmentVariable(EnvVarSecretProvider::new())
     }
 
-    pub fn get_secret<T: DeserializeOwned>(
+    pub fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, Error> {
         match self {
-            SecretProvider::Files(secret_provider) => secret_provider.get_secret(secret_reference),
+            SecretProvider::Files(secret_provider) => {
+                secret_provider.get_secret_typed(secret_reference)
+            }
             SecretProvider::EnvironmentVariable(secret_provider) => {
-                secret_provider.get_secret(secret_reference)
+                secret_provider.get_secret_typed(secret_reference)
+            } // SecretProvider::AwsSecretsManager => {}
+              // SecretProvider::GcpSecretManager => {}
+              // SecretProvider::DelineaSecretServer => {}
+              // SecretProvider::HashicorpVault => {}
+        }
+    }
+
+    pub fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, Error> {
+        match self {
+            SecretProvider::Files(secret_provider) => {
+                secret_provider.get_secret_raw(secret_reference)
+            }
+            SecretProvider::EnvironmentVariable(secret_provider) => {
+                secret_provider.get_secret_raw(secret_reference)
             } // SecretProvider::AwsSecretsManager => {}
               // SecretProvider::GcpSecretManager => {}
               // SecretProvider::DelineaSecretServer => {}
@@ -47,7 +63,11 @@ impl SecretProvider {
 // Each SecretProvider variant's nested type must implement this trait
 pub trait SecretProvidingSolution {
     fn connect() -> Result<(), Error>;
-    fn get_secret<T: DeserializeOwned>(&self, secret_reference: &str) -> Result<Secret<T>, Error>;
+    fn get_secret_typed<T: DeserializeOwned>(
+        &self,
+        secret_reference: &str,
+    ) -> Result<Secret<T>, Error>;
+    fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, Error>;
 }
 
 // Wrapper type which holds secrets content and helps to avoid leaking secrets (usual or debug logging in general...)

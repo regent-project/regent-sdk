@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::secrets::SecretReference;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Privilege {
     /// Run cmd as the current authenticated user
@@ -41,22 +43,44 @@ impl Credentials {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct LoginKeyPath {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct LoginKey {
     username: String,
-    key_path: PathBuf,
+    key: String,
 }
 
-impl LoginKeyPath {
-    pub fn from(username: String, key_path: PathBuf) -> Self {
-        Self { username, key_path }
+impl LoginKey {
+    pub fn from(username: String, key: String) -> Self {
+        Self { username, key }
     }
 
     pub fn username(&self) -> &str {
         &self.username
     }
 
-    pub fn key_path(&self) -> &Path {
-        &self.key_path
+    pub fn key(&self) -> &str {
+        &self.key
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct LoginKeyRef {
+    username: String,
+    key: SecretReference,
+}
+
+impl LoginKeyRef {
+    pub fn from(username: String, key: SecretReference) -> Self {
+        Self { username, key }
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    pub fn key_ref(&self) -> &str {
+        &self.key.sec_ref()
     }
 }

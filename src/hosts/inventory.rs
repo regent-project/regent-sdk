@@ -74,28 +74,46 @@ impl Inventory {
     }
 
     pub fn collect_properties(&mut self) -> Result<(), Error> {
-        let _ = self
+        for result in self
             .hosts
             .par_iter_mut()
-            .map(|(_managed_host_id, managed_host)| managed_host.collect_properties());
+            .map(|(_managed_host_id, managed_host)| managed_host.collect_properties())
+            .collect::<Vec<Result<(), Error>>>()
+        {
+            if let Err(details) = result {
+                return Err(details);
+            }
+        }
 
         Ok(())
     }
 
     pub fn connect(&mut self) -> Result<(), Error> {
-        let _ = self
+        for result in self
             .hosts
             .par_iter_mut()
-            .map(|(_managed_host_id, managed_host)| managed_host.connect());
+            .map(|(_managed_host_id, managed_host)| managed_host.connect())
+            .collect::<Vec<Result<(), Error>>>()
+        {
+            if let Err(details) = result {
+                return Err(details);
+            }
+        }
 
         Ok(())
     }
 
     pub fn disconnect(&mut self) -> Result<(), Error> {
-        let _ = self
+        for result in self
             .hosts
             .par_iter_mut()
-            .map(|(_managed_host_id, managed_host)| managed_host.disconnect());
+            .map(|(_managed_host_id, managed_host)| managed_host.disconnect())
+            .collect::<Vec<Result<(), Error>>>()
+        {
+            if let Err(details) = result {
+                return Err(details);
+            }
+        }
 
         Ok(())
     }

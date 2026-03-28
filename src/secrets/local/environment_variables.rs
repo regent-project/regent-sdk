@@ -20,7 +20,10 @@ impl SecretProvidingSolution for EnvVarSecretProvider {
         Ok(())
     }
 
-    fn get_secret<T: DeserializeOwned>(&self, secret_reference: &str) -> Result<Secret<T>, Error> {
+    fn get_secret_typed<T: DeserializeOwned>(
+        &self,
+        secret_reference: &str,
+    ) -> Result<Secret<T>, Error> {
         match std::env::var(secret_reference) {
             Ok(raw_content) => match serde_json::from_str::<T>(&raw_content) {
                 Ok(content) => Ok(Secret::from(content)),
@@ -29,6 +32,16 @@ impl SecretProvidingSolution for EnvVarSecretProvider {
                     std::any::type_name::<T>()
                 ))),
             },
+            Err(error_detail) => Err(Error::FailedToGetSecret(format!(
+                "{} : {}",
+                secret_reference, error_detail
+            ))),
+        }
+    }
+
+    fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, Error> {
+        match std::env::var(secret_reference) {
+            Ok(raw_content) => Ok(Secret::from(raw_content)),
             Err(error_detail) => Err(Error::FailedToGetSecret(format!(
                 "{} : {}",
                 secret_reference, error_detail

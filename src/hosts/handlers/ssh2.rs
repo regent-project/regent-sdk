@@ -1,20 +1,21 @@
-use crate::command::CommandResult;
-use crate::error::Error;
-use crate::hosts::handlers::HostHandler;
-use crate::hosts::handlers::final_command;
-use crate::hosts::handlers::localhost::WhichUser;
-use crate::hosts::privilege::Credentials;
-use crate::hosts::privilege::LoginKeyPath;
-use crate::hosts::privilege::Privilege;
-use crate::secrets::SecretProvider;
-use crate::secrets::SecretReference;
-
 use serde::Deserialize;
 use serde::Serialize;
 use ssh2::Session;
 use std::io::Read;
 use std::net::TcpStream;
 use std::path::PathBuf;
+
+use crate::command::CommandResult;
+use crate::error::Error;
+use crate::hosts::handlers::HostHandler;
+use crate::hosts::handlers::final_command;
+use crate::hosts::handlers::localhost::WhichUser;
+use crate::hosts::privilege::Credentials;
+use crate::hosts::privilege::LoginKey;
+use crate::hosts::privilege::LoginKeyRef;
+use crate::hosts::privilege::Privilege;
+use crate::secrets::SecretProvider;
+use crate::secrets::SecretReference;
 
 #[derive(Clone)]
 pub struct Ssh2HostHandler {
@@ -107,12 +108,12 @@ impl HostHandler for Ssh2HostHandler {
                             )));
                         }
                     }
-                    Ssh2AuthMethod::KeyFile(login_key_path) => {
+                    Ssh2AuthMethod::Key(login_key) => {
                         self.session
-                            .userauth_pubkey_file(
-                                login_key_path.username(),
+                            .userauth_pubkey_memory(
+                                login_key.username(),
                                 None,
-                                login_key_path.key_path(),
+                                login_key.key(),
                                 None,
                             )
                             .unwrap(); // TODO : add pubkey and passphrase support
@@ -291,10 +292,10 @@ impl Ssh2HostHandler {
         )))
     }
 
-    pub fn key_file(username: &str, key_file_path: &str) -> Ssh2HostHandler {
-        Ssh2HostHandler::from(Ssh2AuthMethod::KeyFile(LoginKeyPath::from(
+    pub fn key(username: &str, key: String) -> Ssh2HostHandler {
+        Ssh2HostHandler::from(Ssh2AuthMethod::Key(LoginKey::from(
             username.to_string(),
-            PathBuf::from(key_file_path),
+            key,
         )))
     }
 
@@ -306,8 +307,8 @@ impl Ssh2HostHandler {
 #[derive(Clone, Serialize, Deserialize)]
 pub enum Ssh2AuthMethod {
     UsernamePassword(Credentials),
-    KeyFile(LoginKeyPath), // (username, private key's path)
-    Agent(String),         // Name of SSH agent
+    Key(LoginKey), // (username, private key's path)
+    Agent(String), // Name of SSH agent
 }
 
 // Intermediary representation of a Ssh2AuthMethod
@@ -316,7 +317,7 @@ pub enum Ssh2AuthMethod {
 #[serde(rename_all = "PascalCase")]
 pub enum Ssh2AuthReference {
     UsernamePassword(SecretReference),
-    KeyFile(SecretReference),
+    Key(LoginKeyRef),
     Agent(String),
 }
 
@@ -335,9 +336,12 @@ impl Ssh2Auth {
         }
     }
 
-    pub fn key_file(secret_reference: &str) -> Self {
+    pub fn key(username: &str, key_secret_reference: &str) -> Self {
         Self {
-            auth_method: Ssh2AuthReference::KeyFile(SecretReference::from(secret_reference)),
+            auth_method: Ssh2AuthReference::Key(LoginKeyRef::from(
+                username.to_string(),
+                SecretReference::from(key_secret_reference),
+            )),
         }
     }
 
@@ -371,7 +375,7 @@ mod tests {
               - "/path/to/private/key"
         "#;
         let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
-        matches!(auth_method, Ssh2AuthMethod::KeyFile(_));
+        matches!(auth_method, Ssh2AuthMethod::Key(_));
     }
 
     #[test]
@@ -395,13 +399,8 @@ impl std::fmt::Debug for Ssh2AuthMethod {
                     creds.username()
                 )
             }
-            Ssh2AuthMethod::KeyFile(login_key_path) => {
-                write!(
-                    f,
-                    "KeyFile(({:?}, {:?}))",
-                    login_key_path.username(),
-                    login_key_path.key_path()
-                )
+            Ssh2AuthMethod::Key(login_key_path) => {
+                write!(f, "Key(({:?}, ********))", login_key_path.username())
             }
             Ssh2AuthMethod::Agent(agent_name) => {
                 write!(f, "Agent({:?})", agent_name)
