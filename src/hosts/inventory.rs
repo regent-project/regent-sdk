@@ -8,11 +8,14 @@ use crate::hosts::managed_host::ManagedHost;
 use crate::hosts::managed_host::ManagedHostBuilder;
 use crate::secrets::SecretProvider;
 use crate::state::compliance::ManagedHostStatus;
+use crate::hosts::handlers::ConnectionMethod;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct InventoryBuilder {
     hosts: Vec<ManagedHostBuilder>,
+    connection_method: Option<ConnectionMethod>,
+    // vars: Option<HashMap<String, String>>,
 }
 
 impl InventoryBuilder {
@@ -33,7 +36,14 @@ impl InventoryBuilder {
     pub fn build(self, secret_provider: &Option<SecretProvider>) -> Result<Inventory, Error> {
         let mut hosts: HashMap<String, ManagedHost> = HashMap::new();
 
-        for host in self.hosts {
+        for mut host in self.hosts {
+
+            if let None = host.connection_method {
+                if let Some(connection_method) = &self.connection_method {
+                    host.set_connection_method(connection_method.clone());
+                }
+            }
+
             match host.build(secret_provider) {
                 Ok(managed_host) => {
                     if let Some(old_managed_host) =

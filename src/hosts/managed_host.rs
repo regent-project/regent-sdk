@@ -28,25 +28,24 @@ use crate::state::compliance::ManagedHostStatus;
 pub struct ManagedHostBuilder {
     id: String,
     endpoint: String,
-    connection_method: Option<ConnectionMethod>,
+    pub connection_method: Option<ConnectionMethod>,
     host_properties: Option<HostProperties>,
     vars: Option<HashMap<String, String>>,
 }
 
 impl ManagedHostBuilder {
-    pub fn new(id: &str, endpoint: &str) -> Self {
+    pub fn new(id: &str, endpoint: &str, connection_method: Option<ConnectionMethod>) -> Self {
         Self {
             id: id.to_string(),
             endpoint: endpoint.to_string(),
-            connection_method: None,
+            connection_method,
             host_properties: None,
             vars: None,
         }
     }
 
-    pub fn connection_method(mut self, connection_method: ConnectionMethod) -> Self {
+    pub fn set_connection_method(&mut self, connection_method: ConnectionMethod) {
         self.connection_method = Some(connection_method);
-        self
     }
 
     pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, Error> {
