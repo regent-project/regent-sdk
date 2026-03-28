@@ -9,6 +9,7 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceModuleInternalApiCall {
     Start(String),
     Stop(String),
@@ -28,14 +29,14 @@ impl std::fmt::Display for ServiceModuleInternalApiCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceExpectedStatus {
     Active,
     Inactive,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceExpectedAutoStart {
     Enabled,
     Disabled,
@@ -43,6 +44,7 @@ pub enum ServiceExpectedAutoStart {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct ServiceBlockExpectedState {
     name: String,
     current_status: Option<ServiceExpectedStatus>,

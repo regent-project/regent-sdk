@@ -9,6 +9,7 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum LineInFileModuleInternalApiCall {
     Add(LineExpectedPosition),
     Delete(Vec<u64>),
