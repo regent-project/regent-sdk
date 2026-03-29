@@ -10,21 +10,28 @@ DefaultConnectionMethod: !Ssh2
         Key:
             SecRef: ssh/private.key
 
+GlobalVars:
+    package_name: httpd
+    version: 1.2.3
+
 Hosts:
   - Id: my_first_host
     Endpoint: localhost
+    HostVars:
+        version: 2.3.4
 
   - Id: my_second_host
     Endpoint: localhost
-    SpecificConnectionMethod: !Ssh2
+    HostConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
         SecRef: credentials.secret
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
         .unwrap()
-        .build(&Some(SecretProvider::files()))
+        .build()
         .unwrap();
+    println!("{:#?}", inventory);
 
     // Describe the expected state
     let expected_state_description = r#"---
@@ -49,13 +56,10 @@ Attributes:
     };
 
     // Open connections within this Inventory
-    if let Err(details) = inventory.connect() {
-        println!("Failed to connect to hosts : {:?}", details);
-        std::process::exit(1);
-    }
+    let mut living_inventory = inventory.init(&Some(SecretProvider::files())).unwrap();
 
     // Assess whether the host is compliant or not
-    match inventory.reach_compliance(&expected_state) {
+    match living_inventory.reach_compliance(&expected_state) {
         Ok(inventory_comliance) => {
             for (host_id, compliance_status) in inventory_comliance {
                 if compliance_status.is_already_compliant() {

@@ -9,7 +9,7 @@ use regent_sdk::{Attribute, ExpectedState};
 fn main() {
     let yaml_managed_host_builder = r#"---
 Endpoint: <address:port>
-SpecificConnectionMethod: !Ssh2
+HostConnectionMethod: !Ssh2
   AuthMethod: !UsernamePassword
     SecRef: MY_CREDENTIALS_ENV_VAR_NAME
 "#;
