@@ -97,27 +97,28 @@ impl HostHandler for Ssh2HostHandler {
 
                 match &self.auth {
                     Ssh2AuthMethod::UsernamePassword(credentials) => {
-                        match self.session
-                            .userauth_password(credentials.username(), credentials.password()) {
-                                Ok(()) => Ok(()),
-                                Err(error_details) => {
-                                    Err(Error::FailedInitialization(format!("{:?}", error_details)))
-                                }
+                        match self
+                            .session
+                            .userauth_password(credentials.username(), credentials.password())
+                        {
+                            Ok(()) => Ok(()),
+                            Err(error_details) => {
+                                Err(Error::FailedInitialization(format!("{:?}", error_details)))
                             }
+                        }
                     }
                     Ssh2AuthMethod::Key(login_key) => {
-                        match self.session
-                            .userauth_pubkey_memory(
-                                login_key.username(),
-                                None,
-                                login_key.key(),
-                                None,
-                            ) {
-                                Ok(()) => Ok(()),
-                                Err(error_details) => {
-                                    Err(Error::FailedInitialization(format!("{:?}", error_details)))
-                                }
+                        match self.session.userauth_pubkey_memory(
+                            login_key.username(),
+                            None,
+                            login_key.key(),
+                            None,
+                        ) {
+                            Ok(()) => Ok(()),
+                            Err(error_details) => {
+                                Err(Error::FailedInitialization(format!("{:?}", error_details)))
                             }
+                        }
                     }
                     // Ssh2AuthMethod::Agent(_agent) => {
                     //     return Ok(());
@@ -299,6 +300,7 @@ impl Ssh2HostHandler {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum Ssh2AuthMethod {
     UsernamePassword(Credentials),
     Key(LoginKey), // (username, private key's path)
@@ -317,6 +319,7 @@ pub enum Ssh2AuthReference {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[serde(deny_unknown_fields)]
 pub struct Ssh2Auth {
     pub auth_method: Ssh2AuthReference,
 }
@@ -354,8 +357,8 @@ mod tests {
     fn test_deserialize_username_password() {
         let yaml = r#"
             !UsernamePassword
-              username: "testuser"
-              password: "testpass"
+              Username: "testuser"
+              Password: "testpass"
         "#;
         let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
         matches!(auth_method, Ssh2AuthMethod::UsernamePassword(_));
@@ -364,9 +367,9 @@ mod tests {
     #[test]
     fn test_deserialize_key_file() {
         let yaml = r#"
-            !KeyFile
-              - "testuser"
-              - "/path/to/private/key"
+            !Key
+              Username: testuser
+              Key: /path/to/private/key
         "#;
         let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
         matches!(auth_method, Ssh2AuthMethod::Key(_));

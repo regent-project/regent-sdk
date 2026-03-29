@@ -9,6 +9,7 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceModuleInternalApiCall {
     Start(String),
     Stop(String),
@@ -28,14 +29,14 @@ impl std::fmt::Display for ServiceModuleInternalApiCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceExpectedStatus {
     Active,
     Inactive,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceExpectedAutoStart {
     Enabled,
     Disabled,
@@ -43,6 +44,7 @@ pub enum ServiceExpectedAutoStart {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct ServiceBlockExpectedState {
     name: String,
     current_status: Option<ServiceExpectedStatus>,
@@ -390,13 +392,13 @@ mod tests {
     #[test]
     fn parsing_service_module_block_from_yaml_str() {
         let raw_attributes = "---
-- name: apache2
-  current_status: active
-  auto_start: enabled
+- Name: apache2
+  CurrentStatus: !Active
+  AutoStart: !Enabled
 
-- name: apache2
-  current_status: inactive
-  auto_start: disabled
+- Name: apache2
+  CurrentStatus: !Inactive
+  AutoStart: !Disabled
         ";
 
         let _attributes: Vec<ServiceBlockExpectedState> =

@@ -19,6 +19,7 @@ pub enum Privilege {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct Credentials {
     username: String,
     password: String,
@@ -64,6 +65,7 @@ impl LoginKey {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[serde(deny_unknown_fields)]
 pub struct LoginKeyRef {
     username: String,
     key: SecretReference,

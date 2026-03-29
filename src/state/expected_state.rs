@@ -1,7 +1,8 @@
-use crate::state::attribute::Attribute;
+use crate::{Error, state::attribute::Attribute};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct ExpectedState {
     pub attributes: Vec<Attribute>,
 }
@@ -16,6 +17,13 @@ impl ExpectedState {
     pub fn with_attribute(mut self, attribute: Attribute) -> Self {
         self.attributes.push(attribute);
         self
+    }
+
+    pub fn from_raw_yaml(raw_yaml_content: &str) -> Result<Self, Error> {
+        match yaml_serde::from_str::<ExpectedState>(raw_yaml_content) {
+            Ok(expected_state) => Ok(expected_state),
+            Err(error_details) => Err(Error::FailureToParseContent(format!("{}", error_details))),
+        }
     }
 
     pub fn build(&self) -> ExpectedState {

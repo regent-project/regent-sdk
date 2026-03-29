@@ -87,6 +87,7 @@ impl<T> Secret<T> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[serde(deny_unknown_fields)]
 pub struct SecretReference {
     sec_ref: String,
 }

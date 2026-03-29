@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct DebugBlockExpectedState {
     msg: String,
     // var: Option<String>, // TODO
@@ -61,7 +62,7 @@ mod tests {
     #[test]
     fn parsing_debug_module_block_from_yaml_str() {
         let attribute = "---
-msg: some content
+Msg: some content
     ";
 
         let attribute: DebugBlockExpectedState = yaml_serde::from_str(attribute).unwrap();

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct PingBlockExpectedState {}
 
 // impl Check for PingBlockExpectedState {

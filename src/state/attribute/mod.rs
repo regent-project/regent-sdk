@@ -33,6 +33,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct Attribute {
     pub privilege: Privilege,
     detail: AttributeDetail,
@@ -98,6 +99,7 @@ impl Attribute {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum AttributeDetail {
     Apt(AptBlockExpectedState),
     YumDnf(YumDnfBlockExpectedState),

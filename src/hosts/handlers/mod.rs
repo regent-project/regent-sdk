@@ -21,6 +21,7 @@ pub enum TargetUserKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TargetUser {
     pub user_kind: TargetUserKind,
 }

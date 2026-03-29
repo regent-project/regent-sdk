@@ -25,12 +25,13 @@ use crate::state::compliance::ManagedHostStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[serde(deny_unknown_fields)]
 pub struct ManagedHostBuilder {
-    id: String,
+    pub id: String,
     endpoint: String,
-    pub connection_method: Option<ConnectionMethod>,
+    pub host_connection_method: Option<ConnectionMethod>,
     host_properties: Option<HostProperties>,
-    vars: Option<HashMap<String, String>>,
+    pub host_vars: Option<HashMap<String, String>>,
 }
 
 impl ManagedHostBuilder {
@@ -38,14 +39,18 @@ impl ManagedHostBuilder {
         Self {
             id: id.to_string(),
             endpoint: endpoint.to_string(),
-            connection_method,
+            host_connection_method: connection_method,
             host_properties: None,
-            vars: None,
+            host_vars: None,
         }
     }
 
     pub fn set_connection_method(&mut self, connection_method: ConnectionMethod) {
-        self.connection_method = Some(connection_method);
+        self.host_connection_method = Some(connection_method);
+    }
+
+    pub fn set_host_vars(&mut self, host_vars: Option<HashMap<String, String>>) {
+        self.host_vars = host_vars;
     }
 
     pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, Error> {
@@ -64,14 +69,14 @@ impl ManagedHostBuilder {
 
     pub fn build(self, secret_provider: &Option<SecretProvider>) -> Result<ManagedHost, Error> {
         // Check that each required field is set
-        if let None = self.connection_method {
+        if let None = self.host_connection_method {
             return Err(Error::WrongInitialization(format!(
                 "connection method unset"
             )));
         }
 
         // Retrieve connection secrets when needed
-        match self.connection_method {
+        match self.host_connection_method {
             Some(connection) => {
                 match connection {
                     ConnectionMethod::Localhost(target_user) => {
@@ -84,7 +89,7 @@ impl ManagedHostBuilder {
                                     Handler::localhost(LocalHostHandler::from(
                                         WhichUser::CurrentUser,
                                     )),
-                                    self.vars,
+                                    self.host_vars,
                                     self.host_properties,
                                     secret_provider.clone(),
                                 ))
@@ -100,7 +105,7 @@ impl ManagedHostBuilder {
                                             Handler::localhost(LocalHostHandler::from(
                                                 WhichUser::UsernamePassword(secret.inner()),
                                             )),
-                                            self.vars,
+                                            self.host_vars,
                                             self.host_properties,
                                             Some(secret_provider.clone()),
                                         )),
@@ -129,7 +134,7 @@ impl ManagedHostBuilder {
                                                         secret.inner(),
                                                     ),
                                                 )),
-                                                self.vars,
+                                                self.host_vars,
                                                 self.host_properties,
                                                 Some(secret_provider.clone()),
                                             )),
@@ -153,7 +158,7 @@ impl ManagedHostBuilder {
                                                     secret.inner(),
                                                 )),
                                             )),
-                                            self.vars,
+                                            self.host_vars,
                                             self.host_properties,
                                             Some(secret_provider.clone()),
                                         )),
@@ -172,7 +177,7 @@ impl ManagedHostBuilder {
                                     Handler::ss2(Ssh2HostHandler::from(
                                         crate::Ssh2AuthMethod::Agent(agent_name),
                                     )),
-                                    self.vars,
+                                    self.host_vars,
                                     self.host_properties,
                                     secret_provider.clone(),
                                 ))
@@ -193,7 +198,7 @@ pub struct ManagedHost {
     id: String,
     endpoint: String,
     pub handler: Handler,
-    vars: Option<HashMap<String, String>>,
+    host_vars: Option<HashMap<String, String>>,
     host_properties: Option<HostProperties>,
     secret_provider: Option<SecretProvider>,
 }
@@ -203,7 +208,7 @@ impl ManagedHost {
         id: String,
         endpoint: &str,
         handler: Handler,
-        vars: Option<HashMap<String, String>>,
+        host_vars: Option<HashMap<String, String>>,
         host_properties: Option<HostProperties>,
         secret_provider: Option<SecretProvider>,
     ) -> ManagedHost {
@@ -211,7 +216,7 @@ impl ManagedHost {
             id,
             endpoint: endpoint.to_string(),
             handler,
-            vars,
+            host_vars,
             host_properties,
             secret_provider,
         }
@@ -242,7 +247,7 @@ impl ManagedHost {
             id,
             endpoint: endpoint.to_string(),
             handler,
-            vars: final_vars,
+            host_vars: final_vars,
             host_properties,
             secret_provider: Some(secret_provider),
         }
@@ -253,14 +258,14 @@ impl ManagedHost {
     }
 
     pub fn add_var(&mut self, key: String, value: String) {
-        match &mut self.vars {
+        match &mut self.host_vars {
             Some(vars_list) => {
                 vars_list.insert(key, value);
             }
             None => {
                 let mut new_vars_list: HashMap<String, String> = HashMap::new();
                 new_vars_list.insert(key, value);
-                self.vars = Some(new_vars_list);
+                self.host_vars = Some(new_vars_list);
             }
         }
     }
@@ -511,7 +516,7 @@ pub enum InternalApiCallOutcome {
 //         let endpoint: String = self.endpoint;
 
 //         let mut vars: HashMap<String, String> = HashMap::new();
-//         if let Some(vars_list) = self.vars {
+//         if let Some(vars_list) = self.host_vars {
 //             vars.extend(vars_list);
 //         }
 
