@@ -14,7 +14,7 @@ use crate::state::compliance::ManagedHostStatus;
 #[serde(rename_all = "PascalCase")]
 pub struct InventoryBuilder {
     hosts: Vec<ManagedHostBuilder>,
-    connection_method: Option<ConnectionMethod>,
+    default_connection_method: Option<ConnectionMethod>,
     // vars: Option<HashMap<String, String>>,
 }
 
@@ -37,8 +37,8 @@ impl InventoryBuilder {
         let mut hosts: HashMap<String, ManagedHost> = HashMap::new();
 
         for mut host in self.hosts {
-            if let None = host.connection_method {
-                if let Some(connection_method) = &self.connection_method {
+            if let None = host.specific_connection_method {
+                if let Some(connection_method) = &self.default_connection_method {
                     host.set_connection_method(connection_method.clone());
                 }
             }

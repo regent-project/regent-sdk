@@ -28,7 +28,7 @@ use crate::state::compliance::ManagedHostStatus;
 pub struct ManagedHostBuilder {
     id: String,
     endpoint: String,
-    pub connection_method: Option<ConnectionMethod>,
+    pub specific_connection_method: Option<ConnectionMethod>,
     host_properties: Option<HostProperties>,
     vars: Option<HashMap<String, String>>,
 }
@@ -38,14 +38,14 @@ impl ManagedHostBuilder {
         Self {
             id: id.to_string(),
             endpoint: endpoint.to_string(),
-            connection_method,
+            specific_connection_method: connection_method,
             host_properties: None,
             vars: None,
         }
     }
 
     pub fn set_connection_method(&mut self, connection_method: ConnectionMethod) {
-        self.connection_method = Some(connection_method);
+        self.specific_connection_method = Some(connection_method);
     }
 
     pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, Error> {
@@ -64,14 +64,14 @@ impl ManagedHostBuilder {
 
     pub fn build(self, secret_provider: &Option<SecretProvider>) -> Result<ManagedHost, Error> {
         // Check that each required field is set
-        if let None = self.connection_method {
+        if let None = self.specific_connection_method {
             return Err(Error::WrongInitialization(format!(
                 "connection method unset"
             )));
         }
 
         // Retrieve connection secrets when needed
-        match self.connection_method {
+        match self.specific_connection_method {
             Some(connection) => {
                 match connection {
                     ConnectionMethod::Localhost(target_user) => {

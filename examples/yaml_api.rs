@@ -4,7 +4,7 @@ use regent_sdk::secrets::SecretProvider;
 
 fn main() {
     let yaml_inventory_builder = r#"---
-ConnectionMethod: !Ssh2
+DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
         Key:
@@ -16,7 +16,7 @@ Hosts:
 
   - Id: my_second_host
     Endpoint: localhost
-    ConnectionMethod: !Ssh2
+    SpecificConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
         SecRef: credentials.secret
 "#;
