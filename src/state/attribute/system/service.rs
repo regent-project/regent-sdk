@@ -392,13 +392,13 @@ mod tests {
     #[test]
     fn parsing_service_module_block_from_yaml_str() {
         let raw_attributes = "---
-- name: apache2
-  current_status: active
-  auto_start: enabled
+- Name: apache2
+  CurrentStatus: !Active
+  AutoStart: !Enabled
 
-- name: apache2
-  current_status: inactive
-  auto_start: disabled
+- Name: apache2
+  CurrentStatus: !Inactive
+  AutoStart: !Disabled
         ";
 
         let _attributes: Vec<ServiceBlockExpectedState> =

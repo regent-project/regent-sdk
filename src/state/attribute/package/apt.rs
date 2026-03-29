@@ -27,7 +27,7 @@ impl std::fmt::Display for AptModuleInternalApiCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
     Present,
     Absent,
@@ -35,6 +35,7 @@ pub enum PackageExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct AptBlockExpectedState {
     state: Option<PackageExpectedState>,
     package: Option<String>,
@@ -272,13 +273,13 @@ mod tests {
     #[test]
     fn parsing_apt_module_block_from_yaml_str() {
         let raw_attributes = "---
-- package: apache2
-  state: present
+- Package: apache2
+  State: !Present
 
-- package: apache2
-  state: absent
+- Package: apache2
+  State: !Absent
 
-- upgrade: true
+- Upgrade: true
     ";
 
         let attributes: Vec<AptBlockExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
@@ -304,19 +305,19 @@ mod tests {
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package: apache2
+- Package: apache2
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package:
-  state: absent
+- Package:
+  State: !Absent
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package: apache2
-  state: absent
+- Package: apache2
+  State: !Absent
   unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());

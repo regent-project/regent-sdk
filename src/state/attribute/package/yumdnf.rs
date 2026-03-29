@@ -27,7 +27,7 @@ impl std::fmt::Display for YumDnfModuleInternalApiCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
     Present,
     Absent,
@@ -35,6 +35,7 @@ pub enum PackageExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct YumDnfBlockExpectedState {
     state: Option<PackageExpectedState>,
     package: Option<String>,
@@ -334,13 +335,13 @@ mod tests {
     #[test]
     fn parsing_yumdnf_module_block_from_yaml_str() {
         let raw_attributes = "---
-- package: httpd
-  state: present
+- Package: httpd
+  State: !Present
 
-- package: httpd
-  state: absent
+- Package: httpd
+  State: !Absent
 
-- upgrade: true
+- Upgrade: true
     ";
 
         let attributes: Vec<YumDnfBlockExpectedState> =
@@ -367,19 +368,19 @@ mod tests {
         assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package: httpd
+- Package: httpd
     ";
         assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package:
-  state: absent
+- Package:
+  State: !Absent
     ";
         assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package: httpd
-  state: absent
+- Package: httpd
+  State: !Absent
   unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());

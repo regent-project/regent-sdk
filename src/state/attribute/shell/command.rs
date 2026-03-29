@@ -97,7 +97,7 @@ mod tests {
     #[test]
     fn parsing_service_module_block_from_yaml_str() {
         let raw_attributes = "---
-- cmd: ls -ltrh";
+- Cmd: ls -ltrh";
 
         let _attributes: Vec<CommandBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();

@@ -27,7 +27,7 @@ impl std::fmt::Display for PacmanModuleInternalApiCall {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
     Present,
     Absent,
@@ -35,6 +35,7 @@ pub enum PackageExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct PacmanBlockExpectedState {
     state: Option<PackageExpectedState>,
     package: Option<String>,
@@ -260,13 +261,13 @@ mod tests {
     #[test]
     fn parsing_pacman_module_block_from_yaml_str() {
         let raw_attributes = "---
-- package: apache
-  state: present
+- Package: apache
+  State: !Present
 
-- package: apache
-  state: absent
+- Package: apache
+  State: !Absent
 
-- upgrade: true
+- Upgrade: true
     ";
 
         let attributes: Vec<PacmanBlockExpectedState> =
@@ -293,19 +294,19 @@ mod tests {
         assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package: apache
+- Package: apache
     ";
         assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package:
-  state: absent
+- Package:
+  State: !Absent
     ";
         assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
 
         let raw_attribute = "---
-- package: apache
-  state: absent
+- Package: apache
+  State: !Absent
   unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());

@@ -19,6 +19,7 @@ pub enum Privilege {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct Credentials {
     username: String,
     password: String,

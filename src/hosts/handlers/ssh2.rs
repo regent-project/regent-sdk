@@ -300,6 +300,7 @@ impl Ssh2HostHandler {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum Ssh2AuthMethod {
     UsernamePassword(Credentials),
     Key(LoginKey), // (username, private key's path)
@@ -356,8 +357,8 @@ mod tests {
     fn test_deserialize_username_password() {
         let yaml = r#"
             !UsernamePassword
-              username: "testuser"
-              password: "testpass"
+              Username: "testuser"
+              Password: "testpass"
         "#;
         let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
         matches!(auth_method, Ssh2AuthMethod::UsernamePassword(_));
@@ -366,9 +367,9 @@ mod tests {
     #[test]
     fn test_deserialize_key_file() {
         let yaml = r#"
-            !KeyFile
-              - "testuser"
-              - "/path/to/private/key"
+            !Key
+              Username: testuser
+              Key: /path/to/private/key
         "#;
         let auth_method: Ssh2AuthMethod = yaml_serde::from_str(yaml).unwrap();
         matches!(auth_method, Ssh2AuthMethod::Key(_));

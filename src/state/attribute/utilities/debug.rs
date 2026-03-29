@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn parsing_debug_module_block_from_yaml_str() {
         let attribute = "---
-msg: some content
+Msg: some content
     ";
 
         let attribute: DebugBlockExpectedState = yaml_serde::from_str(attribute).unwrap();
