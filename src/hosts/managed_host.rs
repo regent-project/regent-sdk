@@ -25,6 +25,7 @@ use crate::state::compliance::ManagedHostStatus;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[serde(deny_unknown_fields)]
 pub struct ManagedHostBuilder {
     id: String,
     endpoint: String,

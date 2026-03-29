@@ -7,6 +7,7 @@ use crate::hosts::handlers::HostHandler;
 use crate::{Error, Privilege};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct HostProperties {
     os_kind: OsKind,
 }

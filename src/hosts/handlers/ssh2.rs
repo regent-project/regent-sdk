@@ -318,6 +318,7 @@ pub enum Ssh2AuthReference {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[serde(deny_unknown_fields)]
 pub struct Ssh2Auth {
     pub auth_method: Ssh2AuthReference,
 }
