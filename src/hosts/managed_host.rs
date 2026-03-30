@@ -313,7 +313,10 @@ impl ManagedHost {
         let mut already_compliant = true;
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
-        for attribute in &expected_state.attributes {
+        for attribute in expected_state.attributes.clone().iter_mut() {
+            // Taking context into account before working on the Attribute
+            attribute.consider_context(&self.host_vars);
+
             match attribute.assess(&mut self.handler, &self.host_properties) {
                 Ok(attribute_compliance) => {
                     if let AttributeComplianceAssessment::NonCompliant(remediations) =
@@ -351,7 +354,10 @@ impl ManagedHost {
             std::sync::mpsc::channel::<Result<AttributeComplianceAssessment, Error>>();
 
         for attribute in &expected_state.attributes {
-            let attribute_clone = attribute.clone();
+            // Taking context into account before working on the Attribute
+            let mut attribute_clone = attribute.clone();
+            attribute_clone.consider_context(&self.host_vars);
+            
             let sender_clone = sender.clone();
             std::thread::spawn({
                 let mut host_handler = self.handler.clone();

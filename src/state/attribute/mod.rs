@@ -3,6 +3,8 @@ pub mod shell;
 pub mod system;
 pub mod utilities;
 
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
@@ -42,6 +44,12 @@ pub struct Attribute {
 impl Attribute {
     pub fn from(detail: AttributeDetail, privilege: Privilege) -> Attribute {
         Attribute { privilege, detail }
+    }
+
+    pub fn consider_context(&mut self, context: &Option<HashMap<String, String>>) {
+        // Making use of template engine to consider dynamic variables (HostVars, GlobalVars...)
+
+        // TODO : Tera, Minijinja...
     }
 
     /// Result because the assessment might fail. If it succeeds, it will return either None (AKA already compliant) or Some(Vec<Remediation>) (AKA what shall be done to reach the expected state).

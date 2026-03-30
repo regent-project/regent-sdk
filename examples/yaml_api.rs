@@ -38,7 +38,7 @@ Hosts:
 Attributes:
   - Privilege: !None
     Detail: !Service
-      Name: httpd
+      Name: "{{ package_name }}"
       CurrentStatus: !Active
       AutoStart: !Enabled
 
