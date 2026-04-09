@@ -55,11 +55,11 @@ pub struct LineInFileBlockExpectedState {
     position: Option<LineExpectedPosition>, // "top" | "bottom" | "anywhere" (default) | "45" (specific line number)
     line_number: Option<u64>, // Exists to avoid weird YAML writing for LineExpectedPosition::LineNumber(u64)
 
-                                            // ****** To be implemented ********
-                                            // beforeline: Option<String>, // Insert before this line
-                                            // afterline: Option<String>, // Insert after this line
-                                            // replace: Option<String>, // Replace this line...
-                                            // with: Option<String> // ... with this one.
+                              // ****** To be implemented ********
+                              // beforeline: Option<String>, // Insert before this line
+                              // afterline: Option<String>, // Insert after this line
+                              // replace: Option<String>, // Replace this line...
+                              // with: Option<String> // ... with this one.
 }
 
 // impl Check for LineInFileBlockExpectedState {
@@ -119,7 +119,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                 // Precheck
                 let parsed_expected_position = match self.line_number {
                     Some(line_number) => Some(LineExpectedPosition::LineNumber(line_number)),
-                    None => self.position.clone()
+                    None => self.position.clone(),
                 };
 
                 if let Some(LineExpectedPosition::LineNumber(expected_line_number)) =
@@ -179,9 +179,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                                             })
                                         }
                                     }
-                                    LineExpectedPosition::LineNumber(
-                                        specific_line_number,
-                                    ) => {
+                                    LineExpectedPosition::LineNumber(specific_line_number) => {
                                         if actual_line_numbers.contains(&specific_line_number) {
                                             // Line is already at the right place, nothing to do
                                             Remediation::None(String::from(

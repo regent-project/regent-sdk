@@ -31,14 +31,13 @@ Hosts:
         .unwrap()
         .build()
         .unwrap();
-    println!("{:#?}", inventory);
 
     // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
   - Privilege: !None
     Detail: !Service
-      Name: httpd
+      Name: "{{ package_name }}"
       CurrentStatus: !Active
       AutoStart: !Enabled
 

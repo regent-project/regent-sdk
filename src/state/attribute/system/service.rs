@@ -336,11 +336,11 @@ fn service_is_active<Handler: HostHandler>(
     ) {
         Ok(test_result) => match test_result.return_code {
             0 => Ok(true),
-            1 => Err(format!("Unit not failed")),
+            1 => Err(format!("Unit not failed : {}", service_name)),
             3 => Ok(false),
             4 => {
                 if must_exists {
-                    Err(format!("No such service"))
+                    Err(format!("No such service : {}", service_name))
                 } else {
                     Ok(false)
                 }
@@ -370,7 +370,7 @@ fn service_is_enabled<Handler: HostHandler>(
                 // 3 => Ok(false),
                 4 => {
                     if must_exists {
-                        Err(format!("No such service"))
+                        Err(format!("No such service : {}", service_name))
                     } else {
                         Ok(false)
                     }
