@@ -10,6 +10,7 @@ pub enum Error {
     FailedDryRunEvaluation(String),
     FailedToApplyExpectedState(String),
     FailedToGetSecret(String),
+    FailureToConsiderContext(String),
     MissingInitialization(String),
     GroupNotFound,
     MissingGroupsList,

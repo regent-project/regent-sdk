@@ -198,7 +198,7 @@ pub struct ManagedHost {
     id: String,
     endpoint: String,
     pub handler: Handler,
-    host_vars: Option<HashMap<String, String>>,
+    context: tera::Context,
     host_properties: Option<HostProperties>,
     secret_provider: Option<SecretProvider>,
 }
@@ -216,7 +216,7 @@ impl ManagedHost {
             id,
             endpoint: endpoint.to_string(),
             handler,
-            host_vars,
+            context: tera::Context::from_serialize(host_vars).unwrap(),
             host_properties,
             secret_provider,
         }
@@ -247,7 +247,7 @@ impl ManagedHost {
             id,
             endpoint: endpoint.to_string(),
             handler,
-            host_vars: final_vars,
+            context: tera::Context::from_serialize(final_vars).unwrap(),
             host_properties,
             secret_provider: Some(secret_provider),
         }
@@ -258,16 +258,7 @@ impl ManagedHost {
     }
 
     pub fn add_var(&mut self, key: String, value: String) {
-        match &mut self.host_vars {
-            Some(vars_list) => {
-                vars_list.insert(key, value);
-            }
-            None => {
-                let mut new_vars_list: HashMap<String, String> = HashMap::new();
-                new_vars_list.insert(key, value);
-                self.host_vars = Some(new_vars_list);
-            }
-        }
+        self.context.insert(key, &value);
     }
 
     pub fn set_host_properties(&mut self, host_properties: Option<HostProperties>) {
@@ -315,15 +306,20 @@ impl ManagedHost {
 
         for attribute in expected_state.attributes.clone().iter_mut() {
             // Taking context into account before working on the Attribute
-            attribute.consider_context(&self.host_vars);
-
-            match attribute.assess(&mut self.handler, &self.host_properties) {
-                Ok(attribute_compliance) => {
-                    if let AttributeComplianceAssessment::NonCompliant(remediations) =
-                        attribute_compliance
-                    {
-                        already_compliant = false;
-                        final_remediations_list.extend(remediations);
+            match attribute.consider_context(&self.context) {
+                Ok(context_aware_attribute) => {
+                    match context_aware_attribute.assess(&mut self.handler, &self.host_properties) {
+                        Ok(attribute_compliance) => {
+                            if let AttributeComplianceAssessment::NonCompliant(remediations) =
+                                attribute_compliance
+                            {
+                                already_compliant = false;
+                                final_remediations_list.extend(remediations);
+                            }
+                        }
+                        Err(error_detail) => {
+                            return Err(error_detail);
+                        }
                     }
                 }
                 Err(error_detail) => {
@@ -355,18 +351,24 @@ impl ManagedHost {
 
         for attribute in &expected_state.attributes {
             // Taking context into account before working on the Attribute
-            let mut attribute_clone = attribute.clone();
-            attribute_clone.consider_context(&self.host_vars);
-            
-            let sender_clone = sender.clone();
-            std::thread::spawn({
-                let mut host_handler = self.handler.clone();
-                let host_properties = self.host_properties.clone();
-                move || {
-                    let result = attribute_clone.assess(&mut host_handler, &host_properties);
-                    let _ = sender_clone.send(result);
+
+            match attribute.consider_context(&self.context) {
+                Ok(context_aware_attribute) => {
+                    let sender_clone = sender.clone();
+                    std::thread::spawn({
+                        let mut host_handler = self.handler.clone();
+                        let host_properties = self.host_properties.clone();
+                        move || {
+                            let result =
+                                context_aware_attribute.assess(&mut host_handler, &host_properties);
+                            let _ = sender_clone.send(result);
+                        }
+                    });
                 }
-            });
+                Err(error_detail) => {
+                    return Err(error_detail);
+                }
+            }
         }
 
         for _ in 0..expected_state.attributes.len() {
@@ -410,50 +412,59 @@ impl ManagedHost {
         let mut actions_taken: Vec<Action> = Vec::new();
 
         for attribute in &expected_state.attributes {
-            match attribute.assess(&mut self.handler, &self.host_properties) {
-                Ok(attribute_compliance) => {
-                    match attribute_compliance {
-                        AttributeComplianceAssessment::Compliant => {
-                            // Nothing to do
-                        }
-                        AttributeComplianceAssessment::NonCompliant(remediations) => {
-                            // Host is not compliant as there are remediations to perform
-                            // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
-                            final_host_status = HostStatus::ReachComplianceSuccess;
+            match attribute.consider_context(&self.context) {
+                Ok(context_aware_attribute) => {
+                    match context_aware_attribute.assess(&mut self.handler, &self.host_properties) {
+                        Ok(attribute_compliance) => {
+                            match attribute_compliance {
+                                AttributeComplianceAssessment::Compliant => {
+                                    // Nothing to do
+                                }
+                                AttributeComplianceAssessment::NonCompliant(remediations) => {
+                                    // Host is not compliant as there are remediations to perform
+                                    // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
+                                    final_host_status = HostStatus::ReachComplianceSuccess;
 
-                            // Try to remedy
+                                    // Try to remedy
 
-                            for remediation in remediations {
-                                match remediation
-                                    .reach_compliance(&mut self.handler, &self.host_properties)
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        actions_taken.push(Action::from(
-                                            remediation,
-                                            Some(internal_api_call_outcome.clone()),
-                                        ));
+                                    for remediation in remediations {
+                                        match remediation.reach_compliance(
+                                            &mut self.handler,
+                                            &self.host_properties,
+                                        ) {
+                                            Ok(internal_api_call_outcome) => {
+                                                actions_taken.push(Action::from(
+                                                    remediation,
+                                                    Some(internal_api_call_outcome.clone()),
+                                                ));
 
-                                        if let InternalApiCallOutcome::Failure(_details) =
-                                            internal_api_call_outcome
-                                        {
-                                            reaching_compliance_failed = true;
-                                            final_host_status = HostStatus::ReachComplianceFailed;
+                                                if let InternalApiCallOutcome::Failure(_details) =
+                                                    internal_api_call_outcome
+                                                {
+                                                    reaching_compliance_failed = true;
+                                                    final_host_status =
+                                                        HostStatus::ReachComplianceFailed;
 
-                                            // Stop processing more mediations for this attribute
-                                            break;
+                                                    // Stop processing more mediations for this attribute
+                                                    break;
+                                                }
+                                            }
+                                            Err(error_detail) => {
+                                                // TODO : return the whole automation up to this point, and not just an error without context like this
+                                                return Err(error_detail);
+                                            }
                                         }
                                     }
-                                    Err(error_detail) => {
-                                        // TODO : return the whole automation up to this point, and not just an error without context like this
-                                        return Err(error_detail);
+
+                                    if reaching_compliance_failed {
+                                        // Stop processing more attributes
+                                        break;
                                     }
                                 }
                             }
-
-                            if reaching_compliance_failed {
-                                // Stop processing more attributes
-                                break;
-                            }
+                        }
+                        Err(error_detail) => {
+                            return Err(error_detail);
                         }
                     }
                 }

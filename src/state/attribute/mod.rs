@@ -6,6 +6,7 @@ pub mod utilities;
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use tera::Context;
 
 use crate::error::Error;
 use crate::hosts::managed_host::InternalApiCallOutcome;
@@ -46,10 +47,16 @@ impl Attribute {
         Attribute { privilege, detail }
     }
 
-    pub fn consider_context(&mut self, context: &Option<HashMap<String, String>>) {
+    pub fn consider_context(&self, context: &Context) -> Result<Attribute, Error> {
         // Making use of template engine to consider dynamic variables (HostVars, GlobalVars...)
+        let serialized_self = serde_json::to_string(self).unwrap();
 
-        // TODO : Tera, Minijinja...
+        let context_wise_serialized_self =
+            tera::Tera::one_off(serialized_self.as_str(), context, true).unwrap();
+        match serde_json::from_str::<Attribute>(&context_wise_serialized_self) {
+            Ok(context_aware_attribute) => Ok(context_aware_attribute),
+            Err(error) => Err(Error::FailureToConsiderContext(format!("{}", error))),
+        }
     }
 
     /// Result because the assessment might fail. If it succeeds, it will return either None (AKA already compliant) or Some(Vec<Remediation>) (AKA what shall be done to reach the expected state).
