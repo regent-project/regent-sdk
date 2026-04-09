@@ -3,8 +3,6 @@ pub mod shell;
 pub mod system;
 pub mod utilities;
 
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
 use tera::Context;
 
