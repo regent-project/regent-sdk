@@ -31,7 +31,6 @@ Hosts:
         .unwrap()
         .build()
         .unwrap();
-    println!("{:#?}", inventory);
 
     // Describe the expected state
     let expected_state_description = r#"---
