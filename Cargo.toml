@@ -13,13 +13,11 @@ categories = ["config", "command-line-utilities"]
 serde = {version = "1.0.228", features= ["derive"]}
 yaml_serde = "0.10"
 serde_json = "1.0.149"
-sha2 = "0.10.9"
 ssh2 = "0.9.5"
 chrono = "0.4.44"
 rayon = "1.11.0"
 nanoid = "0.4.0"
 tera = "1.20.1"
-minijinja = "2.18.0"
 
 [profile.release]
 lto = true
