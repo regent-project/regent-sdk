@@ -98,7 +98,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
 
         if file_exists_check.return_code != 0 {
             return Err(Error::FailedDryRunEvaluation(format!(
-                "{} not found or not a regular file",
+                "{} not found, access denied or not a regular file (directory or device ?)",
                 self.file_path
             )));
         }

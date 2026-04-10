@@ -71,6 +71,7 @@ pub trait SecretProvidingSolution {
 }
 
 // Wrapper type which holds secrets content and helps to avoid leaking secrets (usual or debug logging in general...)
+#[derive(Clone)]
 pub struct Secret<T> {
     inner: T,
 }

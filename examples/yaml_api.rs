@@ -34,16 +34,22 @@ Hosts:
 
     // Describe the expected state
     let expected_state_description = r#"---
+SecretsReferences:
+    token: token.secret
+
 Attributes:
+  - Privilege: !None
+    Detail: !LineInFile
+      FilePath: ~/my_token
+      Line: "{{ token }}"
+      State: !Present
+      Position: !Top
+
   - Privilege: !None
     Detail: !Service
       Name: "{{ package_name }}"
       CurrentStatus: !Active
       AutoStart: !Enabled
-
-  - Privilege: !None
-    Detail: !Command
-      Cmd: sleep 2
 "#;
 
     let expected_state = match ExpectedState::from_raw_yaml(expected_state_description) {
@@ -58,9 +64,9 @@ Attributes:
     let mut living_inventory = inventory.init(&Some(SecretProvider::files())).unwrap();
 
     // Assess whether the host is compliant or not
-    match living_inventory.reach_compliance(&expected_state) {
-        Ok(inventory_comliance) => {
-            for (host_id, compliance_status) in inventory_comliance {
+    match living_inventory.reach_compliance(&expected_state, &Some(SecretProvider::files())) {
+        Ok(inventory_compliance) => {
+            for (host_id, compliance_status) in inventory_compliance {
                 if compliance_status.is_already_compliant() {
                     println!("Congratulations, {} is already compliant !", host_id);
                 } else {

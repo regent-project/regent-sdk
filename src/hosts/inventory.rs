@@ -7,6 +7,7 @@ use crate::error::Error;
 use crate::hosts::handlers::ConnectionMethod;
 use crate::hosts::managed_host::ManagedHost;
 use crate::hosts::managed_host::ManagedHostBuilder;
+use crate::secrets::Secret;
 use crate::secrets::SecretProvider;
 use crate::state::compliance::ManagedHostStatus;
 
@@ -168,10 +169,52 @@ impl LivingInventory {
     pub fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
+        let mut secrets: HashMap<String, Secret<String>> = HashMap::new();
+
+        if let Some(secrets_references) = &expected_state.secrets_references {
+            match optional_secret_provider {
+                Some(secret_provider) => {
+                    for (secret_alias, secret_reference) in secrets_references {
+                        match secret_provider.get_secret_raw(secret_reference) {
+                            Ok(secret) => {
+                                secrets.insert(
+                                    secret_alias.to_string(),
+                                    Secret::from(
+                                        secret
+                                            .inner()
+                                            .chars()
+                                            .filter(|c| c.is_ascii())
+                                            .collect::<String>()
+                                            .trim()
+                                            .to_string(),
+                                    ),
+                                );
+                            }
+                            Err(error_detail) => {
+                                return Err(Error::FailedToGetSecret(format!(
+                                    "{:?}",
+                                    error_detail
+                                )));
+                            }
+                        }
+                    }
+                }
+                None => {
+                    return Err(Error::WrongInitialization(
+                        "Secrets are referenced but no SecretProvider to retrieve them from"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+
         self.hosts
             .par_iter_mut()
             .map(|(managed_host_id, managed_host)| {
+                managed_host.provision_secrets(&secrets);
+
                 match managed_host.assess_compliance(expected_state) {
                     Ok(managed_host_status) => {
                         Ok((managed_host_id.to_string(), managed_host_status))
@@ -185,10 +228,52 @@ impl LivingInventory {
     pub fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
+        let mut secrets: HashMap<String, Secret<String>> = HashMap::new();
+
+        if let Some(secrets_references) = &expected_state.secrets_references {
+            match optional_secret_provider {
+                Some(secret_provider) => {
+                    for (secret_alias, secret_reference) in secrets_references {
+                        match secret_provider.get_secret_raw(secret_reference) {
+                            Ok(secret) => {
+                                secrets.insert(
+                                    secret_alias.to_string(),
+                                    Secret::from(
+                                        secret
+                                            .inner()
+                                            .chars()
+                                            .filter(|c| c.is_ascii())
+                                            .collect::<String>()
+                                            .trim()
+                                            .to_string(),
+                                    ),
+                                );
+                            }
+                            Err(error_detail) => {
+                                return Err(Error::FailedToGetSecret(format!(
+                                    "{:?}",
+                                    error_detail
+                                )));
+                            }
+                        }
+                    }
+                }
+                None => {
+                    return Err(Error::WrongInitialization(
+                        "Secrets are referenced but no SecretProvider to retrieve them from"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+
         self.hosts
             .par_iter_mut()
             .map(|(managed_host_id, managed_host)| {
+                managed_host.provision_secrets(&secrets);
+
                 match managed_host.reach_compliance(expected_state) {
                     Ok(managed_host_status) => {
                         Ok((managed_host_id.to_string(), managed_host_status))
