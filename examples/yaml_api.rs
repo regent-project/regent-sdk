@@ -41,7 +41,9 @@ Attributes:
   - Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      Line: "{{ token }}"
+      #Line: "a very long token"
+      Line:
+        SecRef: token.secret
       State: !Present
       Position: !Top
 
@@ -63,7 +65,7 @@ Attributes:
     // Open connections within this Inventory
     let mut living_inventory = inventory.init(&Some(SecretProvider::files())).unwrap();
 
-    // Assess whether the host is compliant or not
+    // Try reach compliance if not already there
     match living_inventory.reach_compliance(&expected_state, &Some(SecretProvider::files())) {
         Ok(inventory_compliance) => {
             for (host_id, compliance_status) in inventory_compliance {
@@ -75,8 +77,8 @@ Attributes:
                         host_id
                     );
 
-                    for remediation in compliance_status.all_remediations() {
-                        println!("*** {:?}", remediation);
+                    for (remediation, remediation_outcome) in compliance_status.actions_taken() {
+                        println!("*** {:?} -> {:?}", remediation, remediation_outcome);
                     }
                 }
             }
