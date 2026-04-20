@@ -71,14 +71,30 @@ pub trait SecretProvidingSolution {
 }
 
 // Wrapper type which holds secrets content and helps to avoid leaking secrets (usual or debug logging in general...)
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Secret<T> {
+    sec_ref: String,
     inner: T,
 }
 
+impl<T> Debug for Secret<T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Secret")
+            .field("sec_ref", &self.sec_ref)
+            .field("inner", &format_args!("<redacted>"))
+            .finish()
+    }
+}
+
 impl<T> Secret<T> {
-    pub fn from(inner: T) -> Self {
-        Self { inner }
+    pub fn from(sec_ref: &str, inner: T) -> Self {
+        Self {
+            sec_ref: sec_ref.to_string(),
+            inner,
+        }
     }
 
     pub fn inner(self) -> T {
@@ -86,7 +102,7 @@ impl<T> Secret<T> {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
 pub struct SecretReference {
