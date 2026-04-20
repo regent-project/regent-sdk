@@ -9,7 +9,7 @@ use regent_sdk::secrets::SecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 
 fn main() {
-    let secret_provider = SecretProvider::files();
+    let secret_provider = Some(SecretProvider::files());
 
     // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(
@@ -19,7 +19,7 @@ fn main() {
             "/path/to/credentials/secret",
         ))),
     )
-    .build(&Some(secret_provider))
+    .build(&secret_provider)
     .unwrap();
 
     // Open connection with this ManageHost
@@ -40,7 +40,7 @@ fn main() {
         .build();
 
     // Assess whether the host is compliant or not
-    match managed_host.assess_compliance(&localhost_expected_state) {
+    match managed_host.assess_compliance(&localhost_expected_state, &secret_provider) {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");
