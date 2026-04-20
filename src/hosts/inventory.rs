@@ -182,6 +182,7 @@ impl LivingInventory {
                                 secrets.insert(
                                     secret_alias.to_string(),
                                     Secret::from(
+                                        secret_reference,
                                         secret
                                             .inner()
                                             .chars()
@@ -215,7 +216,7 @@ impl LivingInventory {
             .map(|(managed_host_id, managed_host)| {
                 managed_host.provision_secrets(&secrets);
 
-                match managed_host.assess_compliance(expected_state) {
+                match managed_host.assess_compliance(expected_state, optional_secret_provider) {
                     Ok(managed_host_status) => {
                         Ok((managed_host_id.to_string(), managed_host_status))
                     }
@@ -241,6 +242,7 @@ impl LivingInventory {
                                 secrets.insert(
                                     secret_alias.to_string(),
                                     Secret::from(
+                                        secret_reference,
                                         secret
                                             .inner()
                                             .chars()
@@ -274,7 +276,7 @@ impl LivingInventory {
             .map(|(managed_host_id, managed_host)| {
                 managed_host.provision_secrets(&secrets);
 
-                match managed_host.reach_compliance(expected_state) {
+                match managed_host.reach_compliance(expected_state, optional_secret_provider) {
                     Ok(managed_host_status) => {
                         Ok((managed_host_id.to_string(), managed_host_status))
                     }

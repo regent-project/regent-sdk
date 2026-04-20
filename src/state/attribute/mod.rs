@@ -10,6 +10,7 @@ use crate::error::Error;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
+use crate::secrets::SecretProvider;
 use crate::state::attribute::package::apt::AptApiCall;
 use crate::state::attribute::package::apt::AptBlockExpectedState;
 use crate::state::attribute::package::yumdnf::YumDnfApiCall;
@@ -62,18 +63,28 @@ impl Attribute {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
-        self.detail
-            .assess(host_handler, host_properties, &self.privilege)
+        self.detail.assess(
+            host_handler,
+            host_properties,
+            &self.privilege,
+            optional_secret_provider,
+        )
     }
 
     pub fn reach_compliance<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceResult, Error> {
-        self.detail
-            .reach_compliance(host_handler, host_properties, &self.privilege)
+        self.detail.reach_compliance(
+            host_handler,
+            host_properties,
+            &self.privilege,
+            optional_secret_provider,
+        )
     }
 
     // Convenience methods for attributes building
@@ -130,32 +141,65 @@ impl AttributeDetail {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         match self {
-            AttributeDetail::Apt(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
-            AttributeDetail::YumDnf(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
-            AttributeDetail::Pacman(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
-            AttributeDetail::LineInFile(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
-            AttributeDetail::Debug(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
-            AttributeDetail::Ping(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
-            AttributeDetail::Service(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
-            AttributeDetail::Command(expected_state_criteria) => {
-                expected_state_criteria.assess_compliance(host_handler, host_properties, privilege)
-            }
+            AttributeDetail::Apt(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
+            AttributeDetail::YumDnf(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
+            AttributeDetail::Pacman(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
+            AttributeDetail::LineInFile(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
+            AttributeDetail::Debug(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
+            AttributeDetail::Ping(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
+            AttributeDetail::Service(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
+            AttributeDetail::Command(expected_state_criteria) => expected_state_criteria
+                .assess_compliance(
+                    host_handler,
+                    host_properties,
+                    privilege,
+                    optional_secret_provider,
+                ),
         }
     }
 
@@ -164,8 +208,14 @@ impl AttributeDetail {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceResult, Error> {
-        match self.assess(host_handler, host_properties, privilege) {
+        match self.assess(
+            host_handler,
+            host_properties,
+            privilege,
+            optional_secret_provider,
+        ) {
             Ok(attribute_compliance) => match attribute_compliance {
                 AttributeComplianceAssessment::Compliant => Ok(AttributeComplianceResult::from(
                     AttributeComplianceStatus::AlreadyCompliant,
@@ -181,94 +231,119 @@ impl AttributeDetail {
                     let mut actions_taken: Vec<(Remediation, InternalApiCallOutcome)> = Vec::new();
 
                     for remediation in remediations {
-                        let (remediation, internal_api_call_outcome) = match &remediation {
-                            Remediation::None(message) => {
-                                return Err(Error::InternalLogicError(format!(
-                                    "Remediation::None({}) : get rid of this",
-                                    message
-                                )));
-                            }
-                            Remediation::Pacman(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
+                        let (remediation, internal_api_call_outcome) =
+                            match &remediation {
+                                Remediation::None(message) => {
+                                    return Err(Error::InternalLogicError(format!(
+                                        "Remediation::None({}) : get rid of this",
+                                        message
+                                    )));
+                                }
+                                Remediation::Pacman(attribute_api_call) => match attribute_api_call
+                                    .call(host_handler, host_properties, optional_secret_provider)
+                                {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
                                     }
+                                },
+                                Remediation::Apt(attribute_api_call) => {
+                                    match attribute_api_call.call(
+                                        host_handler,
+                                        host_properties,
+                                        optional_secret_provider,
+                                    ) {
+                                        Ok(internal_api_call_outcome) => {
+                                            (remediation, internal_api_call_outcome)
+                                        }
+                                        Err(error_detail) => {
+                                            return Err(error_detail);
+                                        }
+                                    }
                                 }
-                            }
-                            Remediation::Apt(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
+                                Remediation::YumDnf(attribute_api_call) => match attribute_api_call
+                                    .call(host_handler, host_properties, optional_secret_provider)
+                                {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
                                     Err(error_detail) => {
                                         return Err(error_detail);
                                     }
-                                }
-                            }
-                            Remediation::YumDnf(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
-                                    }
-                                }
-                            }
-                            Remediation::LineInFile(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                },
+                                Remediation::LineInFile(attribute_api_call) => {
+                                    match attribute_api_call.call(
+                                        host_handler,
+                                        host_properties,
+                                        optional_secret_provider,
+                                    ) {
+                                        Ok(internal_api_call_outcome) => {
+                                            (remediation, internal_api_call_outcome)
+                                        }
+                                        Err(error_detail) => {
+                                            return Err(error_detail);
+                                        }
                                     }
                                 }
-                            }
-                            Remediation::Debug(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
-                                    }
-                                }
-                            }
-                            Remediation::Ping(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                Remediation::Debug(attribute_api_call) => {
+                                    match attribute_api_call.call(
+                                        host_handler,
+                                        host_properties,
+                                        optional_secret_provider,
+                                    ) {
+                                        Ok(internal_api_call_outcome) => {
+                                            (remediation, internal_api_call_outcome)
+                                        }
+                                        Err(error_detail) => {
+                                            return Err(error_detail);
+                                        }
                                     }
                                 }
-                            }
-                            Remediation::Service(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
-                                    }
-                                }
-                            }
-                            Remediation::Command(attribute_api_call) => {
-                                match attribute_api_call.call(host_handler, host_properties) {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                Remediation::Ping(attribute_api_call) => {
+                                    match attribute_api_call.call(
+                                        host_handler,
+                                        host_properties,
+                                        optional_secret_provider,
+                                    ) {
+                                        Ok(internal_api_call_outcome) => {
+                                            (remediation, internal_api_call_outcome)
+                                        }
+                                        Err(error_detail) => {
+                                            return Err(error_detail);
+                                        }
                                     }
                                 }
-                            }
-                        };
+                                Remediation::Service(attribute_api_call) => {
+                                    match attribute_api_call.call(
+                                        host_handler,
+                                        host_properties,
+                                        optional_secret_provider,
+                                    ) {
+                                        Ok(internal_api_call_outcome) => {
+                                            (remediation, internal_api_call_outcome)
+                                        }
+                                        Err(error_detail) => {
+                                            return Err(error_detail);
+                                        }
+                                    }
+                                }
+                                Remediation::Command(attribute_api_call) => {
+                                    match attribute_api_call.call(
+                                        host_handler,
+                                        host_properties,
+                                        optional_secret_provider,
+                                    ) {
+                                        Ok(internal_api_call_outcome) => {
+                                            (remediation, internal_api_call_outcome)
+                                        }
+                                        Err(error_detail) => {
+                                            return Err(error_detail);
+                                        }
+                                    }
+                                }
+                            };
 
                         actions_taken.push((remediation, internal_api_call_outcome.clone()));
 
@@ -310,6 +385,7 @@ impl Remediation {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         match self {
             Remediation::None(_) => {
@@ -318,14 +394,30 @@ impl Remediation {
                     "Unexpected remediation",
                 )))
             }
-            Remediation::Pacman(api_call) => api_call.call(host_handler, host_properties),
-            Remediation::Apt(api_call) => api_call.call(host_handler, host_properties),
-            Remediation::YumDnf(api_call) => api_call.call(host_handler, host_properties),
-            Remediation::LineInFile(api_call) => api_call.call(host_handler, host_properties),
-            Remediation::Debug(api_call) => api_call.call(host_handler, host_properties),
-            Remediation::Ping(api_call) => api_call.call(host_handler, host_properties),
-            Remediation::Service(api_call) => api_call.call(host_handler, host_properties),
-            Remediation::Command(api_call) => api_call.call(host_handler, host_properties),
+            Remediation::Pacman(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
+            Remediation::Apt(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
+            Remediation::YumDnf(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
+            Remediation::LineInFile(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
+            Remediation::Debug(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
+            Remediation::Ping(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
+            Remediation::Service(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
+            Remediation::Command(api_call) => {
+                api_call.call(host_handler, host_properties, optional_secret_provider)
+            }
         }
     }
 
