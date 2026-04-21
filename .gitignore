@@ -4,3 +4,5 @@ Cargo.lock
 # Just in case
 *.pem
 *.crt
+dev/
+ssh/
