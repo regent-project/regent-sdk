@@ -26,7 +26,7 @@ impl CommandBlockExpectedState {
 
     pub fn builder_secret(sec_ref: &str) -> CommandBlockExpectedState {
         CommandBlockExpectedState {
-            cmd: Parameter::Secret(SecretReference::from(sec_ref))
+            cmd: Parameter::Secret(SecretReference::from(sec_ref)),
         }
     }
 
@@ -85,7 +85,14 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
         optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let cmd_result = host_handler
-            .run_command(&self.cmd.clone().inner_raw(optional_secret_provider).unwrap(), &self.privilege)
+            .run_command(
+                &self
+                    .cmd
+                    .clone()
+                    .inner_raw(optional_secret_provider)
+                    .unwrap(),
+                &self.privilege,
+            )
             .unwrap();
 
         if cmd_result.return_code == 0 {
