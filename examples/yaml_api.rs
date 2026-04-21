@@ -12,7 +12,6 @@ DefaultConnectionMethod: !Ssh2
 
 GlobalVars:
     package_name: httpd
-    version: 1.2.3
 
 Hosts:
   - Id: my_host
@@ -21,7 +20,7 @@ Hosts:
       AuthMethod: !UsernamePassword
         SecRef: ./dev/credentials.secret
     HostVars:
-        version: 2.3.4
+        line_content: "ABCD1234"
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
@@ -35,11 +34,11 @@ Attributes:
   - Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      Line: "a very long token"
+      Line: "{{ line_content }}"
       State: !Present
       Position: !Top
 
-  - Privilege: !None
+  - Privilege: !WithSudoRs
     Detail: !Service
       Name: "{{ package_name }}"
       CurrentStatus: !Active
@@ -54,11 +53,13 @@ Attributes:
         }
     };
 
+    let secret_provider = Some(SecretProvider::files());
+
     // Open connections within this Inventory
-    let mut living_inventory = inventory.init(&Some(SecretProvider::files())).unwrap();
+    let mut living_inventory = inventory.init(&secret_provider).unwrap();
 
     // Try reach compliance if not already there
-    match living_inventory.reach_compliance(&expected_state, &Some(SecretProvider::files())) {
+    match living_inventory.reach_compliance(&expected_state, &secret_provider) {
         Ok(inventory_compliance) => {
             for (host_id, compliance_status) in inventory_compliance {
                 if compliance_status.is_already_compliant() {
