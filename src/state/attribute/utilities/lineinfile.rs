@@ -393,7 +393,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                     .unwrap();
 
                 if cmd_result.return_code == 0 {
-                    return Ok(InternalApiCallOutcome::Success);
+                    return Ok(InternalApiCallOutcome::Success(None));
                 } else {
                     return Ok(InternalApiCallOutcome::Failure(format!(
                         "Failed to add line. RC : {}, STDOUT : {}, STDERR : {}",
@@ -419,7 +419,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                     .unwrap();
 
                 if cmd_result.return_code == 0 {
-                    return Ok(InternalApiCallOutcome::Success);
+                    return Ok(InternalApiCallOutcome::Success(None));
                 } else {
                     return Ok(InternalApiCallOutcome::Failure(format!(
                         "Failed to remove line. RC : {}, STDOUT : {}, STDERR : {}",
