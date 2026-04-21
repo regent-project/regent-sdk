@@ -539,7 +539,7 @@ pub enum AttributeLevelOperationOutcome {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum InternalApiCallOutcome {
-    Success,
+    Success(Option<String>),
     Failure(String),
     AllowedFailure(String),
 }

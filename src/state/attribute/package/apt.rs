@@ -241,7 +241,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
         let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
 
         if cmd_result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success)
+            Ok(InternalApiCallOutcome::Success(None))
         } else {
             Ok(InternalApiCallOutcome::Failure(format!(
                 "RC : {}, STDOUT : {}, STDERR : {}",

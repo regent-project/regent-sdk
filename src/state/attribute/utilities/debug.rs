@@ -53,7 +53,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
         _host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
-        Ok(InternalApiCallOutcome::Success)
+        Ok(InternalApiCallOutcome::Success(None))
     }
 }
 

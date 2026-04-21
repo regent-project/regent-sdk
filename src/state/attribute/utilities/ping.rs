@@ -58,7 +58,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
         _host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
-        Ok(InternalApiCallOutcome::Success)
+        Ok(InternalApiCallOutcome::Success(None))
     }
 }
 
