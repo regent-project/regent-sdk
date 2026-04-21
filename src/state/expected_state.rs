@@ -3,7 +3,7 @@ use crate::{Error, secrets::SecretReference, state::attribute::Attribute};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -56,6 +56,22 @@ where
         match self {
             Parameter::Clear(content) => {
                 write!(f, "{:?}", content)
+            }
+            Parameter::Secret(content) => {
+                write!(f, "{:?}", content)
+            }
+        }
+    }
+}
+
+impl<T> Display for Parameter<T>
+where
+    T: Display,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Parameter::Clear(content) => {
+                write!(f, "{}", content)
             }
             Parameter::Secret(content) => {
                 write!(f, "{:?}", content)
