@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tera::Context;
 
 use crate::LocalHostHandler;
 use crate::Ssh2AuthMethod;
@@ -16,7 +15,6 @@ use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
-use crate::secrets::Secret;
 use crate::secrets::SecretProvider;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
@@ -292,15 +290,6 @@ impl ManagedHost {
 
     pub fn disconnect(&mut self) -> Result<(), Error> {
         self.handler.disconnect()
-    }
-
-    pub fn provision_secrets(&mut self, secrets: &HashMap<String, Secret<String>>) {
-        let mut stringified_secrets: HashMap<String, String> = HashMap::new();
-        for (key, value) in secrets {
-            stringified_secrets.insert(key.to_string(), value.clone().inner());
-        }
-        self.context
-            .extend(Context::from_serialize(stringified_secrets).unwrap());
     }
 
     // Defaults to sequential assessment

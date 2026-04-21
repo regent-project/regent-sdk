@@ -8,23 +8,20 @@ DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
         Key:
-            SecRef: ssh/private.key
+            SecRef: ./ssh/private.key
 
 GlobalVars:
     package_name: httpd
     version: 1.2.3
 
 Hosts:
-  - Id: my_first_host
-    Endpoint: localhost
-    HostVars:
-        version: 2.3.4
-
-  - Id: my_second_host
+  - Id: my_host
     Endpoint: localhost
     HostConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
-        SecRef: credentials.secret
+        SecRef: ./dev/credentials.secret
+    HostVars:
+        version: 2.3.4
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
@@ -34,16 +31,11 @@ Hosts:
 
     // Describe the expected state
     let expected_state_description = r#"---
-SecretsReferences:
-    token: token.secret
-
 Attributes:
   - Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      #Line: "a very long token"
-      Line:
-        SecRef: token.secret
+      Line: "a very long token"
       State: !Present
       Position: !Top
 

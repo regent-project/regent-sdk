@@ -2,21 +2,18 @@ use crate::secrets::SecretProvider;
 use crate::{Error, secrets::SecretReference, state::attribute::Attribute};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::fmt::{Debug, Display};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
 pub struct ExpectedState {
-    pub secrets_references: Option<HashMap<String, String>>,
     pub attributes: Vec<Attribute>,
 }
 
 impl ExpectedState {
     pub fn new() -> ExpectedState {
         ExpectedState {
-            secrets_references: None,
             attributes: Vec::new(),
         }
     }
@@ -35,7 +32,6 @@ impl ExpectedState {
 
     pub fn build(&self) -> ExpectedState {
         ExpectedState {
-            secrets_references: self.secrets_references.clone(),
             attributes: self.attributes.clone(),
         }
     }
