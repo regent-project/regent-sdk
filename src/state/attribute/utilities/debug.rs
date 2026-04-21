@@ -29,7 +29,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         return Ok(AttributeComplianceAssessment::NonCompliant(Vec::from([
             Remediation::None(self.msg.clone()),
@@ -51,7 +51,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success(None))
     }

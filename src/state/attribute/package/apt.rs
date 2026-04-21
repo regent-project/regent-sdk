@@ -109,7 +109,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
             .is_this_command_available("apt-get", &Privilege::None)
@@ -215,7 +215,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => (

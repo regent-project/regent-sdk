@@ -25,7 +25,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let cmd = String::from("id");
         let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
@@ -56,7 +56,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         Ok(InternalApiCallOutcome::Success(None))
     }

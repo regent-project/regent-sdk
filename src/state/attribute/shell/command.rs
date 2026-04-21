@@ -50,7 +50,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let mut remediations: Vec<Remediation> = Vec::new();
 
