@@ -2,23 +2,31 @@ use crate::error::Error;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
+use crate::secrets::{SecretProvider, SecretReference};
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
+use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct CommandBlockExpectedState {
-    cmd: String,
+    cmd: Parameter<String>,
 }
 
 impl CommandBlockExpectedState {
     pub fn builder(cmd: &str) -> CommandBlockExpectedState {
         CommandBlockExpectedState {
-            cmd: cmd.to_string(),
+            cmd: Parameter::Clear(cmd.to_string()),
+        }
+    }
+
+    pub fn builder_secret(sec_ref: &str) -> CommandBlockExpectedState {
+        CommandBlockExpectedState {
+            cmd: Parameter::Secret(SecretReference::from(sec_ref)),
         }
     }
 
@@ -42,6 +50,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let mut remediations: Vec<Remediation> = Vec::new();
 
@@ -58,7 +67,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CommandApiCall {
-    pub cmd: String,
+    pub cmd: Parameter<String>,
     privilege: Privilege,
 }
 
@@ -73,14 +82,21 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let cmd_result = host_handler
-            .run_command(self.cmd.as_str(), &self.privilege)
+            .run_command(
+                &self
+                    .cmd
+                    .clone()
+                    .inner_raw(optional_secret_provider)
+                    .unwrap(),
+                &self.privilege,
+            )
             .unwrap();
 
-        // TODO : add command output saving
         if cmd_result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success)
+            Ok(InternalApiCallOutcome::Success(Some(cmd_result.stdout)))
         } else {
             Ok(InternalApiCallOutcome::Failure(format!(
                 "RC : {}, STDOUT : {}, STDERR : {}",

@@ -296,6 +296,7 @@ impl ManagedHost {
     pub fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<ManagedHostStatus, Error> {
         if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
@@ -308,7 +309,11 @@ impl ManagedHost {
             // Taking context into account before working on the Attribute
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
-                    match context_aware_attribute.assess(&mut self.handler, &self.host_properties) {
+                    match context_aware_attribute.assess(
+                        &mut self.handler,
+                        &self.host_properties,
+                        optional_secret_provider,
+                    ) {
                         Ok(attribute_compliance) => {
                             if let AttributeComplianceAssessment::NonCompliant(remediations) =
                                 attribute_compliance
@@ -338,6 +343,7 @@ impl ManagedHost {
     pub fn assess_compliance_in_parallel(
         &mut self,
         expected_state: &ExpectedState,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<ManagedHostStatus, Error> {
         if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
@@ -358,9 +364,13 @@ impl ManagedHost {
                     std::thread::spawn({
                         let mut host_handler = self.handler.clone();
                         let host_properties = self.host_properties.clone();
+                        let optional_secret_provider_clone = optional_secret_provider.clone();
                         move || {
-                            let result =
-                                context_aware_attribute.assess(&mut host_handler, &host_properties);
+                            let result = context_aware_attribute.assess(
+                                &mut host_handler,
+                                &host_properties,
+                                &optional_secret_provider_clone,
+                            );
                             let _ = sender_clone.send(result);
                         }
                     });
@@ -402,6 +412,7 @@ impl ManagedHost {
     pub fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<ManagedHostStatus, Error> {
         if !self.is_connected() {
             return Err(Error::NotConnectedToHost);
@@ -414,7 +425,11 @@ impl ManagedHost {
         for attribute in &expected_state.attributes {
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
-                    match context_aware_attribute.assess(&mut self.handler, &self.host_properties) {
+                    match context_aware_attribute.assess(
+                        &mut self.handler,
+                        &self.host_properties,
+                        optional_secret_provider,
+                    ) {
                         Ok(attribute_compliance) => {
                             match attribute_compliance {
                                 AttributeComplianceAssessment::Compliant => {
@@ -431,6 +446,7 @@ impl ManagedHost {
                                         match remediation.reach_compliance(
                                             &mut self.handler,
                                             &self.host_properties,
+                                            optional_secret_provider,
                                         ) {
                                             Ok(internal_api_call_outcome) => {
                                                 actions_taken.push(Action::from(
@@ -488,6 +504,7 @@ pub trait AssessCompliance<Handler: HostHandler> {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error>;
 }
 
@@ -496,6 +513,7 @@ pub trait ReachCompliance<Handler: HostHandler> {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error>;
 }
 
@@ -510,7 +528,7 @@ pub enum AttributeLevelOperationOutcome {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum InternalApiCallOutcome {
-    Success,
+    Success(Option<String>),
     Failure(String),
     AllowedFailure(String),
 }

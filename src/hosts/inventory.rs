@@ -168,11 +168,12 @@ impl LivingInventory {
     pub fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
         self.hosts
             .par_iter_mut()
             .map(|(managed_host_id, managed_host)| {
-                match managed_host.assess_compliance(expected_state) {
+                match managed_host.assess_compliance(expected_state, optional_secret_provider) {
                     Ok(managed_host_status) => {
                         Ok((managed_host_id.to_string(), managed_host_status))
                     }
@@ -185,11 +186,12 @@ impl LivingInventory {
     pub fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
         self.hosts
             .par_iter_mut()
             .map(|(managed_host_id, managed_host)| {
-                match managed_host.reach_compliance(expected_state) {
+                match managed_host.reach_compliance(expected_state, optional_secret_provider) {
                     Ok(managed_host_status) => {
                         Ok((managed_host_id.to_string(), managed_host_status))
                     }

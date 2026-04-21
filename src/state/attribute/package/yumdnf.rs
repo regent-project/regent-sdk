@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
+use crate::secrets::SecretProvider;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -110,6 +111,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
 
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         let package_manager: RedHatFlavoredPackageManager;
 
@@ -248,6 +250,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
+        _optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         let (cmd, privilege) = match &self.api_call {
             YumDnfModuleInternalApiCall::Install(package_name) => (
@@ -278,7 +281,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
         let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
 
         if cmd_result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success)
+            Ok(InternalApiCallOutcome::Success(None))
         } else {
             Ok(InternalApiCallOutcome::Failure(format!(
                 "RC : {}, STDOUT : {}, STDERR : {}",

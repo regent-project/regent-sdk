@@ -8,23 +8,20 @@ DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
         Key:
-            SecRef: ssh/private.key
+            SecRef: ./ssh/private.key
 
 GlobalVars:
     package_name: httpd
     version: 1.2.3
 
 Hosts:
-  - Id: my_first_host
-    Endpoint: localhost
-    HostVars:
-        version: 2.3.4
-
-  - Id: my_second_host
+  - Id: my_host
     Endpoint: localhost
     HostConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
-        SecRef: credentials.secret
+        SecRef: ./dev/credentials.secret
+    HostVars:
+        version: 2.3.4
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
@@ -36,14 +33,17 @@ Hosts:
     let expected_state_description = r#"---
 Attributes:
   - Privilege: !None
+    Detail: !LineInFile
+      FilePath: ~/my_token
+      Line: "a very long token"
+      State: !Present
+      Position: !Top
+
+  - Privilege: !None
     Detail: !Service
       Name: "{{ package_name }}"
       CurrentStatus: !Active
       AutoStart: !Enabled
-
-  - Privilege: !None
-    Detail: !Command
-      Cmd: sleep 2
 "#;
 
     let expected_state = match ExpectedState::from_raw_yaml(expected_state_description) {
@@ -57,10 +57,10 @@ Attributes:
     // Open connections within this Inventory
     let mut living_inventory = inventory.init(&Some(SecretProvider::files())).unwrap();
 
-    // Assess whether the host is compliant or not
-    match living_inventory.reach_compliance(&expected_state) {
-        Ok(inventory_comliance) => {
-            for (host_id, compliance_status) in inventory_comliance {
+    // Try reach compliance if not already there
+    match living_inventory.reach_compliance(&expected_state, &Some(SecretProvider::files())) {
+        Ok(inventory_compliance) => {
+            for (host_id, compliance_status) in inventory_compliance {
                 if compliance_status.is_already_compliant() {
                     println!("Congratulations, {} is already compliant !", host_id);
                 } else {
@@ -69,8 +69,8 @@ Attributes:
                         host_id
                     );
 
-                    for remediation in compliance_status.all_remediations() {
-                        println!("*** {:?}", remediation);
+                    for (remediation, remediation_outcome) in compliance_status.actions_taken() {
+                        println!("*** {:?} -> {:?}", remediation, remediation_outcome);
                     }
                 }
             }

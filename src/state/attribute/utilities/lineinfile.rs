@@ -2,10 +2,12 @@ use crate::error::Error;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
+use crate::secrets::SecretProvider;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
+use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -50,7 +52,7 @@ pub enum LineExpectedPosition {
 #[serde(rename_all = "PascalCase")]
 pub struct LineInFileBlockExpectedState {
     file_path: String,
-    line: Option<String>,
+    line: Option<Parameter<String>>,
     state: LineExpectedState,
     position: Option<LineExpectedPosition>, // "top" | "bottom" | "anywhere" (default) | "45" (specific line number)
     line_number: Option<u64>, // Exists to avoid weird YAML writing for LineExpectedPosition::LineNumber(u64)
@@ -80,6 +82,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<AttributeComplianceAssessment, Error> {
         if !host_handler
             .is_this_command_available("sed", &privilege)
@@ -98,10 +101,15 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
 
         if file_exists_check.return_code != 0 {
             return Err(Error::FailedDryRunEvaluation(format!(
-                "{} not found or not a regular file",
+                "{} not found, access denied or not a regular file (directory or device ?)",
                 self.file_path
             )));
         }
+
+        let line_content: Option<String> = match self.line.clone() {
+            Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).unwrap()),
+            None => None,
+        };
 
         let remediation = match &self.state {
             LineExpectedState::Present => {
@@ -134,7 +142,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
 
                 let file_actual_compliance = is_line_present(
                     host_handler,
-                    &self.line.as_ref().unwrap(),
+                    &line_content.clone().unwrap(),
                     &self.file_path,
                     &privilege,
                 );
@@ -156,7 +164,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                                                 api_call: LineInFileModuleInternalApiCall::Add(
                                                     LineExpectedPosition::Top,
                                                 ),
-                                                line_content: self.line.as_ref().unwrap().clone(),
+                                                line_content: self.line.clone(),
                                                 file_path: self.file_path.clone(),
                                                 privilege,
                                             })
@@ -173,7 +181,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                                                 api_call: LineInFileModuleInternalApiCall::Add(
                                                     LineExpectedPosition::Bottom,
                                                 ),
-                                                line_content: self.line.as_ref().unwrap().clone(),
+                                                line_content: self.line.clone(),
                                                 file_path: self.file_path.clone(),
                                                 privilege,
                                             })
@@ -192,7 +200,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                                                         *specific_line_number,
                                                     ),
                                                 ),
-                                                line_content: self.line.as_ref().unwrap().clone(),
+                                                line_content: self.line.clone(),
                                                 file_path: self.file_path.clone(),
                                                 privilege,
                                             })
@@ -209,7 +217,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                                                 api_call: LineInFileModuleInternalApiCall::Add(
                                                     LineExpectedPosition::Bottom,
                                                 ),
-                                                line_content: self.line.as_ref().unwrap().clone(),
+                                                line_content: self.line.clone(),
                                                 file_path: self.file_path.clone(),
                                                 privilege,
                                             })
@@ -233,7 +241,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                                 api_call: LineInFileModuleInternalApiCall::Add(
                                     expected_position.clone(),
                                 ),
-                                line_content: self.line.as_ref().unwrap().clone(),
+                                line_content: self.line.clone(),
                                 file_path: self.file_path.clone(),
                                 privilege,
                             }),
@@ -243,7 +251,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                                     api_call: LineInFileModuleInternalApiCall::Add(
                                         LineExpectedPosition::Bottom,
                                     ),
-                                    line_content: self.line.as_ref().unwrap().clone(),
+                                    line_content: self.line.clone(),
                                     file_path: self.file_path.clone(),
                                     privilege,
                                 })
@@ -256,13 +264,13 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                 // Check if line is already present
                 match is_line_present(
                     host_handler,
-                    self.line.as_ref().unwrap(),
+                    &line_content.clone().unwrap(),
                     &self.file_path,
                     &privilege,
                 ) {
                     Some(line_numbers) => Remediation::LineInFile(LineInFileApiCall {
                         api_call: LineInFileModuleInternalApiCall::Delete(line_numbers),
-                        line_content: self.line.as_ref().unwrap().clone(),
+                        line_content: self.line.clone(),
                         file_path: self.file_path.clone(),
                         privilege,
                     }),
@@ -287,7 +295,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LineInFileApiCall {
     file_path: String,
-    line_content: String,
+    line_content: Option<Parameter<String>>,
     pub api_call: LineInFileModuleInternalApiCall,
     privilege: Privilege,
 }
@@ -313,6 +321,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
+        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<InternalApiCallOutcome, Error> {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {
@@ -333,6 +342,11 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 //     LineExpectedPosition::Bottom | LineExpectedPosition::Anywhere => filelinenumbers
                 // };
 
+                let line_content: Option<String> = match self.line_content.clone() {
+                    Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).unwrap()),
+                    None => None,
+                };
+
                 // If the file is empty, the sed command won't work.
                 let cmd: String;
                 if filenumberoflines == 0 {
@@ -341,10 +355,12 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                         LineExpectedPosition::Top
                         | LineExpectedPosition::Bottom
                         | LineExpectedPosition::Anywhere => {
-                            cmd = format!("echo \'{}\' >> {}", self.line_content, self.file_path);
+                            cmd =
+                                format!("echo \'{}\' >> {}", line_content.unwrap(), self.file_path);
                         }
                         LineExpectedPosition::LineNumber(1) => {
-                            cmd = format!("echo \'{}\' >> {}", self.line_content, self.file_path);
+                            cmd =
+                                format!("echo \'{}\' >> {}", line_content.unwrap(), self.file_path);
                         }
                         LineExpectedPosition::LineNumber(_any_other_line_number) => {
                             // Position = <any other value> which is out of range anyway
@@ -366,7 +382,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                     };
                     cmd = format!(
                         "sed -i \'{} i {}\' {}",
-                        future_line_number, self.line_content, self.file_path
+                        future_line_number,
+                        line_content.unwrap(),
+                        self.file_path
                     );
                 }
 
@@ -375,7 +393,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                     .unwrap();
 
                 if cmd_result.return_code == 0 {
-                    return Ok(InternalApiCallOutcome::Success);
+                    return Ok(InternalApiCallOutcome::Success(None));
                 } else {
                     return Ok(InternalApiCallOutcome::Failure(format!(
                         "Failed to add line. RC : {}, STDOUT : {}, STDERR : {}",
@@ -401,7 +419,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                     .unwrap();
 
                 if cmd_result.return_code == 0 {
-                    return Ok(InternalApiCallOutcome::Success);
+                    return Ok(InternalApiCallOutcome::Success(None));
                 } else {
                     return Ok(InternalApiCallOutcome::Failure(format!(
                         "Failed to remove line. RC : {}, STDOUT : {}, STDERR : {}",
