@@ -22,23 +22,19 @@ DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
         Key:
-            SecRef: ssh/private.key
+            SecRef: ./ssh/private.key
 
 GlobalVars:
     package_name: httpd
-    version: 1.2.3
 
 Hosts:
-  - Id: my_first_host
-    Endpoint: localhost
-    HostVars:
-        version: 2.3.4
-
-  - Id: my_second_host
+  - Id: my_host
     Endpoint: localhost
     HostConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
-        SecRef: credentials.secret
+        SecRef: ./dev/credentials.secret
+    HostVars:
+        line_content: "ABCD1234"
 "#;
 
 let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
@@ -46,22 +42,21 @@ let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
     .build()
     .unwrap();
 
-// Open connections within this Inventory
-let mut living_inventory = inventory.init(&Some(SecretProvider::files())).unwrap();
-
-
 // Describe the expected state
 let expected_state_description = r#"---
 Attributes:
   - Privilege: !None
+    Detail: !LineInFile
+      FilePath: ~/my_token
+      Line: "{{ line_content }}"
+      State: !Present
+      Position: !Top
+
+  - Privilege: !WithSudoRs
     Detail: !Service
-      Name: httpd
+      Name: "{{ package_name }}"
       CurrentStatus: !Active
       AutoStart: !Enabled
-
-  - Privilege: !None
-    Detail: !Command
-      Cmd: sleep 2
 "#;
 
 let expected_state = match ExpectedState::from_raw_yaml(expected_state_description) {
@@ -72,10 +67,15 @@ let expected_state = match ExpectedState::from_raw_yaml(expected_state_descripti
     }
 };
 
-// Assess whether the host is compliant or not
-match living_inventory.reach_compliance(&localhost_expected_state) {
-    Ok(inventory_comliance) => {
-        for (host_id, compliance_status) in inventory_comliance {
+let secret_provider = Some(SecretProvider::files());
+
+// Open connections within this Inventory
+let mut living_inventory = inventory.init(&secret_provider).unwrap();
+
+// Try reach compliance if not already there
+match living_inventory.reach_compliance(&expected_state, &secret_provider) {
+    Ok(inventory_compliance) => {
+        for (host_id, compliance_status) in inventory_compliance {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, {} is already compliant !", host_id);
             } else {
@@ -84,8 +84,8 @@ match living_inventory.reach_compliance(&localhost_expected_state) {
                     host_id
                 );
 
-                for remediation in compliance_status.all_remediations() {
-                    println!("*** {:?}", remediation);
+                for (remediation, remediation_outcome) in compliance_status.actions_taken() {
+                    println!("*** {:?} -> {:?}", remediation, remediation_outcome);
                 }
             }
         }
@@ -97,44 +97,52 @@ match living_inventory.reach_compliance(&localhost_expected_state) {
 ```
 ### The Rusty API (single host handling example)
 ```rust
-let secret_provider = SecretProvider::files();
+// Build a SecretProvider
+let secret_provider = Some(SecretProvider::env_var());
 
-// Describe the ManagedHost
-let mut managed_host = ManagedHostBuilder::new("<host-id>", "<address:port>", Some(ConnectionMethod::Ssh2(Ssh2Auth::username_password(
-        "/path/to/credentials/secret",
-    ))))
-    .build(&Some(secret_provider))
-    .unwrap();
+let mut managed_host = ManagedHostBuilder::new(
+    "<host-id>",
+    "<host-endpoint>:<port>",
+    Some(ConnectionMethod::Localhost(TargetUser::current_user())),
+)
+.build(&secret_provider)
+.unwrap();
 
 // Open connection with this ManageHost
 assert!(managed_host.connect().is_ok());
 
 // Describe the expected state
-let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
-    .with_service_state(ServiceExpectedStatus::Active)
-    .with_autostart_state(ServiceExpectedAutoStart::Enabled)
+let apache_expected_state = AptBlockExpectedState::builder()
+    .with_package_state("apache2", PackageExpectedState::Present)
     .build()
     .unwrap();
 
-let localhost_expected_state = ExpectedState::new()
-    .with_attribute(Attribute::service(
-        httpd_service_active_and_enabled,
-        Privilege::None,
-    ))
+let expected_state = ExpectedState::new()
+    .with_attribute(Attribute::apt(apache_expected_state, Privilege::WithSudo))
     .build();
 
 // Assess whether the host is compliant or not
-match managed_host.assess_compliance(&localhost_expected_state) {
+match managed_host.assess_compliance(&expected_state, &secret_provider) {
     Ok(compliance_status) => {
         if compliance_status.is_already_compliant() {
             println!("Congratulations, host is already compliant !");
         } else {
             println!(
-                "Oups ! Host is not compliant. Here is the list of required remediations :"
+                "Oups ! Host is not compliant. Here is the list of required remediations : {:#?}",
+                compliance_status.all_remediations()
             );
 
-            for remediation in compliance_status.all_remediations() {
-                println!("*** {:?}", remediation);
+            // If not, try once to reach compliance
+            match managed_host.reach_compliance(&expected_state, &secret_provider) {
+                Ok(outcome) => {
+                    println!(
+                        "Try reach compliance outcome : {:#?}",
+                        outcome.actions_taken()
+                    );
+                }
+                Err(error_detail) => {
+                    println!("Unable to try to reach compliance : {:#?}", error_detail);
+                }
             }
         }
     }
@@ -148,7 +156,7 @@ match managed_host.assess_compliance(&localhost_expected_state) {
 Very often, automation frameworks will impose their architecture on you and thus limit their scope. You will end up accepting blind spots and manual interventions at scale, adapting your infrastructure to meet the tool's requirements or finding "workarounds" which will become the norm over time (a cron job which runs a bash script which runs an ansible playbook which connects to...). And very often, you have to assemble a solution to your specific use case with a mixture of official tooling, custom scripting, creativity and a little bit of trickery. With ***regent***, we are not even trying to build another unicorn. Instead, we acknowledge that your use case is unique to you, so must be your solution. No more mixture and trickery - you build what you need, nothing more, nothing less.
 
 ## Secrets management
-As any other automation framework, regent will have to handle secrets. For this part, regent doesn't try to store and manage secrets itself but relies on the concept of *SecretProvider*. This object is regent's binding with any external secrets management solution which implements the *SecretProvidingSolution* trait. That way, you can pass your credentials, keys, and any other kind of secrets to regent as environment variables or files, but you can also store all your secrets in solutions like AWS Secrets Manager, GCP Secret Manager, Hashicorp Vault or even inside the Linux Kernel Key Retention Service and have regent retrieve them dynamically when needed ! (these bindings are still to be implemented)
+As any other automation framework, regent will have to handle secrets. For this part, regent doesn't try to store and manage secrets itself but relies on the concept of *SecretProvider*. This object is regent's binding with any external secrets management solution which implements the [SecretProvidingSolution](https://docs.rs/regent-sdk/0.4.0/regent_sdk/secrets/trait.SecretProvidingSolution.html) trait. That way, you can pass your credentials, keys, and any other kind of secrets to regent as environment variables or files, but you can also store all your secrets in solutions like AWS Secrets Manager, GCP Secret Manager, Hashicorp Vault or even inside the Linux Kernel Key Retention Service and have regent retrieve them dynamically when needed ! (these bindings are still to be implemented)
 
 
 ## Contributing
