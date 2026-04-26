@@ -18,9 +18,13 @@ chrono      = "0.4.44"
 rayon       = "1.12.0"
 nanoid      = "0.4.0"
 tera        = "1.20.1"
+tracing     = "0.1.44"
 
 [profile.release]
 lto = true
 
 [lib]
 doctest = false
+
+[dev-dependencies]
+tracing-subscriber = "0.3.23"

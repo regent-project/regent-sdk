@@ -4,7 +4,7 @@ use crate::{hosts::managed_host::InternalApiCallOutcome, state::attribute::Remed
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ManagedHostStatus {
-    state: HostStatus,
+    pub state: HostStatus,
     actions_taken: Option<Vec<Action>>,
 }
 

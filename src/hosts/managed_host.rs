@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::Level;
+use tracing::span;
+#[allow(unused)]
+use tracing::{debug, error, info, trace, warn};
 
 use crate::LocalHostHandler;
 use crate::Ssh2AuthMethod;
@@ -425,6 +429,12 @@ impl ManagedHost {
         for attribute in &expected_state.attributes {
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
+                    let span = span!(
+                        Level::INFO,
+                        "attribute",
+                        attribute = context_aware_attribute.name()
+                    );
+                    let _enter = span.enter();
                     match context_aware_attribute.assess(
                         &mut self.handler,
                         &self.host_properties,
@@ -433,9 +443,12 @@ impl ManagedHost {
                         Ok(attribute_compliance) => {
                             match attribute_compliance {
                                 AttributeComplianceAssessment::Compliant => {
+                                    info!("Attribute already met");
                                     // Nothing to do
                                 }
                                 AttributeComplianceAssessment::NonCompliant(remediations) => {
+                                    info!("Not compliant. Trying to remedy.");
+
                                     // Host is not compliant as there are remediations to perform
                                     // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
                                     final_host_status = HostStatus::ReachComplianceSuccess;
@@ -466,7 +479,7 @@ impl ManagedHost {
                                                 }
                                             }
                                             Err(error_detail) => {
-                                                // TODO : return the whole automation up to this point, and not just an error without context like this
+                                                warn!("Failed to apply remediation");
                                                 return Err(error_detail);
                                             }
                                         }
@@ -480,6 +493,7 @@ impl ManagedHost {
                             }
                         }
                         Err(error_detail) => {
+                            warn!(reason = ?error_detail, "Failed assessment");
                             return Err(error_detail);
                         }
                     }
@@ -490,10 +504,12 @@ impl ManagedHost {
             }
         }
 
-        if let HostStatus::ReachComplianceFailed = final_host_status {
-            Ok(ManagedHostStatus::reach_compliance_failed(actions_taken))
-        } else {
-            Ok(ManagedHostStatus::reach_compliance_success(actions_taken))
+        match final_host_status {
+            HostStatus::AlreadyCompliant => Ok(ManagedHostStatus::already_compliant()),
+            HostStatus::ReachComplianceFailed => {
+                Ok(ManagedHostStatus::reach_compliance_failed(actions_taken))
+            }
+            _ => Ok(ManagedHostStatus::reach_compliance_success(actions_taken)),
         }
     }
 }

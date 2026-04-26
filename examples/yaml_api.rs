@@ -1,9 +1,14 @@
 use regent_sdk::ExpectedState;
 use regent_sdk::hosts::inventory::InventoryBuilder;
 use regent_sdk::secrets::SecretProvider;
+use tracing_subscriber;
 
 fn main() {
+    tracing_subscriber::fmt::init();
+
     let yaml_inventory_builder = r#"---
+Name: my_inventory
+
 DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
@@ -32,14 +37,15 @@ Hosts:
     // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
-  - Privilege: !None
+  - Name: set token value
+    Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
       Line: "a very long token"
       State: !Present
       Position: !Top
 
-  - Privilege: !None
+  - Privilege: !WithSudoRs
     Detail: !Service
       Name: "{{ package_name }}"
       CurrentStatus: !Active
@@ -75,8 +81,8 @@ Attributes:
                 }
             }
         }
-        Err(error_detail) => {
-            println!("Failed to assess compliance : {:?}", error_detail);
+        Err(_error_detail) => {
+            // println!("Failed to assess compliance : {:?}", error_detail);
         }
     }
 }
