@@ -415,7 +415,7 @@ impl AttributeDetail {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Remediation {
     None(String),
     Pacman(PacmanApiCall),
@@ -426,6 +426,23 @@ pub enum Remediation {
     Ping(PingApiCall),
     Service(ServiceApiCall),
     Command(CommandApiCall),
+}
+
+impl std::fmt::Debug for Remediation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+
+        match self {
+            Remediation::None(details) => write!(f, "{}", details),
+            Remediation::Pacman(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Apt(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::YumDnf(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::LineInFile(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Debug(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Ping(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Service(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Command(api_call) => write!(f, "{}", api_call.display()),
+        }
+    }
 }
 
 impl Remediation {

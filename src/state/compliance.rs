@@ -124,7 +124,7 @@ impl Action {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AttributeComplianceAssessment {
     Compliant,
     NonCompliant(Vec<Remediation>),
