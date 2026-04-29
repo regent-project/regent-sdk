@@ -46,6 +46,7 @@ fn create_a_regent_task() -> String {
         .with_attribute(Attribute::pacman(
             apache_expected_state,
             Privilege::WithSudo,
+            None,
         ))
         .build();
 

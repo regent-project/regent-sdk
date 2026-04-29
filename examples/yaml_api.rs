@@ -4,7 +4,7 @@ use regent_sdk::secrets::SecretProvider;
 use tracing_subscriber;
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt().init();
 
     let yaml_inventory_builder = r#"---
 Name: my_inventory
@@ -17,16 +17,14 @@ DefaultConnectionMethod: !Ssh2
 
 GlobalVars:
     package_name: httpd
-    version: 1.2.3
+    service_name: bluetooth
 
 Hosts:
-  - Id: my_host
+  - Id: my_managed_host
     Endpoint: localhost
     HostConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
         SecRef: ./dev/credentials.secret
-    HostVars:
-        version: 2.3.4
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
@@ -37,7 +35,7 @@ Hosts:
     // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
-  - Name: set token value
+  - Name: token value set in conf file
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
@@ -45,9 +43,10 @@ Attributes:
       State: !Present
       Position: !Top
 
-  - Privilege: !WithSudoRs
+  - Name: bluetooth available
+    Privilege: !None
     Detail: !Service
-      Name: "{{ package_name }}"
+      Name: "{{ service_name }}"
       CurrentStatus: !Active
       AutoStart: !Enabled
 "#;
@@ -61,7 +60,9 @@ Attributes:
     };
 
     // Open connections within this Inventory
-    let mut living_inventory = inventory.init(&Some(SecretProvider::files())).unwrap();
+    let mut living_inventory = inventory
+        .init_connections(&Some(SecretProvider::files()))
+        .unwrap();
 
     // Try reach compliance if not already there
     match living_inventory.reach_compliance(&expected_state, &Some(SecretProvider::files())) {
