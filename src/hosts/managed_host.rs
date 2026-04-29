@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::Level;
+use tracing::span;
+#[allow(unused)]
+use tracing::{debug, error, info, trace, warn};
 
 use crate::LocalHostHandler;
 use crate::Ssh2AuthMethod;
@@ -425,17 +429,27 @@ impl ManagedHost {
         for attribute in &expected_state.attributes {
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
+                    let span = span!(
+                        Level::INFO,
+                        "attribute",
+                        name = context_aware_attribute.name()
+                    );
+                    let _enter = span.enter();
                     match context_aware_attribute.assess(
                         &mut self.handler,
                         &self.host_properties,
                         optional_secret_provider,
                     ) {
                         Ok(attribute_compliance) => {
+                            let outcome = attribute_compliance.clone();
                             match attribute_compliance {
                                 AttributeComplianceAssessment::Compliant => {
+                                    info!(target: "run",assesment_outcome = ?outcome, "Attribute already met");
                                     // Nothing to do
                                 }
                                 AttributeComplianceAssessment::NonCompliant(remediations) => {
+                                    info!(target: "run",assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
+
                                     // Host is not compliant as there are remediations to perform
                                     // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
                                     final_host_status = HostStatus::ReachComplianceSuccess;
@@ -450,23 +464,36 @@ impl ManagedHost {
                                         ) {
                                             Ok(internal_api_call_outcome) => {
                                                 actions_taken.push(Action::from(
-                                                    remediation,
+                                                    remediation.clone(),
                                                     Some(internal_api_call_outcome.clone()),
                                                 ));
 
-                                                if let InternalApiCallOutcome::Failure(_details) =
-                                                    internal_api_call_outcome
-                                                {
-                                                    reaching_compliance_failed = true;
-                                                    final_host_status =
-                                                        HostStatus::ReachComplianceFailed;
+                                                match &internal_api_call_outcome {
+                                                    InternalApiCallOutcome::Success(details) => {
+                                                        info!(target: "run",remediation_outcome = "Success", "{:?} : {}", remediation, details.clone().unwrap_or("no details".to_string()));
+                                                    }
+                                                    InternalApiCallOutcome::AllowedFailure(
+                                                        details,
+                                                    ) => {
+                                                        info!(target: "run",remediation_outcome = "AllowedFailure", "Allowed failure occured : {}", details);
+                                                    }
+                                                    InternalApiCallOutcome::Failure(details) => {
+                                                        reaching_compliance_failed = true;
+                                                        final_host_status =
+                                                            HostStatus::ReachComplianceFailed;
 
-                                                    // Stop processing more mediations for this attribute
-                                                    break;
+                                                        warn!(
+                                                            remediation_outcome = "Failure",
+                                                            "Attribute not met : {}", details
+                                                        );
+
+                                                        // Stop processing more remediations for this attribute
+                                                        break;
+                                                    }
                                                 }
                                             }
                                             Err(error_detail) => {
-                                                // TODO : return the whole automation up to this point, and not just an error without context like this
+                                                warn!("Failed to apply remediation");
                                                 return Err(error_detail);
                                             }
                                         }
@@ -480,6 +507,7 @@ impl ManagedHost {
                             }
                         }
                         Err(error_detail) => {
+                            warn!(reason = ?error_detail, "Failed assessment");
                             return Err(error_detail);
                         }
                     }
@@ -490,10 +518,12 @@ impl ManagedHost {
             }
         }
 
-        if let HostStatus::ReachComplianceFailed = final_host_status {
-            Ok(ManagedHostStatus::reach_compliance_failed(actions_taken))
-        } else {
-            Ok(ManagedHostStatus::reach_compliance_success(actions_taken))
+        match final_host_status {
+            HostStatus::AlreadyCompliant => Ok(ManagedHostStatus::already_compliant()),
+            HostStatus::ReachComplianceFailed => {
+                Ok(ManagedHostStatus::reach_compliance_failed(actions_taken))
+            }
+            _ => Ok(ManagedHostStatus::reach_compliance_success(actions_taken)),
         }
     }
 }

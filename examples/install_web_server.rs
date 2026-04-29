@@ -35,7 +35,11 @@ fn main() {
         .unwrap();
 
     let expected_state = ExpectedState::new()
-        .with_attribute(Attribute::apt(apache_expected_state, Privilege::WithSudo))
+        .with_attribute(Attribute::apt(
+            apache_expected_state,
+            Privilege::WithSudo,
+            None,
+        ))
         .build();
 
     // Assess whether the host is compliant or not

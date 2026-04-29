@@ -36,6 +36,7 @@ fn main() {
         .with_attribute(Attribute::service(
             httpd_service_active_and_enabled,
             Privilege::None,
+            None,
         ))
         .build();
 

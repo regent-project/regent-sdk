@@ -39,11 +39,32 @@ use crate::{
 pub struct Attribute {
     pub privilege: Privilege,
     detail: AttributeDetail,
+    pub name: Option<String>,
 }
 
 impl Attribute {
-    pub fn from(detail: AttributeDetail, privilege: Privilege) -> Attribute {
-        Attribute { privilege, detail }
+    pub fn from(detail: AttributeDetail, privilege: Privilege, name: Option<String>) -> Attribute {
+        Attribute {
+            privilege,
+            detail,
+            name,
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self.name {
+            Some(ref name) => name.clone(),
+            None => match self.detail {
+                AttributeDetail::Apt(_) => "Apt".to_string(),
+                AttributeDetail::YumDnf(_) => "YumDnf".to_string(),
+                AttributeDetail::Pacman(_) => "Pacman".to_string(),
+                AttributeDetail::Service(_) => "Service".to_string(),
+                AttributeDetail::Command(_) => "Command".to_string(),
+                AttributeDetail::LineInFile(_) => "LineInFile".to_string(),
+                AttributeDetail::Ping(_) => "Ping".to_string(),
+                AttributeDetail::Debug(_) => "Debug".to_string(),
+            },
+        }
     }
 
     pub fn consider_context(&self, context: &Context) -> Result<Attribute, Error> {
@@ -89,36 +110,68 @@ impl Attribute {
 
     // Convenience methods for attributes building
 
-    pub fn apt(details: AptBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::Apt(details), privilege)
+    pub fn apt(
+        details: AptBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Apt(details), privilege, name)
     }
 
-    pub fn pacman(details: PacmanBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::Pacman(details), privilege)
+    pub fn pacman(
+        details: PacmanBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Pacman(details), privilege, name)
     }
 
-    pub fn yumdnf(details: YumDnfBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::YumDnf(details), privilege)
+    pub fn yumdnf(
+        details: YumDnfBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::YumDnf(details), privilege, name)
     }
 
-    pub fn command(details: CommandBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::Command(details), privilege)
+    pub fn command(
+        details: CommandBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Command(details), privilege, name)
     }
 
-    pub fn service(details: ServiceBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::Service(details), privilege)
+    pub fn service(
+        details: ServiceBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Service(details), privilege, name)
     }
 
-    pub fn debug(details: DebugBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::Debug(details), privilege)
+    pub fn debug(
+        details: DebugBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Debug(details), privilege, name)
     }
 
-    pub fn lineinfile(details: LineInFileBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::LineInFile(details), privilege)
+    pub fn lineinfile(
+        details: LineInFileBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::LineInFile(details), privilege, name)
     }
 
-    pub fn ping(details: PingBlockExpectedState, privilege: Privilege) -> Attribute {
-        Attribute::from(AttributeDetail::Ping(details), privilege)
+    pub fn ping(
+        details: PingBlockExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Ping(details), privilege, name)
     }
 }
 
@@ -362,7 +415,7 @@ impl AttributeDetail {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub enum Remediation {
     None(String),
     Pacman(PacmanApiCall),
@@ -373,6 +426,22 @@ pub enum Remediation {
     Ping(PingApiCall),
     Service(ServiceApiCall),
     Command(CommandApiCall),
+}
+
+impl std::fmt::Debug for Remediation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Remediation::None(details) => write!(f, "{}", details),
+            Remediation::Pacman(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Apt(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::YumDnf(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::LineInFile(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Debug(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Ping(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Service(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Command(api_call) => write!(f, "{}", api_call.display()),
+        }
+    }
 }
 
 impl Remediation {

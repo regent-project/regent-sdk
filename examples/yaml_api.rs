@@ -1,9 +1,14 @@
 use regent_sdk::ExpectedState;
 use regent_sdk::hosts::inventory::InventoryBuilder;
 use regent_sdk::secrets::SecretProvider;
+use tracing_subscriber;
 
 fn main() {
+    tracing_subscriber::fmt().init();
+
     let yaml_inventory_builder = r#"---
+Name: my_inventory
+
 DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
@@ -12,15 +17,14 @@ DefaultConnectionMethod: !Ssh2
 
 GlobalVars:
     package_name: httpd
+    service_name: bluetooth
 
 Hosts:
-  - Id: my_host
+  - Id: my_managed_host
     Endpoint: localhost
     HostConnectionMethod: !Ssh2
       AuthMethod: !UsernamePassword
         SecRef: ./dev/credentials.secret
-    HostVars:
-        line_content: "ABCD1234"
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
@@ -31,16 +35,18 @@ Hosts:
     // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
-  - Privilege: !None
+  - Name: token value set in conf file
+    Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
       Line: "{{ line_content }}"
       State: !Present
       Position: !Top
 
-  - Privilege: !WithSudoRs
+  - Name: bluetooth available
+    Privilege: !None
     Detail: !Service
-      Name: "{{ package_name }}"
+      Name: "{{ service_name }}"
       CurrentStatus: !Active
       AutoStart: !Enabled
 "#;
@@ -56,7 +62,9 @@ Attributes:
     let secret_provider = Some(SecretProvider::files());
 
     // Open connections within this Inventory
-    let mut living_inventory = inventory.init(&secret_provider).unwrap();
+    let mut living_inventory = inventory
+        .init_connections(&Some(SecretProvider::files()))
+        .unwrap();
 
     // Try reach compliance if not already there
     match living_inventory.reach_compliance(&expected_state, &secret_provider) {
@@ -76,8 +84,8 @@ Attributes:
                 }
             }
         }
-        Err(error_detail) => {
-            println!("Failed to assess compliance : {:?}", error_detail);
+        Err(_error_detail) => {
+            // println!("Failed to assess compliance : {:?}", error_detail);
         }
     }
 }
