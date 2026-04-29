@@ -56,7 +56,7 @@ impl InventoryBuilder {
         let number_of_hosts = self.hosts.len();
         let inventory_name = self.name.unwrap_or(format!("{} hosts", number_of_hosts));
 
-        let span = span!(Level::INFO, "inventory_build", name = inventory_name);
+        let span = span!(Level::INFO, "inventory_building", name = inventory_name);
         let _enter = span.enter();
 
         for mut host in self.hosts {
@@ -82,7 +82,7 @@ impl InventoryBuilder {
                         let error_msg = format!(
                             "No HostConnectionMethod or GlobalConnectionMethod set. At least one of them must be set.",
                         );
-                        error!(host_id = host.id, "{}", error_msg);
+                        error!(name = host.id, "{}", error_msg);
                         return Err(Error::WrongInitialization(error_msg));
                     }
                 }
@@ -90,7 +90,7 @@ impl InventoryBuilder {
 
             // When saving ManageHostBuilder for final result, check unicity of hosts by their id
             if let Some(old_managed_host_builder) = final_hosts.insert(host.id.to_string(), host) {
-                error!(host_id = old_managed_host_builder.id, "duplicate host id");
+                error!(name = old_managed_host_builder.id, "duplicate host id");
                 return Err(Error::WrongInitialization(format!(
                     "duplicate host id : {}",
                     old_managed_host_builder.id
@@ -98,7 +98,7 @@ impl InventoryBuilder {
             }
         }
 
-        info!("Inventory built with {} host(s)", final_hosts.len());
+        info!(target: "inventory","Inventory built with {} host(s)", final_hosts.len());
         Ok(Inventory::from(inventory_name, final_hosts))
     }
 }
@@ -116,11 +116,11 @@ impl Inventory {
         Self { name, hosts }
     }
 
-    pub fn init(
+    pub fn init_connections(
         &mut self,
         secret_provider: &Option<SecretProvider>,
     ) -> Result<LivingInventory, Error> {
-        let span = span!(Level::INFO, "inventory_init", name = self.name);
+        let span = span!(Level::INFO, "inventory_connections", name = self.name);
         let _enter = span.enter();
 
         let mut managed_hosts: HashMap<String, ManagedHost> = HashMap::new();
@@ -129,7 +129,7 @@ impl Inventory {
             // Try to build a ManagedHost out of a ManagedHostBuilder (implies fetching secrets when needed)
             match managed_host_builder.build(secret_provider) {
                 Ok(mut managed_host) => {
-                    let host_span = span!(Level::DEBUG, "init_host", host_id);
+                    let host_span = span!(Level::DEBUG, "host_connection", host_id);
                     let _host_enter = host_span.enter();
 
                     match managed_host.connect() {
@@ -153,7 +153,7 @@ impl Inventory {
             }
         }
 
-        info!("Successfully initialized {} host(s)", managed_hosts.len());
+        info!(target: "inventory","Successfully connected to {} host(s)", managed_hosts.len());
         Ok(LivingInventory::from(self.name.clone(), managed_hosts))
     }
 }
@@ -214,7 +214,7 @@ impl LivingInventory {
     }
 
     pub fn disconnect(&mut self) -> Result<(), Error> {
-        let span = span!(Level::INFO, "living_inventory_disconnect");
+        let span = span!(Level::INFO, "inventory_disconnect");
         let _enter = span.enter();
 
         info!("Disconnecting from {} hosts", self.hosts.len());
@@ -258,7 +258,7 @@ impl LivingInventory {
                 let host_span = span!(Level::DEBUG, "host", host_id);
                 let _host_enter = host_span.enter();
 
-                debug!(host_id, "Assessing compliance");
+                debug!(name = host_id, "Assessing compliance");
                 match managed_host.assess_compliance(expected_state, optional_secret_provider) {
                     Ok(managed_host_status) => {
                         debug!("Compliance assessment complete");
@@ -287,8 +287,8 @@ impl LivingInventory {
         expected_state: &ExpectedState,
         optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
-        let span = span!(Level::INFO, "inventory", name = self.name, job = "reach");
-        let _enter = span.enter();
+        let job_span = span!(Level::INFO, "job", inv = self.name, goal = "enforcement");
+        let _enter = job_span.enter();
 
         debug!("Starting");
 
@@ -296,24 +296,24 @@ impl LivingInventory {
             .hosts
             .par_iter_mut()
             .map(|(host_id, managed_host)| {
-                let host_span = span!(Level::INFO, "host", host_id);
+                let host_span = span!(parent: &job_span, Level::INFO, "host", id = host_id);
                 let _host_enter = host_span.enter();
 
-                info!(
-                    "Starting ({} attribute(s) to check)",
+                info!(target: "run",
+                    "Starting to enforce compliance (described by {} attribute(s))",
                     expected_state.attributes.len()
                 );
                 match managed_host.reach_compliance(expected_state, optional_secret_provider) {
                     Ok(managed_host_status) => {
                         match managed_host_status.state {
                             HostStatus::AlreadyCompliant => {
-                                info!("Already compliant");
+                                info!(target: "run","Already compliant");
                             }
                             HostStatus::NotCompliant => {
                                 warn!("Not compliant");
                             }
                             HostStatus::ReachComplianceSuccess => {
-                                info!("Compliance reached")
+                                info!(target: "run","Compliance reached")
                             }
                             HostStatus::ReachComplianceFailed => {
                                 warn!("Failed to reach compliance")
@@ -332,7 +332,7 @@ impl LivingInventory {
         let results = results?;
         let results_map: HashMap<String, ManagedHostStatus> = results.into_iter().collect();
 
-        info!("All hosts handled");
+        info!(target: "run","All hosts handled");
         Ok(results_map)
     }
 }

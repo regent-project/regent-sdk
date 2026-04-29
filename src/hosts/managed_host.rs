@@ -432,7 +432,7 @@ impl ManagedHost {
                     let span = span!(
                         Level::INFO,
                         "attribute",
-                        attribute = context_aware_attribute.name()
+                        name = context_aware_attribute.name()
                     );
                     let _enter = span.enter();
                     match context_aware_attribute.assess(
@@ -444,11 +444,11 @@ impl ManagedHost {
                             let outcome = attribute_compliance.clone();
                             match attribute_compliance {
                                 AttributeComplianceAssessment::Compliant => {
-                                    info!(assesment_outcome = ?outcome, "Attribute already met");
+                                    info!(target: "run",assesment_outcome = ?outcome, "Attribute already met");
                                     // Nothing to do
                                 }
                                 AttributeComplianceAssessment::NonCompliant(remediations) => {
-                                    info!(assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
+                                    info!(target: "run",assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
 
                                     // Host is not compliant as there are remediations to perform
                                     // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
@@ -470,22 +470,26 @@ impl ManagedHost {
 
                                                 match &internal_api_call_outcome {
                                                     InternalApiCallOutcome::Success(details) => {
-                                                        info!(remediation_outcome = "Success", "{:?} : {}", remediation, details.clone().unwrap_or("no details".to_string()));
+                                                        info!(target: "run",remediation_outcome = "Success", "{:?} : {}", remediation, details.clone().unwrap_or("no details".to_string()));
                                                     }
-                                                    InternalApiCallOutcome::AllowedFailure(details) => {
-                                                        info!(remediation_outcome = "AllowedFailure", "Allowed failure occured : {}", details);
+                                                    InternalApiCallOutcome::AllowedFailure(
+                                                        details,
+                                                    ) => {
+                                                        info!(target: "run",remediation_outcome = "AllowedFailure", "Allowed failure occured : {}", details);
                                                     }
                                                     InternalApiCallOutcome::Failure(details) => {
                                                         reaching_compliance_failed = true;
                                                         final_host_status =
                                                             HostStatus::ReachComplianceFailed;
-                                                        
-                                                        warn!(remediation_outcome = "Failure", "Attribute not met : {}", details);
+
+                                                        warn!(
+                                                            remediation_outcome = "Failure",
+                                                            "Attribute not met : {}", details
+                                                        );
 
                                                         // Stop processing more remediations for this attribute
                                                         break;
                                                     }
-                                                    
                                                 }
                                             }
                                             Err(error_detail) => {
@@ -517,13 +521,9 @@ impl ManagedHost {
         match final_host_status {
             HostStatus::AlreadyCompliant => Ok(ManagedHostStatus::already_compliant()),
             HostStatus::ReachComplianceFailed => {
-                warn!("Failed to reach compliance for this attribute");
                 Ok(ManagedHostStatus::reach_compliance_failed(actions_taken))
             }
-            _ => {
-                info!("Succeeded to reach compliance for this attribue");
-                Ok(ManagedHostStatus::reach_compliance_success(actions_taken))
-            }
+            _ => Ok(ManagedHostStatus::reach_compliance_success(actions_taken)),
         }
     }
 }
