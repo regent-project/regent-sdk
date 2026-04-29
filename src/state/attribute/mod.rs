@@ -430,7 +430,6 @@ pub enum Remediation {
 
 impl std::fmt::Debug for Remediation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-
         match self {
             Remediation::None(details) => write!(f, "{}", details),
             Remediation::Pacman(api_call) => write!(f, "{}", api_call.display()),
