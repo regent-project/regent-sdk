@@ -21,4 +21,5 @@ pub enum Error {
     InternalLogicError(String),
     NotConnectedToHost,
     ConnectionLevel(String),
+    ProblemWithHostConnection(String)
 }

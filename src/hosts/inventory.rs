@@ -1,3 +1,4 @@
+use nanoid::nanoid;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -53,8 +54,15 @@ impl InventoryBuilder {
 
     pub fn build(self) -> Result<Inventory, Error> {
         let mut final_hosts: HashMap<String, ManagedHostBuilder> = HashMap::new();
-        let number_of_hosts = self.hosts.len();
-        let inventory_name = self.name.unwrap_or(format!("{} hosts", number_of_hosts));
+        let inventory_name = match self.name {
+            Some(name_value) => name_value,
+            None => nanoid!(
+                12,
+                &[
+                    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
+                ]
+            ),
+        };
 
         let span = span!(Level::INFO, "inventory_building", name = inventory_name);
         let _enter = span.enter();
@@ -287,7 +295,7 @@ impl LivingInventory {
         expected_state: &ExpectedState,
         optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
-        let job_span = span!(Level::INFO, "job", inv = self.name, goal = "enforcement");
+        let job_span = span!(Level::INFO, "job", id = self.name, goal = "enforcement");
         let _enter = job_span.enter();
 
         debug!("Starting");

@@ -190,10 +190,19 @@ impl HostHandler for Ssh2HostHandler {
                 let mut ssh_stdout = channel.stream(0);
                 let mut ssh_stderr = channel.stderr();
 
-                ssh_stdout.read_to_string(&mut stdout).unwrap();
-                ssh_stderr.read_to_string(&mut stderr).unwrap();
+                if let Err(details) = ssh_stdout.read_to_string(&mut stdout) {
+                    return Err(Error::FailureToRunCommand(format!("Unable to read from SSH STDOUT : {:?}", details)));
+                }
+                if let Err(details) = ssh_stderr.read_to_string(&mut stderr) {
+                    return Err(Error::FailureToRunCommand(format!("Unable to read from SSH STDERR : {:?}", details)));
+                }
 
                 // channel.read_to_string(&mut s).unwrap();
+                if let Err(details) = channel.close() {
+                    return Err(Error::ProblemWithHostConnection(
+                        format!("Unable to close connection properly : {:?}", details)
+                    ))
+                }
                 channel.wait_close().unwrap();
 
                 return Ok(CommandResult {
