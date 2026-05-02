@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::ExpectedState;
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::handlers::ConnectionMethod;
 use crate::hosts::managed_host::ManagedHost;
 use crate::hosts::managed_host::ManagedHostBuilder;
@@ -26,40 +26,40 @@ pub struct InventoryBuilder {
 }
 
 impl InventoryBuilder {
-    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, Error> {
+    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, RegentError> {
         match yaml_serde::from_str::<Self>(raw_yaml) {
             Ok(inventory_builder) => {
                 debug!("Successfully parsed YAML inventory");
                 Ok(inventory_builder)
             }
-            Err(error_detail) => {
-                error!("Failed to parse YAML inventory: {:?}", error_detail);
-                Err(Error::FailureToParseContent(format!("{:?}", error_detail)))
+            Err(details) => {
+                error!("Failed to parse YAML inventory: {:?}", details);
+                Err(RegentError::FailureToParseContent(format!("{:?}", details)))
             }
         }
     }
 
-    pub fn from_raw_json(raw_json: &str) -> Result<Self, Error> {
+    pub fn from_raw_json(raw_json: &str) -> Result<Self, RegentError> {
         match serde_json::from_str::<Self>(raw_json) {
             Ok(inventory_builder) => {
                 debug!("Successfully parsed JSON inventory");
                 Ok(inventory_builder)
             }
-            Err(error_detail) => {
-                error!("Failed to parse JSON inventory: {:?}", error_detail);
-                Err(Error::FailureToParseContent(format!("{:?}", error_detail)))
+            Err(details) => {
+                error!("Failed to parse JSON inventory: {:?}", details);
+                Err(RegentError::FailureToParseContent(format!("{:?}", details)))
             }
         }
     }
 
-    pub fn build(self) -> Result<Inventory, Error> {
+    pub fn build(self) -> Result<Inventory, RegentError> {
         let mut final_hosts: HashMap<String, ManagedHostBuilder> = HashMap::new();
         let inventory_name = match self.name {
             Some(name_value) => name_value,
             None => nanoid!(
                 12,
                 &[
-                    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
+                    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
                 ]
             ),
         };
@@ -91,7 +91,7 @@ impl InventoryBuilder {
                             "No HostConnectionMethod or GlobalConnectionMethod set. At least one of them must be set.",
                         );
                         error!(name = host.id, "{}", error_msg);
-                        return Err(Error::WrongInitialization(error_msg));
+                        return Err(RegentError::WrongInitialization(error_msg));
                     }
                 }
             }
@@ -99,7 +99,7 @@ impl InventoryBuilder {
             // When saving ManageHostBuilder for final result, check unicity of hosts by their id
             if let Some(old_managed_host_builder) = final_hosts.insert(host.id.to_string(), host) {
                 error!(name = old_managed_host_builder.id, "duplicate host id");
-                return Err(Error::WrongInitialization(format!(
+                return Err(RegentError::WrongInitialization(format!(
                     "duplicate host id : {}",
                     old_managed_host_builder.id
                 )));
@@ -127,7 +127,7 @@ impl Inventory {
     pub fn init_connections(
         &mut self,
         secret_provider: &Option<SecretProvider>,
-    ) -> Result<LivingInventory, Error> {
+    ) -> Result<LivingInventory, RegentError> {
         let span = span!(Level::INFO, "inventory_connections", name = self.name);
         let _enter = span.enter();
 
@@ -190,7 +190,7 @@ impl LivingInventory {
         info!(key, "Added variable to all hosts");
     }
 
-    pub fn collect_properties(&mut self) -> Result<(), Error> {
+    pub fn collect_properties(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "living_inventory_collect_properties");
         let _enter = span.enter();
 
@@ -209,7 +209,7 @@ impl LivingInventory {
                 debug!("Collecting properties");
                 managed_host.collect_properties()
             })
-            .collect::<Vec<Result<(), Error>>>()
+            .collect::<Vec<Result<(), RegentError>>>()
         {
             if let Err(details) = result {
                 error!("Failed to collect properties: {:?}", details);
@@ -221,7 +221,7 @@ impl LivingInventory {
         Ok(())
     }
 
-    pub fn disconnect(&mut self) -> Result<(), Error> {
+    pub fn disconnect(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "inventory_disconnect");
         let _enter = span.enter();
 
@@ -237,7 +237,7 @@ impl LivingInventory {
                 debug!("Disconnecting from host {}", host_id);
                 managed_host.disconnect()
             })
-            .collect::<Vec<Result<(), Error>>>()
+            .collect::<Vec<Result<(), RegentError>>>()
         {
             if let Err(details) = result {
                 error!("Failed to disconnect host: {:?}", details);
@@ -253,7 +253,7 @@ impl LivingInventory {
         &mut self,
         expected_state: &ExpectedState,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
+    ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
         let span = span!(Level::INFO, "inventory");
         let _enter = span.enter();
 
@@ -294,7 +294,7 @@ impl LivingInventory {
         &mut self,
         expected_state: &ExpectedState,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
+    ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
         let job_span = span!(Level::INFO, "job", id = self.name, goal = "enforcement");
         let _enter = job_span.enter();
 

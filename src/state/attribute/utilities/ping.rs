@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 pub struct PingBlockExpectedState {}
 
 // impl Check for PingBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
+//     fn check(&self) -> Result<(), RegentError> {
 //         Ok(())
 //     }
 // }
@@ -26,14 +26,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         let cmd = String::from("id");
         let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
 
         if cmd_result.return_code == 0 {
             return Ok(AttributeComplianceAssessment::Compliant);
         } else {
-            return Err(Error::FailedDryRunEvaluation(
+            return Err(RegentError::FailedDryRunEvaluation(
                 "Host unreachable".to_string(),
             ));
         }
@@ -57,7 +57,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         Ok(InternalApiCallOutcome::Success(None))
     }
 }

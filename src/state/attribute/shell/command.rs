@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
@@ -30,16 +30,16 @@ impl CommandBlockExpectedState {
         }
     }
 
-    pub fn build(&self) -> Result<CommandBlockExpectedState, Error> {
-        // if let Err(error_detail) = self.check() {
-        //     return Err(error_detail);
+    pub fn build(&self) -> Result<CommandBlockExpectedState, RegentError> {
+        // if let Err(RegentError_detail) = self.check() {
+        //     return Err(RegentError_detail);
         // }
         Ok(self.clone())
     }
 }
 
 // impl Check for CommandBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
+//     fn check(&self) -> Result<(), RegentError> {
 //         Ok(())
 //     }
 // }
@@ -51,7 +51,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         let mut remediations: Vec<Remediation> = Vec::new();
 
         let privilege = privilege.clone();
@@ -83,7 +83,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         let cmd_result = host_handler
             .run_command(
                 &self

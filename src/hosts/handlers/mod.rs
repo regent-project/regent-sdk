@@ -4,7 +4,7 @@ pub mod ssh2;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::ssh2::Ssh2Auth;
 use crate::secrets::SecretProvider;
@@ -48,24 +48,31 @@ pub enum ConnectionMethod {
 }
 
 pub trait HostHandler: Sized {
-    fn connect(&mut self, endpoint: &str, secret_provider: &SecretProvider) -> Result<(), Error>;
+    fn connect(
+        &mut self,
+        endpoint: &str,
+        secret_provider: &SecretProvider,
+    ) -> Result<(), RegentError>;
 
     fn is_connected(&mut self) -> bool;
 
-    fn disconnect(&mut self) -> Result<(), Error>;
+    fn disconnect(&mut self) -> Result<(), RegentError>;
 
     fn is_this_command_available(
         &mut self,
         command: &str,
         privilege: &Privilege,
-    ) -> Result<bool, Error>;
+    ) -> Result<bool, RegentError>;
 
-    fn run_command(&mut self, command: &str, privilege: &Privilege)
-    -> Result<CommandResult, Error>;
+    fn run_command(
+        &mut self,
+        command: &str,
+        privilege: &Privilege,
+    ) -> Result<CommandResult, RegentError>;
 
-    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, Error>;
+    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError>;
 
-    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, Error>;
+    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError>;
 }
 
 #[derive(Clone, Debug)]
@@ -85,7 +92,11 @@ impl Handler {
 }
 
 impl HostHandler for Handler {
-    fn connect(&mut self, endpoint: &str, secret_provider: &SecretProvider) -> Result<(), Error> {
+    fn connect(
+        &mut self,
+        endpoint: &str,
+        secret_provider: &SecretProvider,
+    ) -> Result<(), RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.connect(endpoint, secret_provider),
             Handler::Ssh2(handler) => handler.connect(endpoint, secret_provider),
@@ -99,7 +110,7 @@ impl HostHandler for Handler {
         }
     }
 
-    fn disconnect(&mut self) -> Result<(), Error> {
+    fn disconnect(&mut self) -> Result<(), RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.disconnect(),
             Handler::Ssh2(handler) => handler.disconnect(),
@@ -110,7 +121,7 @@ impl HostHandler for Handler {
         &mut self,
         command: &str,
         privilege: &Privilege,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.is_this_command_available(command, privilege),
             Handler::Ssh2(handler) => handler.is_this_command_available(command, privilege),
@@ -121,21 +132,21 @@ impl HostHandler for Handler {
         &mut self,
         command: &str,
         privilege: &Privilege,
-    ) -> Result<CommandResult, Error> {
+    ) -> Result<CommandResult, RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.run_command(command, privilege),
             Handler::Ssh2(handler) => handler.run_command(command, privilege),
         }
     }
 
-    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, Error> {
+    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.run_windows_command(command),
             Handler::Ssh2(handler) => handler.run_windows_command(command),
         }
     }
 
-    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, Error> {
+    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.get_file(path),
             Handler::Ssh2(handler) => handler.get_file(path),

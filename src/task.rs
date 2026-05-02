@@ -11,7 +11,7 @@
 use crate::secrets::SecretProvider;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
-use crate::{error::Error, hosts::managed_host::ManagedHostBuilder};
+use crate::{error::RegentError, hosts::managed_host::ManagedHostBuilder};
 
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,7 @@ impl RegentTask {
     pub fn run(
         &mut self,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<RegentTaskResult, Error> {
+    ) -> Result<RegentTaskResult, RegentError> {
         // Build a ManagedHost
         let mut managed_host = self
             .managed_host_builder

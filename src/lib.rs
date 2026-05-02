@@ -5,7 +5,7 @@ pub mod secrets;
 pub mod state;
 pub mod task;
 
-pub use error::Error;
+pub use error::RegentError;
 pub use hosts::handlers::localhost::{LocalHostHandler, WhichUser};
 pub use hosts::handlers::ssh2::{Ssh2AuthMethod, Ssh2HostHandler};
 pub use hosts::managed_host::ManagedHost;

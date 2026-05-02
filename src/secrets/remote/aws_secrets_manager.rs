@@ -1,4 +1,4 @@
-use crate::{Error, secrets::SecretProvider};
+use crate::{RegentError, secrets::SecretProvider};
 
 // https://docs.aws.amazon.com/secretsmanager/latest/userguide/retrieving-secrets-rust.html
 
@@ -9,7 +9,7 @@ impl AwsSecretManagerConnector {
         region: &str,
         access_key_id: &str,
         secret_access_key: &str
-    ) -> Result<AwsSecretManagerConnector, Error> {
+    ) -> Result<AwsSecretManagerConnector, RegentError> {
         todo!()
     }
 }

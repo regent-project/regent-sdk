@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
@@ -72,29 +72,29 @@ impl AptBlockExpectedState {
         self
     }
 
-    pub fn build(&self) -> Result<AptBlockExpectedState, Error> {
-        // if let Err(error_detail) = self.check() {
-        //     return Err(error_detail);
+    pub fn build(&self) -> Result<AptBlockExpectedState, RegentError> {
+        // if let Err(RegentError_detail) = self.check() {
+        //     return Err(RegentError_detail);
         // }
         Ok(self.clone())
     }
 }
 
 // impl Check for AptBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
+//     fn check(&self) -> Result<(), RegentError> {
 //         if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-//             return Err(Error::IncoherentExpectedState(format!(
+//             return Err(RegentError::IncoherentExpectedState(format!(
 //                 "All parameters are unset. Please describe the expected state."
 //             )));
 //         }
 //         if let (None, Some(package_name)) = (&self.state, &self.package) {
-//             return Err(Error::IncoherentExpectedState(format!(
+//             return Err(RegentError::IncoherentExpectedState(format!(
 //                 "Missing 'state' parameter. What is the expected state of the package ({}) ?",
 //                 package_name
 //             )));
 //         }
 //         if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-//             return Err(Error::IncoherentExpectedState(format!(
+//             return Err(RegentError::IncoherentExpectedState(format!(
 //                 "Missing 'package' parameter. Which package should be {:?} ?",
 //                 package_expected_state
 //             )));
@@ -110,16 +110,32 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
-        if !host_handler
-            .is_this_command_available("apt-get", &Privilege::None)
-            .unwrap()
-            || !host_handler
-                .is_this_command_available("dpkg", &Privilege::None)
-                .unwrap()
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
+        let apt_available =
+            match host_handler.is_this_command_available("apt-get", &Privilege::None) {
+                Ok(availability) => availability,
+                Err(details) => {
+                    return Err(RegentError::FailedDryRunEvaluation(format!(
+                        "{:?}",
+                        details
+                    )));
+                }
+            };
+        let dpkg_available = match host_handler.is_this_command_available("dpkg", &Privilege::None)
         {
-            return Err(Error::FailedDryRunEvaluation(
-                "APT not working on this host".to_string(),
+            Ok(availability) => availability,
+            Err(details) => {
+                return Err(RegentError::FailedDryRunEvaluation(format!(
+                    "{:?}",
+                    details
+                )));
+            }
+        };
+
+        if !apt_available || !dpkg_available {
+            return Err(RegentError::FailedDryRunEvaluation(
+                "APT not working on this host. Is this a debian-flavored linux distribution ?"
+                    .to_string(),
             ));
         }
 
@@ -216,7 +232,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         let (cmd, privilege) = match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => (
                 format!(

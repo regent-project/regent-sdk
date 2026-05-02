@@ -1,5 +1,5 @@
 use crate::command::CommandResult;
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::privilege::Credentials;
@@ -22,7 +22,11 @@ impl LocalHostHandler {
 }
 
 impl HostHandler for LocalHostHandler {
-    fn connect(&mut self, _endpoint: &str, _secret_provider: &SecretProvider) -> Result<(), Error> {
+    fn connect(
+        &mut self,
+        _endpoint: &str,
+        _secret_provider: &SecretProvider,
+    ) -> Result<(), RegentError> {
         Ok(())
     }
 
@@ -30,7 +34,7 @@ impl HostHandler for LocalHostHandler {
         true
     }
 
-    fn disconnect(&mut self) -> Result<(), Error> {
+    fn disconnect(&mut self) -> Result<(), RegentError> {
         Ok(())
     }
 
@@ -38,7 +42,7 @@ impl HostHandler for LocalHostHandler {
         &mut self,
         command: &str,
         _privilege: &Privilege,
-    ) -> Result<bool, Error> {
+    ) -> Result<bool, RegentError> {
         // TODO : use privilege (some commands do no exist for every user (PATH and so on...))
         let check_cmd_result = Command::new("sh")
             .arg("-c")
@@ -47,14 +51,25 @@ impl HostHandler for LocalHostHandler {
 
         match check_cmd_result {
             Ok(cmd_result) => {
-                if cmd_result.status.code().unwrap() == 0 {
-                    return Ok(true);
-                } else {
-                    return Ok(false);
+                match cmd_result.status.code() {
+                    Some(code) => {
+                        if code == 0 {
+                            return Ok(true);
+                        } else {
+                            return Ok(false);
+                        }
+                    }
+                    None => {
+                        // Process terminated by a signal -> consider this as a failure to run the command to completion
+                        Err(RegentError::FailureToRunCommand(format!(
+                            "Process terminated by a signal : {:?}",
+                            cmd_result
+                        )))
+                    }
                 }
             }
             Err(e) => {
-                return Err(Error::FailureToRunCommand(format!("{:?}", e)));
+                return Err(RegentError::FailureToRunCommand(format!("{:?}", e)));
             }
         }
     }
@@ -63,43 +78,66 @@ impl HostHandler for LocalHostHandler {
         &mut self,
         command: &str,
         privilege: &Privilege,
-    ) -> Result<CommandResult, Error> {
+    ) -> Result<CommandResult, RegentError> {
         let final_command = final_command(command, privilege, &self.user);
 
         let result = Command::new("sh").arg("-c").arg(final_command).output();
 
         match result {
-            Ok(output) => Ok(CommandResult {
-                return_code: output.status.code().unwrap(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            }),
-            Err(e) => Err(Error::FailureToRunCommand(format!("{}", e))),
+            Ok(output) => {
+                match output.status.code() {
+                    Some(code) => Ok(CommandResult {
+                        return_code: code,
+                        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                    }),
+                    None => {
+                        // Process terminated by a signal -> consider this as a failure to run the command to completion
+                        Err(RegentError::FailureToRunCommand(format!(
+                            "Process terminated by a signal : {:?}",
+                            output
+                        )))
+                    }
+                }
+            }
+            Err(e) => Err(RegentError::FailureToRunCommand(format!("{}", e))),
         }
     }
 
-    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, Error> {
+    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
         match Command::new("cmd").args(&["/C", command]).output() {
-            Ok(output) => Ok(CommandResult {
-                return_code: output.status.code().unwrap(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-            }),
-            Err(e) => Err(Error::FailureToRunCommand(format!("{}", e))),
+            Ok(output) => match output.status.code() {
+                Some(code) => Ok(CommandResult {
+                    return_code: code,
+                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                }),
+                None => {
+                    // Process terminated by a signal -> consider this as a failure to run the command to completion
+                    Err(RegentError::FailureToRunCommand(format!(
+                        "Process terminated by a signal : {:?}",
+                        output
+                    )))
+                }
+            },
+            Err(e) => Err(RegentError::FailureToRunCommand(format!("{}", e))),
         }
     }
 
-    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, Error> {
+    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError> {
         if !self.is_connected() {
-            return Err(Error::FailedInitialization(
+            return Err(RegentError::FailedInitialization(
                 "Not connected to host".to_string(),
             ));
         }
 
         match std::fs::read(path) {
             Ok(file_content) => Ok(file_content),
-            Err(error_detail) => {
-                return Err(Error::FailureToRunCommand(format!("{:?}", error_detail)));
+            Err(RegentError_detail) => {
+                return Err(RegentError::FailureToRunCommand(format!(
+                    "{:?}",
+                    RegentError_detail
+                )));
             }
         }
     }

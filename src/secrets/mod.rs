@@ -5,7 +5,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::secrets::local::environment_variables::EnvVarSecretProvider;
 use crate::secrets::local::files::FilesSecretProvider;
 
@@ -31,7 +31,7 @@ impl SecretProvider {
     pub fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
-    ) -> Result<Secret<T>, Error> {
+    ) -> Result<Secret<T>, RegentError> {
         match self {
             SecretProvider::Files(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference)
@@ -45,7 +45,7 @@ impl SecretProvider {
         }
     }
 
-    pub fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, Error> {
+    pub fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError> {
         match self {
             SecretProvider::Files(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference)
@@ -62,12 +62,12 @@ impl SecretProvider {
 
 // Each SecretProvider variant's nested type must implement this trait
 pub trait SecretProvidingSolution {
-    fn connect() -> Result<(), Error>;
+    fn connect() -> Result<(), RegentError>;
     fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
-    ) -> Result<Secret<T>, Error>;
-    fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, Error>;
+    ) -> Result<Secret<T>, RegentError>;
+    fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
 }
 
 // Wrapper type which holds secrets content and helps to avoid leaking secrets (usual or debug logging in general...)

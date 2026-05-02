@@ -6,7 +6,7 @@ pub mod utilities;
 use serde::{Deserialize, Serialize};
 use tera::Context;
 
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
@@ -67,15 +67,35 @@ impl Attribute {
         }
     }
 
-    pub fn consider_context(&self, context: &Context) -> Result<Attribute, Error> {
+    pub fn consider_context(&self, context: &Context) -> Result<Attribute, RegentError> {
+        // To have the template engine work, we serialize the Attribute, run the template engine, then deserialize
+        // TODO : is the best way ?
+
         // Making use of template engine to consider dynamic variables (HostVars, GlobalVars...)
-        let serialized_self = serde_json::to_string(self).unwrap();
+        let serialized_self = match serde_json::to_string(self) {
+            Ok(serialized_self) => serialized_self,
+            Err(details) => {
+                // Shall never happen as self implements the Serialize trait
+                return Err(RegentError::InternalLogicError(format!(
+                    "Attribute tried to serialize self but failed : {}",
+                    details
+                )));
+            }
+        };
 
         let context_wise_serialized_self =
-            tera::Tera::one_off(serialized_self.as_str(), context, true).unwrap();
+            match tera::Tera::one_off(serialized_self.as_str(), context, true) {
+                Ok(context_aware_attribute) => context_aware_attribute,
+                Err(details) => {
+                    return Err(RegentError::FailureToConsiderContext(format!(
+                        "Failed to consider dynamic context : {}",
+                        details
+                    )));
+                }
+            };
         match serde_json::from_str::<Attribute>(&context_wise_serialized_self) {
             Ok(context_aware_attribute) => Ok(context_aware_attribute),
-            Err(error) => Err(Error::FailureToConsiderContext(format!("{}", error))),
+            Err(detail) => Err(RegentError::FailureToConsiderContext(format!("{}", detail))),
         }
     }
 
@@ -85,7 +105,7 @@ impl Attribute {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         self.detail.assess(
             host_handler,
             host_properties,
@@ -99,7 +119,7 @@ impl Attribute {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceResult, Error> {
+    ) -> Result<AttributeComplianceResult, RegentError> {
         self.detail.reach_compliance(
             host_handler,
             host_properties,
@@ -195,7 +215,7 @@ impl AttributeDetail {
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         match self {
             AttributeDetail::Apt(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
@@ -262,7 +282,7 @@ impl AttributeDetail {
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceResult, Error> {
+    ) -> Result<AttributeComplianceResult, RegentError> {
         match self.assess(
             host_handler,
             host_properties,
@@ -276,7 +296,7 @@ impl AttributeDetail {
                 )),
                 AttributeComplianceAssessment::NonCompliant(remediations) => {
                     if remediations.len() == 0 {
-                        return Err(Error::InternalLogicError(format!(
+                        return Err(RegentError::InternalLogicError(format!(
                             "This should not have been called as the ManagedHost is already compliant"
                         )));
                     }
@@ -286,7 +306,7 @@ impl AttributeDetail {
                     for remediation in remediations {
                         let (remediation, internal_api_call_outcome) = match &remediation {
                             Remediation::None(message) => {
-                                return Err(Error::InternalLogicError(format!(
+                                return Err(RegentError::InternalLogicError(format!(
                                     "Remediation::None({}) : get rid of this",
                                     message
                                 )));
@@ -297,8 +317,8 @@ impl AttributeDetail {
                                 Ok(internal_api_call_outcome) => {
                                     (remediation, internal_api_call_outcome)
                                 }
-                                Err(error_detail) => {
-                                    return Err(error_detail);
+                                Err(details) => {
+                                    return Err(details);
                                 }
                             },
                             Remediation::Apt(attribute_api_call) => {
@@ -310,8 +330,8 @@ impl AttributeDetail {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                    Err(details) => {
+                                        return Err(details);
                                     }
                                 }
                             }
@@ -321,8 +341,8 @@ impl AttributeDetail {
                                 Ok(internal_api_call_outcome) => {
                                     (remediation, internal_api_call_outcome)
                                 }
-                                Err(error_detail) => {
-                                    return Err(error_detail);
+                                Err(details) => {
+                                    return Err(details);
                                 }
                             },
                             Remediation::LineInFile(attribute_api_call) => match attribute_api_call
@@ -331,8 +351,8 @@ impl AttributeDetail {
                                 Ok(internal_api_call_outcome) => {
                                     (remediation, internal_api_call_outcome)
                                 }
-                                Err(error_detail) => {
-                                    return Err(error_detail);
+                                Err(details) => {
+                                    return Err(details);
                                 }
                             },
                             Remediation::Debug(attribute_api_call) => {
@@ -344,8 +364,8 @@ impl AttributeDetail {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                    Err(details) => {
+                                        return Err(details);
                                     }
                                 }
                             }
@@ -358,8 +378,8 @@ impl AttributeDetail {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                    Err(details) => {
+                                        return Err(details);
                                     }
                                 }
                             }
@@ -372,8 +392,8 @@ impl AttributeDetail {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                    Err(details) => {
+                                        return Err(details);
                                     }
                                 }
                             }
@@ -386,8 +406,8 @@ impl AttributeDetail {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
-                                    Err(error_detail) => {
-                                        return Err(error_detail);
+                                    Err(details) => {
+                                        return Err(details);
                                     }
                                 }
                             }
@@ -410,7 +430,7 @@ impl AttributeDetail {
                     ))
                 }
             },
-            Err(error_detail) => Err(error_detail),
+            Err(details) => Err(details),
         }
     }
 }
@@ -450,11 +470,11 @@ impl Remediation {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         match self {
             Remediation::None(_) => {
                 // This case should not occur here according to current logic
-                Err(Error::InternalLogicError(String::from(
+                Err(RegentError::InternalLogicError(String::from(
                     "Unexpected remediation",
                 )))
             }
