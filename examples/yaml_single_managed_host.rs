@@ -14,12 +14,12 @@ HostConnectionMethod: !Ssh2
     SecRef: MY_CREDENTIALS_ENV_VAR_NAME
 "#;
 
-    let secret_provider = Some(SecretProvider::env_var());
+    let secret_provider = SecretProvider::env_var();
 
     let managed_host_builder =
         ManagedHostBuilder::from_raw_yaml(yaml_managed_host_builder).unwrap();
 
-    let mut managed_host = managed_host_builder.build(&secret_provider).unwrap();
+    let mut managed_host = managed_host_builder.build(Some(secret_provider)).unwrap();
 
     // Open connection with this ManageHost
     assert!(managed_host.connect().is_ok());
@@ -40,7 +40,7 @@ HostConnectionMethod: !Ssh2
         .build();
 
     // Assess whether the host is compliant or not
-    match managed_host.assess_compliance(&localhost_expected_state, &secret_provider) {
+    match managed_host.assess_compliance(&localhost_expected_state) {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");

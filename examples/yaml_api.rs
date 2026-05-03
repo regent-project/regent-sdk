@@ -7,8 +7,6 @@ fn main() {
     tracing_subscriber::fmt().init();
 
     let yaml_inventory_builder = r#"---
-Name: my_inventory
-
 DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
@@ -39,7 +37,8 @@ Attributes:
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      Line: "a very long token"
+      #Line: "{{ hello }}"
+      Line: "A_VERY_LONG_TOKEN"
       State: !Present
       Position: !Top
 
@@ -59,28 +58,28 @@ Attributes:
         }
     };
 
+    let secret_provider = SecretProvider::files();
+
     // Open connections within this Inventory
-    let mut living_inventory = inventory
-        .init_connections(&Some(SecretProvider::files()))
-        .unwrap();
+    let mut living_inventory = inventory.init(Some(secret_provider)).unwrap();
 
     // Try reach compliance if not already there
-    match living_inventory.reach_compliance(&expected_state, &Some(SecretProvider::files())) {
+    match living_inventory.reach_compliance(&expected_state) {
         Ok(inventory_compliance) => {
-            for (host_id, compliance_status) in inventory_compliance {
-                if compliance_status.is_already_compliant() {
-                    println!("Congratulations, {} is already compliant !", host_id);
-                } else {
-                    println!(
-                        "Oups ! {} is not compliant. Here is the list of required remediations :",
-                        host_id
-                    );
+            // for (host_id, compliance_status) in inventory_compliance {
+            //     if compliance_status.is_already_compliant() {
+            //         println!("Congratulations, {} is already compliant !", host_id);
+            //     } else {
+            //         println!(
+            //             "Oups ! {} is not compliant. Here is the list of required remediations :",
+            //             host_id
+            //         );
 
-                    for (remediation, remediation_outcome) in compliance_status.actions_taken() {
-                        println!("*** {:?} -> {:?}", remediation, remediation_outcome);
-                    }
-                }
-            }
+            //         for (remediation, remediation_outcome) in compliance_status.actions_taken() {
+            //             println!("*** {:?} -> {:?}", remediation, remediation_outcome);
+            //         }
+            //     }
+            // }
         }
         Err(_error_detail) => {
             // println!("Failed to assess compliance : {:?}", error_detail);

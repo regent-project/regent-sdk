@@ -116,7 +116,7 @@ impl InventoryBuilder {
 #[serde(deny_unknown_fields)]
 pub struct Inventory {
     name: String,
-    hosts: HashMap<String, ManagedHostBuilder>,
+    hosts: HashMap<String, ManagedHostBuilder>, // HostId -> ManagedHostBuilder
 }
 
 impl Inventory {
@@ -124,9 +124,9 @@ impl Inventory {
         Self { name, hosts }
     }
 
-    pub fn init_connections(
+    pub fn init(
         &mut self,
-        secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: Option<SecretProvider>,
     ) -> Result<LivingInventory, RegentError> {
         let span = span!(Level::INFO, "inventory_connections", name = self.name);
         let _enter = span.enter();
@@ -135,7 +135,7 @@ impl Inventory {
 
         for (host_id, managed_host_builder) in self.hosts.clone() {
             // Try to build a ManagedHost out of a ManagedHostBuilder (implies fetching secrets when needed)
-            match managed_host_builder.build(secret_provider) {
+            match managed_host_builder.build(optional_secret_provider.clone()) {
                 Ok(mut managed_host) => {
                     let host_span = span!(Level::DEBUG, "host_connection", host_id);
                     let _host_enter = host_span.enter();
@@ -162,18 +162,31 @@ impl Inventory {
         }
 
         info!(target: "inventory","Successfully connected to {} host(s)", managed_hosts.len());
-        Ok(LivingInventory::from(self.name.clone(), managed_hosts))
+        Ok(LivingInventory::from(
+            self.name.clone(),
+            managed_hosts,
+            optional_secret_provider,
+        ))
     }
 }
 
 pub struct LivingInventory {
     name: String,
     hosts: HashMap<String, ManagedHost>,
+    secret_provider: Option<SecretProvider>,
 }
 
 impl LivingInventory {
-    pub fn from(name: String, hosts: HashMap<String, ManagedHost>) -> Self {
-        Self { name, hosts }
+    pub fn from(
+        name: String,
+        hosts: HashMap<String, ManagedHost>,
+        secret_provider: Option<SecretProvider>,
+    ) -> Self {
+        Self {
+            name,
+            hosts,
+            secret_provider,
+        }
     }
 
     pub fn add_var(&mut self, key: String, value: String) {
@@ -252,10 +265,9 @@ impl LivingInventory {
     pub fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
-        let span = span!(Level::INFO, "inventory");
-        let _enter = span.enter();
+        let job_span = span!(Level::INFO, "job", id = self.name, goal = "assess");
+        let _enter = job_span.enter();
 
         info!("Assessing compliance for {} hosts", self.hosts.len());
 
@@ -267,7 +279,7 @@ impl LivingInventory {
                 let _host_enter = host_span.enter();
 
                 debug!(name = host_id, "Assessing compliance");
-                match managed_host.assess_compliance(expected_state, optional_secret_provider) {
+                match managed_host.assess_compliance(expected_state) {
                     Ok(managed_host_status) => {
                         debug!("Compliance assessment complete");
                         Ok((host_id.to_string(), managed_host_status))
@@ -293,9 +305,8 @@ impl LivingInventory {
     pub fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
-        let job_span = span!(Level::INFO, "job", id = self.name, goal = "enforcement");
+        let job_span = span!(Level::INFO, "job", id = self.name, goal = "enforce");
         let _enter = job_span.enter();
 
         debug!("Starting");
@@ -311,7 +322,7 @@ impl LivingInventory {
                     "Starting to enforce compliance (described by {} attribute(s))",
                     expected_state.attributes.len()
                 );
-                match managed_host.reach_compliance(expected_state, optional_secret_provider) {
+                match managed_host.reach_compliance(expected_state) {
                     Ok(managed_host_status) => {
                         match managed_host_status.state {
                             HostStatus::AlreadyCompliant => {

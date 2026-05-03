@@ -73,7 +73,7 @@ impl ManagedHostBuilder {
 
     pub fn build(
         self,
-        secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: Option<SecretProvider>,
     ) -> Result<ManagedHost, RegentError> {
         // Check that each required field is set
         if let None = self.host_connection_method {
@@ -98,37 +98,39 @@ impl ManagedHostBuilder {
                                     )),
                                     self.host_vars,
                                     self.host_properties,
-                                    secret_provider.clone(),
+                                    optional_secret_provider,
                                 ))
                             }
-                            TargetUserKind::User(secret_reference) => match secret_provider {
-                                Some(secret_provider) => {
-                                    match secret_provider
-                                        .get_secret_typed::<Credentials>(secret_reference.sec_ref())
-                                    {
-                                        Ok(secret) => Ok(ManagedHost::new(
-                                            self.id,
-                                            &self.endpoint,
-                                            Handler::localhost(LocalHostHandler::from(
-                                                WhichUser::UsernamePassword(secret.inner()),
+                            TargetUserKind::User(secret_reference) => {
+                                match &optional_secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider.get_secret_typed::<Credentials>(
+                                            secret_reference.sec_ref(),
+                                        ) {
+                                            Ok(secret) => Ok(ManagedHost::new(
+                                                self.id,
+                                                &self.endpoint,
+                                                Handler::localhost(LocalHostHandler::from(
+                                                    WhichUser::UsernamePassword(secret.inner()),
+                                                )),
+                                                self.host_vars,
+                                                self.host_properties,
+                                                optional_secret_provider,
                                             )),
-                                            self.host_vars,
-                                            self.host_properties,
-                                            Some(secret_provider.clone()),
-                                        )),
-                                        Err(details) => Err(details),
+                                            Err(details) => Err(details),
+                                        }
                                     }
+                                    None => Err(RegentError::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
                                 }
-                                None => Err(RegentError::WrongInitialization(format!(
-                                    "secret required to connect to host but secret_provider unset"
-                                ))),
-                            },
+                            }
                         }
                     }
                     ConnectionMethod::Ssh2(ssh2_auth_reference) => {
                         match ssh2_auth_reference.auth_method {
                             Ssh2AuthReference::UsernamePassword(secret_reference) => {
-                                match secret_provider {
+                                match &optional_secret_provider {
                                     Some(secret_provider) => {
                                         match secret_provider.get_secret_typed::<Credentials>(
                                             secret_reference.sec_ref(),
@@ -143,7 +145,7 @@ impl ManagedHostBuilder {
                                                 )?),
                                                 self.host_vars,
                                                 self.host_properties,
-                                                Some(secret_provider.clone()),
+                                                optional_secret_provider,
                                             )),
                                             Err(details) => Err(details),
                                         }
@@ -153,29 +155,33 @@ impl ManagedHostBuilder {
                                     ))),
                                 }
                             }
-                            Ssh2AuthReference::Key(login_key_ref) => match secret_provider {
-                                Some(secret_provider) => {
-                                    match secret_provider.get_secret_raw(login_key_ref.key_ref()) {
-                                        Ok(secret) => Ok(ManagedHost::new(
-                                            self.id,
-                                            &self.endpoint,
-                                            Handler::ss2(Ssh2HostHandler::from(
-                                                Ssh2AuthMethod::Key(LoginKey::from(
-                                                    login_key_ref.username().to_string(),
-                                                    secret.inner(),
-                                                )),
-                                            )?),
-                                            self.host_vars,
-                                            self.host_properties,
-                                            Some(secret_provider.clone()),
-                                        )),
-                                        Err(details) => Err(details),
+                            Ssh2AuthReference::Key(login_key_ref) => {
+                                match &optional_secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret_raw(login_key_ref.key_ref())
+                                        {
+                                            Ok(secret) => Ok(ManagedHost::new(
+                                                self.id,
+                                                &self.endpoint,
+                                                Handler::ss2(Ssh2HostHandler::from(
+                                                    Ssh2AuthMethod::Key(LoginKey::from(
+                                                        login_key_ref.username().to_string(),
+                                                        secret.inner(),
+                                                    )),
+                                                )?),
+                                                self.host_vars,
+                                                self.host_properties,
+                                                optional_secret_provider,
+                                            )),
+                                            Err(details) => Err(details),
+                                        }
                                     }
+                                    None => Err(RegentError::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
                                 }
-                                None => Err(RegentError::WrongInitialization(format!(
-                                    "secret required to connect to host but secret_provider unset"
-                                ))),
-                            },
+                            }
                             Ssh2AuthReference::Agent(agent_name) => {
                                 // No secret required
                                 Ok(ManagedHost::new(
@@ -186,7 +192,7 @@ impl ManagedHostBuilder {
                                     )?),
                                     self.host_vars,
                                     self.host_properties,
-                                    secret_provider.clone(),
+                                    optional_secret_provider,
                                 ))
                             }
                         }
@@ -225,7 +231,7 @@ impl ManagedHost {
             handler,
             context: tera::Context::from_serialize(host_vars).unwrap(),
             host_properties,
-            secret_provider,
+            secret_provider: secret_provider.clone(),
         }
     }
 
@@ -303,7 +309,6 @@ impl ManagedHost {
     pub fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected() {
             return Err(RegentError::NotConnectedToHost);
@@ -322,7 +327,7 @@ impl ManagedHost {
                     match context_aware_attribute.assess(
                         &mut self.handler,
                         &self.host_properties,
-                        optional_secret_provider,
+                        &self.secret_provider,
                     ) {
                         Ok(attribute_compliance) => {
                             if let AttributeComplianceAssessment::NonCompliant(remediations) =
@@ -358,7 +363,7 @@ impl ManagedHost {
     pub fn assess_compliance_in_parallel(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: Option<SecretProvider>,
     ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected() {
             return Err(RegentError::NotConnectedToHost);
@@ -435,7 +440,6 @@ impl ManagedHost {
     pub fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
     ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected() {
             return Err(RegentError::NotConnectedToHost);
@@ -453,7 +457,7 @@ impl ManagedHost {
                     match context_aware_attribute.assess(
                         &mut self.handler,
                         &self.host_properties,
-                        optional_secret_provider,
+                        &self.secret_provider,
                     ) {
                         Ok(attribute_compliance) => {
                             let outcome = attribute_compliance.clone();
@@ -475,7 +479,7 @@ impl ManagedHost {
                                         match remediation.reach_compliance(
                                             &mut self.handler,
                                             &self.host_properties,
-                                            optional_secret_provider,
+                                            &self.secret_provider,
                                         ) {
                                             Ok(internal_api_call_outcome) => {
                                                 actions_taken.push(Action::from(

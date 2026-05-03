@@ -14,7 +14,7 @@ fn main() {
         "<address:port>",
         Some(ConnectionMethod::Localhost(TargetUser::current_user())),
     )
-    .build(&Some(secret_provider))
+    .build(Some(secret_provider))
     .unwrap();
 
     // Open connection with this ManageHost

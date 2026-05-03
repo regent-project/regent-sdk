@@ -6,7 +6,7 @@ use regent_sdk::secrets::SecretProvider;
 use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
 use regent_sdk::{Attribute, ExpectedState};
-use regent_sdk::{Error, Privilege};
+use regent_sdk::{Privilege, RegentError};
 
 fn main() {
     // Sending end
@@ -21,8 +21,7 @@ fn main() {
     // Build a SecretProvider
     let secret_provider = SecretProvider::env_var();
 
-    let regent_task_result =
-        run_a_given_regent_task(serialized_regent_task, &Some(secret_provider));
+    let regent_task_result = run_a_given_regent_task(serialized_regent_task, Some(secret_provider));
     println!("{:?}", regent_task_result);
 }
 
@@ -57,8 +56,8 @@ fn create_a_regent_task() -> String {
 
 fn run_a_given_regent_task(
     raw_regent_task: String,
-    secret_provider: &Option<SecretProvider>,
-) -> Result<RegentTaskResult, Error> {
+    secret_provider: Option<SecretProvider>,
+) -> Result<RegentTaskResult, RegentError> {
     let mut regent_task = serde_json::from_str::<RegentTask>(&raw_regent_task).unwrap();
 
     regent_task.run(secret_provider)

@@ -49,7 +49,7 @@ impl RegentTask {
 
     pub fn run(
         &mut self,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: Option<SecretProvider>,
     ) -> Result<RegentTaskResult, RegentError> {
         // Build a ManagedHost
         let mut managed_host = self
@@ -60,12 +60,8 @@ impl RegentTask {
         managed_host.connect()?;
 
         let host_status = match self.job {
-            Job::Assess => {
-                managed_host.assess_compliance(&self.expected_state, optional_secret_provider)?
-            }
-            Job::Reach => {
-                managed_host.reach_compliance(&self.expected_state, optional_secret_provider)?
-            }
+            Job::Assess => managed_host.assess_compliance(&self.expected_state)?,
+            Job::Reach => managed_host.reach_compliance(&self.expected_state)?,
         };
 
         Ok(RegentTaskResult::from(
