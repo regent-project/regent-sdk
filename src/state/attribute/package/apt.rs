@@ -3,6 +3,7 @@ use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -73,35 +74,35 @@ impl AptBlockExpectedState {
     }
 
     pub fn build(&self) -> Result<AptBlockExpectedState, RegentError> {
-        // if let Err(RegentError_detail) = self.check() {
-        //     return Err(RegentError_detail);
-        // }
+        if let Err(details) = self.check() {
+            return Err(details);
+        }
         Ok(self.clone())
     }
 }
 
-// impl Check for AptBlockExpectedState {
-//     fn check(&self) -> Result<(), RegentError> {
-//         if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-//             return Err(RegentError::IncoherentExpectedState(format!(
-//                 "All parameters are unset. Please describe the expected state."
-//             )));
-//         }
-//         if let (None, Some(package_name)) = (&self.state, &self.package) {
-//             return Err(RegentError::IncoherentExpectedState(format!(
-//                 "Missing 'state' parameter. What is the expected state of the package ({}) ?",
-//                 package_name
-//             )));
-//         }
-//         if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-//             return Err(RegentError::IncoherentExpectedState(format!(
-//                 "Missing 'package' parameter. Which package should be {:?} ?",
-//                 package_expected_state
-//             )));
-//         }
-//         Ok(())
-//     }
-// }
+impl Check for AptBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "All parameters are unset. Please describe the expected state."
+            )));
+        }
+        if let (None, Some(package_name)) = (&self.state, &self.package) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Missing 'state' parameter. What is the expected state of the package ({}) ?",
+                package_name
+            )));
+        }
+        if let (Some(package_expected_state), None) = (&self.state, &self.package) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Missing 'package' parameter. Which package should be {:?} ?",
+                package_expected_state
+            )));
+        }
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
     fn assess_compliance(
@@ -319,7 +320,7 @@ mod tests {
     #[test]
     fn rejecting_incorrect_apt_module_block_from_yaml_str() {
         let raw_attribute = "---
-- 
+-
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 

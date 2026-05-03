@@ -3,6 +3,7 @@ use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -17,11 +18,11 @@ pub struct DebugBlockExpectedState {
     // var: Option<String>, // TODO
 }
 
-// impl Check for DebugBlockExpectedState {
-//     fn check(&self) -> Result<(), RegentError> {
-//         Ok(())
-//     }
-// }
+impl Check for DebugBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState {
     fn assess_compliance(

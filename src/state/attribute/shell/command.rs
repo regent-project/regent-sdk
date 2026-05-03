@@ -3,6 +3,7 @@ use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::{SecretProvider, SecretReference};
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -31,18 +32,18 @@ impl CommandBlockExpectedState {
     }
 
     pub fn build(&self) -> Result<CommandBlockExpectedState, RegentError> {
-        // if let Err(RegentError_detail) = self.check() {
-        //     return Err(RegentError_detail);
-        // }
+        if let Err(details) = self.check() {
+            return Err(details);
+        }
         Ok(self.clone())
     }
 }
 
-// impl Check for CommandBlockExpectedState {
-//     fn check(&self) -> Result<(), RegentError> {
-//         Ok(())
-//     }
-// }
+impl Check for CommandBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedState {
     fn assess_compliance(

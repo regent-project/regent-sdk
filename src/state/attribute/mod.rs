@@ -11,6 +11,7 @@ use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::package::apt::AptApiCall;
 use crate::state::attribute::package::apt::AptBlockExpectedState;
 use crate::state::attribute::package::yumdnf::YumDnfApiCall;
@@ -126,6 +127,10 @@ impl Attribute {
             &self.privilege,
             optional_secret_provider,
         )
+    }
+
+    pub fn check(&self) -> Result<(), RegentError> {
+        self.detail.check()
     }
 
     // Convenience methods for attributes building
@@ -431,6 +436,19 @@ impl AttributeDetail {
                 }
             },
             Err(details) => Err(details),
+        }
+    }
+
+    pub fn check(&self) -> Result<(), RegentError> {
+        match self {
+            AttributeDetail::Apt(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::YumDnf(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Pacman(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::LineInFile(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Debug(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Ping(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Service(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Command(expected_state_block) => expected_state_block.check(),
         }
     }
 }

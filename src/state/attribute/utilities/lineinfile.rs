@@ -3,6 +3,7 @@ use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -64,17 +65,17 @@ pub struct LineInFileBlockExpectedState {
                               // with: Option<String> // ... with this one.
 }
 
-// impl Check for LineInFileBlockExpectedState {
-//     fn check(&self) -> Result<(), RegentError> {
-//         if let (None, None) = (&self.line, &self.position) {
-//             return Err(RegentError::IncoherentExpectedState(format!(
-//                 "Both 'line' and 'position' are unset. What is the expected state of this file ({}) ?",
-//                 self.file_path
-//             )));
-//         }
-//         Ok(())
-//     }
-// }
+impl Check for LineInFileBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        if let (None, None) = (&self.line, &self.position) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Both 'line' and 'position' are unset. What is the expected state of this file ({}) ?",
+                self.file_path
+            )));
+        }
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpectedState {
     fn assess_compliance(

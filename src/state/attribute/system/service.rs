@@ -3,6 +3,7 @@ use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -90,35 +91,35 @@ impl ServiceBlockExpectedState {
     }
 
     pub fn build(&self) -> Result<ServiceBlockExpectedState, RegentError> {
-        // if let Err(RegentError_detail) = self.check() {
-        //     return Err(RegentError_detail);
-        // }
+        if let Err(details) = self.check() {
+            return Err(details);
+        }
         Ok(self.clone())
     }
 }
 
-// impl Check for ServiceBlockExpectedState {
-//     fn check(&self) -> Result<(), RegentError> {
-//         if let (None, None) = (&self.current_status, &self.auto_start) {
-//             return Err(RegentError::IncoherentExpectedState(format!(
-//                 "Incomplete minimal description of the expected state of the service."
-//             )));
-//         }
-//         if let Some(false) = self.exists {
-//             if let Some(ServiceExpectedStatus::Active) = self.current_status {
-//                 return Err(RegentError::IncoherentExpectedState(format!(
-//                     "Service cannot be both active and non-existing."
-//                 )));
-//             }
-//             if let Some(ServiceExpectedAutoStart::Enabled) = self.auto_start {
-//                 return Err(RegentError::IncoherentExpectedState(format!(
-//                     "Service cannot be both enabled and non-existing."
-//                 )));
-//             }
-//         }
-//         Ok(())
-//     }
-// }
+impl Check for ServiceBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        if let (None, None) = (&self.current_status, &self.auto_start) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Incomplete minimal description of the expected state of the service."
+            )));
+        }
+        if let Some(false) = self.exists {
+            if let Some(ServiceExpectedStatus::Active) = self.current_status {
+                return Err(RegentError::IncoherentExpectedState(format!(
+                    "Service cannot be both active and non-existing."
+                )));
+            }
+            if let Some(ServiceExpectedAutoStart::Enabled) = self.auto_start {
+                return Err(RegentError::IncoherentExpectedState(format!(
+                    "Service cannot be both enabled and non-existing."
+                )));
+            }
+        }
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedState {
     fn assess_compliance(

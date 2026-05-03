@@ -25,7 +25,14 @@ impl ExpectedState {
 
     pub fn from_raw_yaml(raw_yaml_content: &str) -> Result<Self, RegentError> {
         match yaml_serde::from_str::<ExpectedState>(raw_yaml_content) {
-            Ok(expected_state) => Ok(expected_state),
+            Ok(expected_state) => {
+                for attribute in &expected_state.attributes {
+                    if let Err(details) = attribute.check() {
+                        return Err(details);
+                    }
+                }
+                Ok(expected_state)
+            }
             Err(detailss) => Err(RegentError::FailureToParseContent(format!("{}", detailss))),
         }
     }

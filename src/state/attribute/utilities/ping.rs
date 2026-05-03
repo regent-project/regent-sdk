@@ -3,6 +3,7 @@ use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::compliance::AttributeComplianceAssessment;
@@ -13,11 +14,11 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "PascalCase")]
 pub struct PingBlockExpectedState {}
 
-// impl Check for PingBlockExpectedState {
-//     fn check(&self) -> Result<(), RegentError> {
-//         Ok(())
-//     }
-// }
+impl Check for PingBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState {
     fn assess_compliance(
