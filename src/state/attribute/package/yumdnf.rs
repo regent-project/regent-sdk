@@ -367,25 +367,24 @@ mod tests {
     #[test]
     fn rejecting_incorrect_yumdnf_module_block_from_yaml_str() {
         let raw_attribute = "---
--
+Package: httpd
     ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package: httpd
+Package:
+State: !Absent
     ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package:
-  State: !Absent
-    ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
-
-        let raw_attribute = "---
-- Package: httpd
-  State: !Absent
-  unknown_key: unknown_value
+Package: httpd
+State: !Absent
+unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
     }

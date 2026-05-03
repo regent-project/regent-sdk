@@ -320,25 +320,24 @@ mod tests {
     #[test]
     fn rejecting_incorrect_apt_module_block_from_yaml_str() {
         let raw_attribute = "---
--
+Package: apache2
     ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package: apache2
+Package:
+State: !Absent
     ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package:
-  State: !Absent
-    ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
-
-        let raw_attribute = "---
-- Package: apache2
-  State: !Absent
-  unknown_key: unknown_value
+Package: apache2
+State: !Absent
+unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
     }
