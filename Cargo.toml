@@ -28,3 +28,6 @@ doctest = false
 
 [dev-dependencies]
 tracing-subscriber = "0.3.23"
+axum        = "0.8.9"
+tokio       = { version = "1.52.1", features = ["full"] }
+chrono      = "0.4.44"
