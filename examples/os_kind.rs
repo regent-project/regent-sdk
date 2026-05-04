@@ -17,10 +17,10 @@ fn main() {
     .build(Some(secret_provider))
     .unwrap();
 
-    // Open connection with this ManageHost
+    // Open connection with this ManagedHost
     assert!(managed_host.connect().is_ok());
 
-    // What kind of Os are we dealing with ?
+    // What kind of OS are we dealing with ?
     match managed_host.collect_properties() {
         Ok(()) => {
             println!("Host properties : {:?}", managed_host.get_host_properties());

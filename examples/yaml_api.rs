@@ -26,9 +26,9 @@ Hosts:
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
-        .unwrap()
+        .unwrap() // Assume the deserialization succeeded
         .build()
-        .unwrap();
+        .unwrap(); // Assume the content is valid
 
     // Describe the expected state
     let expected_state_description = r#"---
@@ -37,7 +37,6 @@ Attributes:
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      #Line: "{{ hello }}"
       Line: "A_VERY_LONG_TOKEN"
       State: !Present
       Position: !Top
@@ -66,23 +65,20 @@ Attributes:
     // Try reach compliance if not already there
     match living_inventory.reach_compliance(&expected_state) {
         Ok(inventory_compliance) => {
-            // for (host_id, compliance_status) in inventory_compliance {
-            //     if compliance_status.is_already_compliant() {
-            //         println!("Congratulations, {} is already compliant !", host_id);
-            //     } else {
-            //         println!(
-            //             "Oups ! {} is not compliant. Here is the list of required remediations :",
-            //             host_id
-            //         );
-
-            //         for (remediation, remediation_outcome) in compliance_status.actions_taken() {
-            //             println!("*** {:?} -> {:?}", remediation, remediation_outcome);
-            //         }
-            //     }
-            // }
+            for (host_id, compliance_status) in inventory_compliance {
+                if compliance_status.is_already_compliant() {
+                    // Do something with that information
+                } else {
+                    // This host was not compliant. Actions have been taken to remedy this.
+                    // You have access to what was done through tracing events and through this :
+                    for (remediation, remediation_outcome) in compliance_status.actions_taken() {
+                        println!("*** {:?} -> {:?}", remediation, remediation_outcome);
+                    }
+                }
+            }
         }
-        Err(_error_detail) => {
-            // println!("Failed to assess compliance : {:?}", error_detail);
+        Err(error_detail) => {
+            // Something went wrong and forbade from even trying to assess/reach compliance.
         }
     }
 }

@@ -2,13 +2,15 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::{Router, extract::State, routing::get};
+use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
+use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use serde::Serialize;
 
 use regent_sdk::attribute::system::service::{
     ServiceBlockExpectedState, ServiceExpectedAutoStart, ServiceExpectedStatus,
 };
 use regent_sdk::{Attribute, ExpectedState};
-use regent_sdk::{LocalHostHandler, ManagedHost, Privilege, WhichUser};
+use regent_sdk::{ManagedHost, Privilege};
 
 #[tokio::main]
 async fn main() {
@@ -24,11 +26,17 @@ async fn main() {
         .with_attribute(Attribute::service(
             httpd_service_active_and_enabled,
             Privilege::None,
+            Some("http_service_up_and_running".to_string()),
         ))
         .build();
 
-    let mut localhost_manager =
-        ManagedHost::new("localhost", LocalHostHandler::new(WhichUser::CurrentUser));
+    let localhost_manager = ManagedHostBuilder::new(
+        "local_server",
+        "localhost",
+        Some(ConnectionMethod::Localhost(TargetUser::current_user())),
+    )
+    .build(None)
+    .unwrap();
 
     // Create a state for the webapp, holding the host expected configuration and how regent is supposed to interact with it
     let app_state = AppState {
@@ -75,7 +83,7 @@ enum HostStatus {
 
 #[derive(Clone)]
 struct AppState {
-    managed_host: ManagedHost<LocalHostHandler>,
+    managed_host: ManagedHost,
     expected_state: ExpectedState,
 }
 
