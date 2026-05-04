@@ -225,11 +225,22 @@ impl ManagedHost {
         host_properties: Option<HostProperties>,
         secret_provider: Option<SecretProvider>,
     ) -> ManagedHost {
+        let context = match host_vars {
+            Some(content) => match tera::Context::from_serialize(content) {
+                Ok(context) => context,
+                Err(details) => {
+                    error!("Failed to create Tera context : {:?}", details);
+                    // TODO : turn this into an Err -> return type of this function -> Result
+                    tera::Context::new()
+                }
+            },
+            None => tera::Context::new(),
+        };
         ManagedHost {
             id,
             endpoint: endpoint.to_string(),
             handler,
-            context: tera::Context::from_serialize(host_vars).unwrap(),
+            context,
             host_properties,
             secret_provider: secret_provider.clone(),
         }
