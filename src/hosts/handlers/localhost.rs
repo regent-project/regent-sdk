@@ -133,11 +133,8 @@ impl HostHandler for LocalHostHandler {
 
         match std::fs::read(path) {
             Ok(file_content) => Ok(file_content),
-            Err(RegentError_detail) => {
-                return Err(RegentError::FailureToRunCommand(format!(
-                    "{:?}",
-                    RegentError_detail
-                )));
+            Err(details) => {
+                return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
             }
         }
     }

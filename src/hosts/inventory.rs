@@ -128,7 +128,7 @@ impl Inventory {
         &mut self,
         optional_secret_provider: Option<SecretProvider>,
     ) -> Result<LivingInventory, RegentError> {
-        let span = span!(Level::INFO, "inventory_connections", name = self.name);
+        let span = span!(Level::INFO, "inventory_init", name = self.name);
         let _enter = span.enter();
 
         let mut managed_hosts: HashMap<String, ManagedHost> = HashMap::new();
@@ -173,7 +173,7 @@ impl Inventory {
 pub struct LivingInventory {
     name: String,
     hosts: HashMap<String, ManagedHost>,
-    secret_provider: Option<SecretProvider>,
+    _secret_provider: Option<SecretProvider>,
 }
 
 impl LivingInventory {
