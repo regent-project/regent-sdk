@@ -67,8 +67,10 @@ Attributes:
                 if compliance_status.is_already_compliant() {
                     // Do something with that information
                 } else {
-                    // This host was not compliant. Actions have been taken to remedy this.
-                    // You have access to what was done through tracing events and through this :
+                    // This host was not compliant. Actions have been taken to remedy this situation.
+                    // You have access to what was done :
+                    // - in realtime through tracing events created on the fly
+                    // - after the fact with this :
                     for (remediation, remediation_outcome) in compliance_status.actions_taken() {
                         println!("*** {:?} -> {:?}", remediation, remediation_outcome);
                     }
@@ -76,7 +78,7 @@ Attributes:
             }
         }
         Err(error_detail) => {
-            // Something went wrong and forbade from even trying to assess/reach compliance.
+            // Something went seriously wrong and forbade from even trying to assess/reach compliance.
         }
     }
 }
