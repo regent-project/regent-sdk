@@ -26,9 +26,7 @@ Hosts:
 "#;
 
     let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
-        .unwrap() // Assume the deserialization succeeded
-        .build()
-        .unwrap(); // Assume the content is valid
+        .unwrap();
 
     // Describe the expected state
     let expected_state_description = r#"---

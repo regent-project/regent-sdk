@@ -26,11 +26,11 @@ pub struct InventoryBuilder {
 }
 
 impl InventoryBuilder {
-    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, RegentError> {
+    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Inventory, RegentError> {
         match yaml_serde::from_str::<Self>(raw_yaml) {
             Ok(inventory_builder) => {
                 debug!("Successfully parsed YAML inventory");
-                Ok(inventory_builder)
+                inventory_builder.build()
             }
             Err(details) => {
                 error!("Failed to parse YAML inventory: {:?}", details);
@@ -39,11 +39,11 @@ impl InventoryBuilder {
         }
     }
 
-    pub fn from_raw_json(raw_json: &str) -> Result<Self, RegentError> {
+    pub fn from_raw_json(raw_json: &str) -> Result<Inventory, RegentError> {
         match serde_json::from_str::<Self>(raw_json) {
             Ok(inventory_builder) => {
                 debug!("Successfully parsed JSON inventory");
-                Ok(inventory_builder)
+                inventory_builder.build()
             }
             Err(details) => {
                 error!("Failed to parse JSON inventory: {:?}", details);
@@ -165,7 +165,6 @@ impl Inventory {
         Ok(LivingInventory::from(
             self.name.clone(),
             managed_hosts,
-            optional_secret_provider,
         ))
     }
 }
@@ -173,19 +172,16 @@ impl Inventory {
 pub struct LivingInventory {
     name: String,
     hosts: HashMap<String, ManagedHost>,
-    _secret_provider: Option<SecretProvider>,
 }
 
 impl LivingInventory {
     pub fn from(
         name: String,
         hosts: HashMap<String, ManagedHost>,
-        secret_provider: Option<SecretProvider>,
     ) -> Self {
         Self {
             name,
             hosts,
-            secret_provider,
         }
     }
 
