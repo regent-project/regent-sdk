@@ -18,7 +18,7 @@ use tracing::{Level, debug, error, info, span, trace, warn};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
-pub struct InventoryBuilder {
+struct InventoryBuilder {
     name: Option<String>,
     hosts: Vec<ManagedHostBuilder>,
     default_connection_method: Option<ConnectionMethod>,
@@ -122,6 +122,14 @@ pub struct Inventory {
 impl Inventory {
     pub fn from(name: String, hosts: HashMap<String, ManagedHostBuilder>) -> Self {
         Self { name, hosts }
+    }
+
+    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Inventory, RegentError> {
+        InventoryBuilder::from_raw_yaml(raw_yaml)
+    }
+
+    pub fn from_raw_json(raw_json: &str) -> Result<Inventory, RegentError> {
+        InventoryBuilder::from_raw_json(raw_json)
     }
 
     pub fn init(

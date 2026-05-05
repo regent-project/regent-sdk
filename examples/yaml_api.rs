@@ -1,5 +1,5 @@
 use regent_sdk::ExpectedState;
-use regent_sdk::hosts::inventory::InventoryBuilder;
+use regent_sdk::hosts::inventory::Inventory;
 use regent_sdk::secrets::SecretProvider;
 use tracing_subscriber;
 
@@ -25,7 +25,7 @@ Hosts:
         SecRef: ./dev/credentials.secret
 "#;
 
-    let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
+    let mut inventory = Inventory::from_raw_yaml(yaml_inventory_builder)
         .unwrap();
 
     // Describe the expected state
