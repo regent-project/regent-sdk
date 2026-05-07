@@ -21,7 +21,7 @@ impl Check for PingBlockExpectedState {
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -53,7 +53,7 @@ impl PingApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
-    fn call(
+    async fn call(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,

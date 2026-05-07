@@ -106,7 +106,7 @@ impl Check for YumDnfBlockExpectedState {
 
 #[allow(unused_assignments)] // 'package_manager' is never actually read, only borrowed
 impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
 
@@ -247,7 +247,7 @@ impl YumDnfApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,

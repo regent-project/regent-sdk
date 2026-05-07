@@ -16,11 +16,11 @@ impl EnvVarSecretProvider {
 }
 
 impl SecretProvidingSolution for EnvVarSecretProvider {
-    fn connect() -> Result<(), RegentError> {
+    async fn connect(&mut self) -> Result<(), RegentError> {
         Ok(())
     }
 
-    fn get_secret_typed<T: DeserializeOwned>(
+    async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError> {
@@ -39,7 +39,7 @@ impl SecretProvidingSolution for EnvVarSecretProvider {
         }
     }
 
-    fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError> {
+    async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError> {
         match std::env::var(secret_reference) {
             Ok(raw_content) => Ok(Secret::from(secret_reference, raw_content)),
             Err(details) => Err(RegentError::FailedToGetSecret(format!(

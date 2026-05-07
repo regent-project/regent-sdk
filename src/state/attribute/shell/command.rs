@@ -46,7 +46,7 @@ impl Check for CommandBlockExpectedState {
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -79,7 +79,7 @@ impl CommandApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -91,6 +91,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
                     .cmd
                     .clone()
                     .inner_raw(optional_secret_provider)
+                    .await
                     .unwrap(),
                 &self.privilege,
             )

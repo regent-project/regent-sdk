@@ -57,7 +57,7 @@ impl HostHandler for Ssh2HostHandler {
     fn connect(
         &mut self,
         endpoint: &str,
-        _secret_provider: &SecretProvider,
+        _secret_provider: &Option<SecretProvider>,
     ) -> Result<(), RegentError> {
         // Check whether a session is already enabled or not (init() might have already been called
         // on this host)

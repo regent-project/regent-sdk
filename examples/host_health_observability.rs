@@ -36,6 +36,7 @@ async fn main() {
         Some(ConnectionMethod::Localhost(TargetUser::current_user())),
     )
     .build(None)
+    .await
     .unwrap();
 
     // Create a state for the webapp, holding the host expected configuration and how regent is supposed to interact with it
@@ -53,12 +54,12 @@ async fn main() {
         .await
         .unwrap();
 
-    axum::serve(api_endpoint, api_app.into_make_service()).await;
+    axum::serve(api_endpoint, api_app.into_make_service()).await.unwrap();
 }
 
 // This handler will run the healtcheck on localhost
 async fn health_check(State(mut app_state): State<AppState>) -> impl IntoResponse {
-    match app_state.check_localhost_health() {
+    match app_state.check_localhost_health().await {
         Ok((status_code, health_check_content)) => {
             (status_code, Json(health_check_content)).into_response()
         }
@@ -68,6 +69,7 @@ async fn health_check(State(mut app_state): State<AppState>) -> impl IntoRespons
         }
     }
 }
+
 #[derive(Serialize)]
 struct HealthCheckResponse {
     date: String,
@@ -88,8 +90,8 @@ struct AppState {
 }
 
 impl AppState {
-    fn check_localhost_health(&mut self) -> Result<(StatusCode, HealthCheckResponse), String> {
-        match self.managed_host.assess_compliance(&self.expected_state) {
+    async fn check_localhost_health(&mut self) -> Result<(StatusCode, HealthCheckResponse), String> {
+        match self.managed_host.assess_compliance(&self.expected_state).await {
             Ok(compliance_status) => {
                 let date = chrono::Utc::now()
                     .format("%Y-%m-%dT%H:%M:%S+00:00")

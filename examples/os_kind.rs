@@ -4,7 +4,8 @@ use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretProvider;
 use regent_sdk::secrets::local::environment_variables::EnvVarSecretProvider;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Build a SecretProvider
     let secret_provider = SecretProvider::EnvironmentVariable(EnvVarSecretProvider::new());
 
@@ -15,6 +16,7 @@ fn main() {
         Some(ConnectionMethod::Localhost(TargetUser::current_user())),
     )
     .build(Some(secret_provider))
+    .await
     .unwrap();
 
     // Open connection with this ManagedHost

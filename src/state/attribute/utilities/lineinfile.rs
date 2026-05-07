@@ -78,7 +78,7 @@ impl Check for LineInFileBlockExpectedState {
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -108,7 +108,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
         }
 
         let line_content: Option<String> = match self.line.clone() {
-            Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).unwrap()),
+            Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).await.unwrap()),
             None => None,
         };
 
@@ -318,7 +318,7 @@ impl LineInFileApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -344,7 +344,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 // };
 
                 let line_content: Option<String> = match self.line_content.clone() {
-                    Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).unwrap()),
+                    Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).await.unwrap()),
                     None => None,
                 };
 

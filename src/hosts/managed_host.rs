@@ -71,7 +71,7 @@ impl ManagedHostBuilder {
         }
     }
 
-    pub fn build(
+    pub async fn build(
         self,
         optional_secret_provider: Option<SecretProvider>,
     ) -> Result<ManagedHost, RegentError> {
@@ -106,7 +106,7 @@ impl ManagedHostBuilder {
                                     Some(secret_provider) => {
                                         match secret_provider.get_secret_typed::<Credentials>(
                                             secret_reference.sec_ref(),
-                                        ) {
+                                        ).await {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
@@ -134,7 +134,7 @@ impl ManagedHostBuilder {
                                     Some(secret_provider) => {
                                         match secret_provider.get_secret_typed::<Credentials>(
                                             secret_reference.sec_ref(),
-                                        ) {
+                                        ).await {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
@@ -159,7 +159,7 @@ impl ManagedHostBuilder {
                                 match &optional_secret_provider {
                                     Some(secret_provider) => {
                                         match secret_provider
-                                            .get_secret_raw(login_key_ref.key_ref())
+                                            .get_secret_raw(login_key_ref.key_ref()).await
                                         {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
@@ -305,7 +305,7 @@ impl ManagedHost {
 
     pub fn connect(&mut self) -> Result<(), RegentError> {
         self.handler
-            .connect(&self.endpoint, &self.secret_provider.clone().unwrap())
+            .connect(&self.endpoint, &self.secret_provider.clone())
     }
 
     pub fn is_connected(&mut self) -> bool {
@@ -317,7 +317,7 @@ impl ManagedHost {
     }
 
     // Defaults to sequential assessment
-    pub fn assess_compliance(
+    pub async fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ManagedHostStatus, RegentError> {
@@ -339,7 +339,7 @@ impl ManagedHost {
                         &mut self.handler,
                         &self.host_properties,
                         &self.secret_provider,
-                    ) {
+                    ).await {
                         Ok(attribute_compliance) => {
                             if let AttributeComplianceAssessment::NonCompliant(remediations) =
                                 attribute_compliance
@@ -371,84 +371,84 @@ impl ManagedHost {
         }
     }
 
-    pub fn assess_compliance_in_parallel(
-        &mut self,
-        expected_state: &ExpectedState,
-        optional_secret_provider: Option<SecretProvider>,
-    ) -> Result<ManagedHostStatus, RegentError> {
-        if !self.is_connected() {
-            return Err(RegentError::NotConnectedToHost);
-        }
+    // pub async fn assess_compliance_in_parallel(
+    //     &mut self,
+    //     expected_state: &ExpectedState,
+    //     optional_secret_provider: Option<SecretProvider>,
+    // ) -> Result<ManagedHostStatus, RegentError> {
+    //     if !self.is_connected() {
+    //         return Err(RegentError::NotConnectedToHost);
+    //     }
 
-        let mut already_compliant = true;
-        let mut final_remediations_list: Vec<Remediation> = Vec::new();
+    //     let mut already_compliant = true;
+    //     let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
-        let (sender, receiver) =
-            std::sync::mpsc::channel::<Result<AttributeComplianceAssessment, RegentError>>();
+    //     let (sender, receiver) =
+    //         std::sync::mpsc::channel::<Result<AttributeComplianceAssessment, RegentError>>();
 
-        for attribute in &expected_state.attributes {
-            let span = span!(Level::INFO, "attribute", name = attribute.name());
-            let _enter = span.enter();
+    //     for attribute in &expected_state.attributes {
+    //         let span = span!(Level::INFO, "attribute", name = attribute.name());
+    //         let _enter = span.enter();
 
-            // Taking context into account before working on the Attribute
+    //         // Taking context into account before working on the Attribute
 
-            match attribute.consider_context(&self.context) {
-                Ok(context_aware_attribute) => {
-                    let sender_clone = sender.clone();
-                    std::thread::spawn({
-                        let mut host_handler = self.handler.clone();
-                        let host_properties = self.host_properties.clone();
-                        let optional_secret_provider_clone = optional_secret_provider.clone();
-                        move || {
-                            let result = context_aware_attribute.assess(
-                                &mut host_handler,
-                                &host_properties,
-                                &optional_secret_provider_clone,
-                            );
-                            let _ = sender_clone.send(result);
-                        }
-                    });
-                }
-                Err(details) => {
-                    let content = match &details {
-                        RegentError::FailureToConsiderContext(content) => content,
-                        _ => &format!("{:?}", details),
-                    };
-                    error!("{}", content);
-                    return Err(details);
-                }
-            }
-        }
+    //         match attribute.consider_context(&self.context) {
+    //             Ok(context_aware_attribute) => {
+    //                 let sender_clone = sender.clone();
+    //                 std::thread::spawn({
+    //                     let mut host_handler = self.handler.clone();
+    //                     let host_properties = self.host_properties.clone();
+    //                     let optional_secret_provider_clone = optional_secret_provider.clone();
+    //                     async move || {
+    //                         let result = context_aware_attribute.assess(
+    //                             &mut host_handler,
+    //                             &host_properties,
+    //                             &optional_secret_provider_clone,
+    //                         ).await;
+    //                         let _ = sender_clone.send(result);
+    //                     }
+    //                 });
+    //             }
+    //             Err(details) => {
+    //                 let content = match &details {
+    //                     RegentError::FailureToConsiderContext(content) => content,
+    //                     _ => &format!("{:?}", details),
+    //                 };
+    //                 error!("{}", content);
+    //                 return Err(details);
+    //             }
+    //         }
+    //     }
 
-        for _ in 0..expected_state.attributes.len() {
-            match receiver.recv() {
-                Ok(result_dry_run_attribute) => match result_dry_run_attribute {
-                    Ok(attribute_compliance) => {
-                        if let AttributeComplianceAssessment::NonCompliant(remediations) =
-                            attribute_compliance
-                        {
-                            already_compliant = false;
-                            final_remediations_list.extend(remediations);
-                        }
-                    }
-                    Err(details) => {
-                        return Err(details);
-                    }
-                },
-                Err(details) => {
-                    return Err(RegentError::FailedDryRunEvaluation(format!("{}", details)));
-                }
-            }
-        }
+    //     for _ in 0..expected_state.attributes.len() {
+    //         match receiver.recv() {
+    //             Ok(result_dry_run_attribute) => match result_dry_run_attribute {
+    //                 Ok(attribute_compliance) => {
+    //                     if let AttributeComplianceAssessment::NonCompliant(remediations) =
+    //                         attribute_compliance
+    //                     {
+    //                         already_compliant = false;
+    //                         final_remediations_list.extend(remediations);
+    //                     }
+    //                 }
+    //                 Err(details) => {
+    //                     return Err(details);
+    //                 }
+    //             },
+    //             Err(details) => {
+    //                 return Err(RegentError::FailedDryRunEvaluation(format!("{}", details)));
+    //             }
+    //         }
+    //     }
 
-        if already_compliant {
-            Ok(ManagedHostStatus::already_compliant())
-        } else {
-            Ok(ManagedHostStatus::not_compliant(final_remediations_list))
-        }
-    }
+    //     if already_compliant {
+    //         Ok(ManagedHostStatus::already_compliant())
+    //     } else {
+    //         Ok(ManagedHostStatus::not_compliant(final_remediations_list))
+    //     }
+    // }
 
-    pub fn reach_compliance(
+    pub async fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ManagedHostStatus, RegentError> {
@@ -469,7 +469,7 @@ impl ManagedHost {
                         &mut self.handler,
                         &self.host_properties,
                         &self.secret_provider,
-                    ) {
+                    ).await {
                         Ok(attribute_compliance) => {
                             let outcome = attribute_compliance.clone();
                             match attribute_compliance {
@@ -478,7 +478,7 @@ impl ManagedHost {
                                     // Nothing to do
                                 }
                                 AttributeComplianceAssessment::NonCompliant(remediations) => {
-                                    info!(target: "run",assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
+                                    warn!(target: "run",assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
 
                                     // Host is not compliant as there are remediations to perform
                                     // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
@@ -491,7 +491,7 @@ impl ManagedHost {
                                             &mut self.handler,
                                             &self.host_properties,
                                             &self.secret_provider,
-                                        ) {
+                                        ).await {
                                             Ok(internal_api_call_outcome) => {
                                                 actions_taken.push(Action::from(
                                                     remediation.clone(),
@@ -564,7 +564,7 @@ impl ManagedHost {
 }
 
 pub trait AssessCompliance<Handler: HostHandler> {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
@@ -574,7 +574,7 @@ pub trait AssessCompliance<Handler: HostHandler> {
 }
 
 pub trait ReachCompliance<Handler: HostHandler> {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,

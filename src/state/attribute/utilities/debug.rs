@@ -25,7 +25,7 @@ impl Check for DebugBlockExpectedState {
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -48,7 +48,7 @@ impl DebugApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
-    fn call(
+    async fn call(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,

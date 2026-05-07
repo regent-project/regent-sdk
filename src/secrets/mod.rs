@@ -1,6 +1,7 @@
 pub mod local;
 pub mod remote;
 
+use aws_config::SdkConfig as AwsConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -8,12 +9,14 @@ use std::fmt::Debug;
 use crate::error::RegentError;
 use crate::secrets::local::environment_variables::EnvVarSecretProvider;
 use crate::secrets::local::files::FilesSecretProvider;
+use crate::secrets::remote::aws_secrets_manager::AwsSecretsManagerProvider;
 
 #[derive(Clone)]
 pub enum SecretProvider {
     Files(FilesSecretProvider),
     EnvironmentVariable(EnvVarSecretProvider),
-    // AwsSecretsManager,
+    // #[cfg(feature = "aws-secretsmanager")]
+    AwsSecretsManager(AwsSecretsManagerProvider),
     // GcpSecretManager,
     // DelineaSecretServer,
     // HashicorpVault,
@@ -28,32 +31,45 @@ impl SecretProvider {
         Self::EnvironmentVariable(EnvVarSecretProvider::new())
     }
 
-    pub fn get_secret_typed<T: DeserializeOwned>(
+    pub fn aws_secretsmanager(aws_config: AwsConfig) -> Self {
+        Self::AwsSecretsManager(AwsSecretsManagerProvider::from(aws_config))
+    }
+
+    pub async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError> {
         match self {
             SecretProvider::Files(secret_provider) => {
-                secret_provider.get_secret_typed(secret_reference)
+                secret_provider.get_secret_typed(secret_reference).await
             }
             SecretProvider::EnvironmentVariable(secret_provider) => {
-                secret_provider.get_secret_typed(secret_reference)
-            } // SecretProvider::AwsSecretsManager => {}
-              // SecretProvider::GcpSecretManager => {}
+                secret_provider.get_secret_typed(secret_reference).await
+            }
+            // #[cfg(feature = "aws-secretsmanager")]
+            SecretProvider::AwsSecretsManager(secret_provider) => {
+                secret_provider.get_secret_typed(secret_reference).await
+            } // SecretProvider::GcpSecretManager => {}
               // SecretProvider::DelineaSecretServer => {}
               // SecretProvider::HashicorpVault => {}
         }
     }
 
-    pub fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError> {
+    pub async fn get_secret_raw(
+        &self,
+        secret_reference: &str,
+    ) -> Result<Secret<String>, RegentError> {
         match self {
             SecretProvider::Files(secret_provider) => {
-                secret_provider.get_secret_raw(secret_reference)
+                secret_provider.get_secret_raw(secret_reference).await
             }
             SecretProvider::EnvironmentVariable(secret_provider) => {
-                secret_provider.get_secret_raw(secret_reference)
-            } // SecretProvider::AwsSecretsManager => {}
-              // SecretProvider::GcpSecretManager => {}
+                secret_provider.get_secret_raw(secret_reference).await
+            }
+            // #[cfg(feature = "aws-secretsmanager")]
+            SecretProvider::AwsSecretsManager(secret_provider) => {
+                secret_provider.get_secret_raw(secret_reference).await
+            } // SecretProvider::GcpSecretManager => {}
               // SecretProvider::DelineaSecretServer => {}
               // SecretProvider::HashicorpVault => {}
         }
@@ -62,12 +78,21 @@ impl SecretProvider {
 
 // Each SecretProvider variant's nested type must implement this trait
 pub trait SecretProvidingSolution {
-    fn connect() -> Result<(), RegentError>;
-    fn get_secret_typed<T: DeserializeOwned>(
+    async fn connect(&mut self) -> Result<(), RegentError>;
+    async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError>;
-    fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
+    async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
+}
+
+pub trait AsyncSecretProvidingSolution {
+    async fn connect(&mut self) -> Result<(), RegentError>;
+    async fn get_secret_typed<T: DeserializeOwned>(
+        &self,
+        secret_reference: &str,
+    ) -> Result<Secret<T>, RegentError>;
+    async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
 }
 
 // Wrapper type which holds secrets content and helps to avoid leaking secrets (usual or debug logging in general...)

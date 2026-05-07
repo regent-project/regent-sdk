@@ -22,6 +22,7 @@ pub enum TargetUserKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
 pub struct TargetUser {
     pub user_kind: TargetUserKind,
 }
@@ -51,7 +52,7 @@ pub trait HostHandler: Sized {
     fn connect(
         &mut self,
         endpoint: &str,
-        secret_provider: &SecretProvider,
+        secret_provider: &Option<SecretProvider>,
     ) -> Result<(), RegentError>;
 
     fn is_connected(&mut self) -> bool;
@@ -95,7 +96,7 @@ impl HostHandler for Handler {
     fn connect(
         &mut self,
         endpoint: &str,
-        secret_provider: &SecretProvider,
+        secret_provider: &Option<SecretProvider>,
     ) -> Result<(), RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.connect(endpoint, secret_provider),

@@ -47,7 +47,7 @@ impl RegentTask {
         &self.correlation_id
     }
 
-    pub fn run(
+    pub async fn run(
         &mut self,
         optional_secret_provider: Option<SecretProvider>,
     ) -> Result<RegentTaskResult, RegentError> {
@@ -55,13 +55,13 @@ impl RegentTask {
         let mut managed_host = self
             .managed_host_builder
             .clone()
-            .build(optional_secret_provider)?;
+            .build(optional_secret_provider).await?;
 
         managed_host.connect()?;
 
         let host_status = match self.job {
-            Job::Assess => managed_host.assess_compliance(&self.expected_state)?,
-            Job::Reach => managed_host.reach_compliance(&self.expected_state)?,
+            Job::Assess => managed_host.assess_compliance(&self.expected_state).await?,
+            Job::Reach => managed_host.reach_compliance(&self.expected_state).await?,
         };
 
         Ok(RegentTaskResult::from(

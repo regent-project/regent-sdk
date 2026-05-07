@@ -105,7 +105,7 @@ impl Check for PacmanBlockExpectedState {
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -206,7 +206,7 @@ impl PacmanApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,

@@ -8,7 +8,8 @@ use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let secret_provider = SecretProvider::files();
 
     // Describe the ManagedHost
@@ -20,6 +21,7 @@ fn main() {
         ))),
     )
     .build(Some(secret_provider))
+    .await
     .unwrap();
 
     // Open connection with this ManageHost
@@ -41,7 +43,7 @@ fn main() {
         .build();
 
     // Assess whether the host is compliant or not
-    match managed_host.assess_compliance(&localhost_expected_state) {
+    match managed_host.assess_compliance(&localhost_expected_state).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");

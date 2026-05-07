@@ -101,7 +101,7 @@ impl Attribute {
     }
 
     /// Result because the assessment might fail. If it succeeds, it will return either None (AKA already compliant) or Some(Vec<Remediation>) (AKA what shall be done to reach the expected state).
-    pub fn assess<Handler: HostHandler>(
+    pub async fn assess<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
@@ -112,10 +112,10 @@ impl Attribute {
             host_properties,
             &self.privilege,
             optional_secret_provider,
-        )
+        ).await
     }
 
-    pub fn reach_compliance<Handler: HostHandler>(
+    pub async fn reach_compliance<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
@@ -126,7 +126,7 @@ impl Attribute {
             host_properties,
             &self.privilege,
             optional_secret_provider,
-        )
+        ).await
     }
 
     pub fn check(&self) -> Result<(), RegentError> {
@@ -214,7 +214,7 @@ pub enum AttributeDetail {
 }
 
 impl AttributeDetail {
-    pub fn assess<Handler: HostHandler>(
+    pub async fn assess<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
@@ -228,60 +228,60 @@ impl AttributeDetail {
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
             AttributeDetail::YumDnf(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
                     host_handler,
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
             AttributeDetail::Pacman(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
                     host_handler,
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
             AttributeDetail::LineInFile(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
                     host_handler,
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
             AttributeDetail::Debug(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
                     host_handler,
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
             AttributeDetail::Ping(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
                     host_handler,
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
             AttributeDetail::Service(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
                     host_handler,
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
             AttributeDetail::Command(expected_state_criteria) => expected_state_criteria
                 .assess_compliance(
                     host_handler,
                     host_properties,
                     privilege,
                     optional_secret_provider,
-                ),
+                ).await,
         }
     }
 
-    pub fn reach_compliance<Handler: HostHandler>(
+    pub async fn reach_compliance<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
@@ -293,7 +293,7 @@ impl AttributeDetail {
             host_properties,
             privilege,
             optional_secret_provider,
-        ) {
+        ).await {
             Ok(attribute_compliance) => match attribute_compliance {
                 AttributeComplianceAssessment::Compliant => Ok(AttributeComplianceResult::from(
                     AttributeComplianceStatus::AlreadyCompliant,
@@ -317,7 +317,7 @@ impl AttributeDetail {
                                 )));
                             }
                             Remediation::Pacman(attribute_api_call) => match attribute_api_call
-                                .call(host_handler, host_properties, optional_secret_provider)
+                                .call(host_handler, host_properties, optional_secret_provider).await
                             {
                                 Ok(internal_api_call_outcome) => {
                                     (remediation, internal_api_call_outcome)
@@ -331,7 +331,7 @@ impl AttributeDetail {
                                     host_handler,
                                     host_properties,
                                     optional_secret_provider,
-                                ) {
+                                ).await {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
@@ -341,7 +341,7 @@ impl AttributeDetail {
                                 }
                             }
                             Remediation::YumDnf(attribute_api_call) => match attribute_api_call
-                                .call(host_handler, host_properties, optional_secret_provider)
+                                .call(host_handler, host_properties, optional_secret_provider).await
                             {
                                 Ok(internal_api_call_outcome) => {
                                     (remediation, internal_api_call_outcome)
@@ -351,7 +351,7 @@ impl AttributeDetail {
                                 }
                             },
                             Remediation::LineInFile(attribute_api_call) => match attribute_api_call
-                                .call(host_handler, host_properties, optional_secret_provider)
+                                .call(host_handler, host_properties, optional_secret_provider).await
                             {
                                 Ok(internal_api_call_outcome) => {
                                     (remediation, internal_api_call_outcome)
@@ -365,7 +365,7 @@ impl AttributeDetail {
                                     host_handler,
                                     host_properties,
                                     optional_secret_provider,
-                                ) {
+                                ).await {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
@@ -379,7 +379,7 @@ impl AttributeDetail {
                                     host_handler,
                                     host_properties,
                                     optional_secret_provider,
-                                ) {
+                                ).await {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
@@ -393,7 +393,7 @@ impl AttributeDetail {
                                     host_handler,
                                     host_properties,
                                     optional_secret_provider,
-                                ) {
+                                ).await {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
@@ -407,7 +407,7 @@ impl AttributeDetail {
                                     host_handler,
                                     host_properties,
                                     optional_secret_provider,
-                                ) {
+                                ).await {
                                     Ok(internal_api_call_outcome) => {
                                         (remediation, internal_api_call_outcome)
                                     }
@@ -483,7 +483,7 @@ impl std::fmt::Debug for Remediation {
 }
 
 impl Remediation {
-    pub fn reach_compliance<Handler: HostHandler>(
+    pub async fn reach_compliance<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
@@ -497,28 +497,28 @@ impl Remediation {
                 )))
             }
             Remediation::Pacman(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
             Remediation::Apt(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
             Remediation::YumDnf(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
             Remediation::LineInFile(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
             Remediation::Debug(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
             Remediation::Ping(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
             Remediation::Service(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
             Remediation::Command(api_call) => {
-                api_call.call(host_handler, host_properties, optional_secret_provider)
+                api_call.call(host_handler, host_properties, optional_secret_provider).await
             }
         }
     }

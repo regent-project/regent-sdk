@@ -122,7 +122,7 @@ impl Check for ServiceBlockExpectedState {
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
@@ -284,7 +284,7 @@ impl ServiceApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,

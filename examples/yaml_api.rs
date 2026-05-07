@@ -3,7 +3,8 @@ use regent_sdk::hosts::inventory::Inventory;
 use regent_sdk::secrets::SecretProvider;
 use tracing_subscriber;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     tracing_subscriber::fmt().init();
 
     let yaml_inventory_builder = r#"---
@@ -25,8 +26,7 @@ Hosts:
         SecRef: ./dev/credentials.secret
 "#;
 
-    let mut inventory = Inventory::from_raw_yaml(yaml_inventory_builder)
-        .unwrap();
+    let mut inventory = Inventory::from_raw_yaml(yaml_inventory_builder).unwrap();
 
     // Describe the expected state
     let expected_state_description = r#"---
@@ -58,10 +58,10 @@ Attributes:
     let secret_provider = SecretProvider::files();
 
     // Open connections within this Inventory
-    let mut living_inventory = inventory.init(Some(secret_provider)).unwrap();
+    let mut living_inventory = inventory.init(Some(secret_provider)).await.unwrap();
 
     // Try reach compliance if not already there
-    match living_inventory.reach_compliance(&expected_state) {
+    match living_inventory.reach_compliance(&expected_state).await {
         Ok(inventory_compliance) => {
             for (host_id, compliance_status) in inventory_compliance {
                 if compliance_status.is_already_compliant() {

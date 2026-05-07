@@ -16,11 +16,11 @@ impl FilesSecretProvider {
 }
 
 impl SecretProvidingSolution for FilesSecretProvider {
-    fn connect() -> Result<(), RegentError> {
+    async fn connect(&mut self) -> Result<(), RegentError> {
         Ok(())
     }
 
-    fn get_secret_typed<T: DeserializeOwned>(
+    async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError> {
@@ -41,7 +41,7 @@ impl SecretProvidingSolution for FilesSecretProvider {
         }
     }
 
-    fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError> {
+    async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError> {
         // Read the file content as a string
         match std::fs::read_to_string(secret_reference) {
             Ok(raw_content) => Ok(Secret::from(secret_reference, raw_content)),

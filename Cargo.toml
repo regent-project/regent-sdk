@@ -10,15 +10,18 @@ keywords    = ["automation", "configuration", "management", "infrastructure", "o
 categories  = ["config", "command-line-utilities"]
 
 [dependencies]
-serde       = {version = "1.0.228", features= ["derive"]}
-yaml_serde  = "0.10"
-serde_json  = "1.0.149"
-ssh2        = "0.9.5"
-chrono      = "0.4.44"
-rayon       = "1.12.0"
-nanoid      = "0.4.0"
-tera        = "1.20.1"
-tracing     = "0.1.44"
+serde                   = {version = "1.0.228", features= ["derive"]}
+yaml_serde              = "0.10"
+serde_json              = "1.0.149"
+ssh2                    = "0.9.5"
+chrono                  = "0.4.44"
+rayon                   = "1.12.0"
+nanoid                  = "0.4.0"
+tera                    = "1.20.1"
+tracing                 = "0.1.44"
+aws-config              = { version = "1.8.13", features = ["behavior-version-latest"]} # optional = true
+aws-sdk-secretsmanager  = { version = "1.99.0"} # optional = true
+tokio                   = { version = "1.52.1", features = ["full"]} # optional = true
 
 [profile.release]
 lto = true
@@ -29,5 +32,7 @@ doctest = false
 [dev-dependencies]
 tracing-subscriber = "0.3.23"
 axum        = "0.8.9"
-tokio       = { version = "1.52.1", features = ["full"] }
 chrono      = "0.4.44"
+
+# [features]
+# aws-secretsmanager= ["dep:tokio", "dep:aws-config", "dep:aws-sdk-secretsmanager"]

@@ -25,7 +25,7 @@ impl HostHandler for LocalHostHandler {
     fn connect(
         &mut self,
         _endpoint: &str,
-        _secret_provider: &SecretProvider,
+        _secret_provider: &Option<SecretProvider>,
     ) -> Result<(), RegentError> {
         Ok(())
     }
