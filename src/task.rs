@@ -55,7 +55,8 @@ impl RegentTask {
         let mut managed_host = self
             .managed_host_builder
             .clone()
-            .build(optional_secret_provider).await?;
+            .build(optional_secret_provider)
+            .await?;
 
         managed_host.connect()?;
 

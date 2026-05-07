@@ -22,7 +22,8 @@ async fn main() {
     // Build a SecretProvider
     let secret_provider = SecretProvider::env_var();
 
-    let regent_task_result = run_a_given_regent_task(serialized_regent_task, Some(secret_provider)).await;
+    let regent_task_result =
+        run_a_given_regent_task(serialized_regent_task, Some(secret_provider)).await;
     println!("{:?}", regent_task_result);
 }
 

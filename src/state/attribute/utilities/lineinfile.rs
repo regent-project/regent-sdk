@@ -344,7 +344,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 // };
 
                 let line_content: Option<String> = match self.line_content.clone() {
-                    Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).await.unwrap()),
+                    Some(parameter) => {
+                        Some(parameter.inner_raw(optional_secret_provider).await.unwrap())
+                    }
                     None => None,
                 };
 

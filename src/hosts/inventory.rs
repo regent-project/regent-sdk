@@ -143,7 +143,10 @@ impl Inventory {
 
         for (host_id, managed_host_builder) in self.hosts.clone() {
             // Try to build a ManagedHost out of a ManagedHostBuilder (implies fetching secrets when needed)
-            match managed_host_builder.build(optional_secret_provider.clone()).await {
+            match managed_host_builder
+                .build(optional_secret_provider.clone())
+                .await
+            {
                 Ok(mut managed_host) => {
                     let host_span = span!(Level::DEBUG, "host_connection", host_id);
                     let _host_enter = host_span.enter();

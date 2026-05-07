@@ -92,7 +92,10 @@ impl Parameter<String> {
             Parameter::Clear(content) => Ok(content),
             Parameter::Secret(secret_reference) => match optional_secret_provider {
                 Some(secret_provider) => {
-                    match secret_provider.get_secret_raw(secret_reference.sec_ref()).await {
+                    match secret_provider
+                        .get_secret_raw(secret_reference.sec_ref())
+                        .await
+                    {
                         Ok(secret) => Ok(secret.inner()),
                         Err(details) => {
                             return Err(RegentError::FailedToGetSecret(format!("{:?}", details)));
@@ -119,7 +122,10 @@ impl<T: DeserializeOwned> Parameter<T> {
             Parameter::Clear(content) => Ok(content),
             Parameter::Secret(secret_reference) => match optional_secret_provider {
                 Some(secret_provider) => {
-                    match secret_provider.get_secret_typed::<T>(secret_reference.sec_ref()).await {
+                    match secret_provider
+                        .get_secret_typed::<T>(secret_reference.sec_ref())
+                        .await
+                    {
                         Ok(secret) => Ok(secret.inner()),
                         Err(details) => {
                             return Err(RegentError::FailedToGetSecret(format!("{:?}", details)));

@@ -44,5 +44,8 @@ Attributes:
     let mut living_inventory = inventory.init(Some(secret_provider)).await.unwrap();
 
     // Try reach compliance if not already there
-    living_inventory.reach_compliance(&expected_state).await.unwrap();
+    living_inventory
+        .reach_compliance(&expected_state)
+        .await
+        .unwrap();
 }

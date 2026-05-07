@@ -1,11 +1,11 @@
 pub mod local;
 pub mod remote;
 
+#[cfg(feature = "aws-secretsmanager")]
+use aws_config::SdkConfig as AwsConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-#[cfg(feature = "aws-secretsmanager")]
-use aws_config::SdkConfig as AwsConfig;
 
 use crate::error::RegentError;
 use crate::secrets::local::environment_variables::EnvVarSecretProvider;

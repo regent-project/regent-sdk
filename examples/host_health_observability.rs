@@ -54,7 +54,9 @@ async fn main() {
         .await
         .unwrap();
 
-    axum::serve(api_endpoint, api_app.into_make_service()).await.unwrap();
+    axum::serve(api_endpoint, api_app.into_make_service())
+        .await
+        .unwrap();
 }
 
 // This handler will run the healtcheck on localhost
@@ -90,8 +92,14 @@ struct AppState {
 }
 
 impl AppState {
-    async fn check_localhost_health(&mut self) -> Result<(StatusCode, HealthCheckResponse), String> {
-        match self.managed_host.assess_compliance(&self.expected_state).await {
+    async fn check_localhost_health(
+        &mut self,
+    ) -> Result<(StatusCode, HealthCheckResponse), String> {
+        match self
+            .managed_host
+            .assess_compliance(&self.expected_state)
+            .await
+        {
             Ok(compliance_status) => {
                 let date = chrono::Utc::now()
                     .format("%Y-%m-%dT%H:%M:%S+00:00")

@@ -104,9 +104,12 @@ impl ManagedHostBuilder {
                             TargetUserKind::User(secret_reference) => {
                                 match &optional_secret_provider {
                                     Some(secret_provider) => {
-                                        match secret_provider.get_secret_typed::<Credentials>(
-                                            secret_reference.sec_ref(),
-                                        ).await {
+                                        match secret_provider
+                                            .get_secret_typed::<Credentials>(
+                                                secret_reference.sec_ref(),
+                                            )
+                                            .await
+                                        {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
@@ -132,9 +135,12 @@ impl ManagedHostBuilder {
                             Ssh2AuthReference::UsernamePassword(secret_reference) => {
                                 match &optional_secret_provider {
                                     Some(secret_provider) => {
-                                        match secret_provider.get_secret_typed::<Credentials>(
-                                            secret_reference.sec_ref(),
-                                        ).await {
+                                        match secret_provider
+                                            .get_secret_typed::<Credentials>(
+                                                secret_reference.sec_ref(),
+                                            )
+                                            .await
+                                        {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
@@ -159,7 +165,8 @@ impl ManagedHostBuilder {
                                 match &optional_secret_provider {
                                     Some(secret_provider) => {
                                         match secret_provider
-                                            .get_secret_raw(login_key_ref.key_ref()).await
+                                            .get_secret_raw(login_key_ref.key_ref())
+                                            .await
                                         {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
@@ -335,11 +342,14 @@ impl ManagedHost {
             // Taking context into account before working on the Attribute
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
-                    match context_aware_attribute.assess(
-                        &mut self.handler,
-                        &self.host_properties,
-                        &self.secret_provider,
-                    ).await {
+                    match context_aware_attribute
+                        .assess(
+                            &mut self.handler,
+                            &self.host_properties,
+                            &self.secret_provider,
+                        )
+                        .await
+                    {
                         Ok(attribute_compliance) => {
                             if let AttributeComplianceAssessment::NonCompliant(remediations) =
                                 attribute_compliance
@@ -465,11 +475,14 @@ impl ManagedHost {
             let _enter = span.enter();
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
-                    match context_aware_attribute.assess(
-                        &mut self.handler,
-                        &self.host_properties,
-                        &self.secret_provider,
-                    ).await {
+                    match context_aware_attribute
+                        .assess(
+                            &mut self.handler,
+                            &self.host_properties,
+                            &self.secret_provider,
+                        )
+                        .await
+                    {
                         Ok(attribute_compliance) => {
                             let outcome = attribute_compliance.clone();
                             match attribute_compliance {
@@ -487,11 +500,14 @@ impl ManagedHost {
                                     // Try to remedy
 
                                     for remediation in remediations {
-                                        match remediation.reach_compliance(
-                                            &mut self.handler,
-                                            &self.host_properties,
-                                            &self.secret_provider,
-                                        ).await {
+                                        match remediation
+                                            .reach_compliance(
+                                                &mut self.handler,
+                                                &self.host_properties,
+                                                &self.secret_provider,
+                                            )
+                                            .await
+                                        {
                                             Ok(internal_api_call_outcome) => {
                                                 actions_taken.push(Action::from(
                                                     remediation.clone(),
