@@ -271,6 +271,7 @@ impl LivingInventory {
 
         let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
 
+        // TODO : make this run concurrently by spawning tasks
         for (host_id, managed_host) in &mut self.hosts {
             let host_span = span!(Level::DEBUG, "host", host_id);
             let _host_enter = host_span.enter();
@@ -308,6 +309,7 @@ impl LivingInventory {
 
         let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
 
+        // TODO : make this run concurrently by spawning tasks
         for (host_id, managed_host) in &mut self.hosts {
             let host_span = span!(parent: &job_span, Level::INFO, "host", id = host_id);
             let _host_enter = host_span.enter();

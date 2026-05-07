@@ -12,12 +12,6 @@ async fn main() {
     let secret_provider = SecretProvider::env_var();
 
     // Describe the ManagedHost
-    // let mut managed_host = ManagedHost::new(
-    //     "<host-endpoint>:<port>",
-    //     env_var_secret_provider,
-    //     Ssh2HostHandler::key_file("regent-user", "<path/to/private/key>"),
-    // );
-
     let mut managed_host = ManagedHostBuilder::new(
         "<host-id>",
         "<host-endpoint>:<port>",
