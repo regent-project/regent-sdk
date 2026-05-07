@@ -64,15 +64,18 @@ impl ManagedHostStatus {
             return Vec::new();
         }
 
-        self.actions_taken
-            .as_ref()
-            .unwrap()
-            .iter()
-            .filter_map(|action| match &action.remediation {
-                Remediation::None(_) => None,
-                _ => Some(action.remediation.clone()),
-            })
-            .collect()
+        let all_remediations: Vec<Remediation> = match self.actions_taken.as_ref() {
+            Some(actions) => actions
+                .iter()
+                .filter_map(|action| match &action.remediation {
+                    Remediation::None(_) => None,
+                    _ => Some(action.remediation.clone()),
+                })
+                .collect(),
+            None => Vec::new(),
+        };
+
+        all_remediations
     }
 
     pub fn actions_taken(&self) -> Vec<(Remediation, InternalApiCallOutcome)> {

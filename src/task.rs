@@ -11,7 +11,7 @@
 use crate::secrets::SecretProvider;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
-use crate::{error::Error, hosts::managed_host::ManagedHostBuilder};
+use crate::{error::RegentError, hosts::managed_host::ManagedHostBuilder};
 
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
@@ -34,7 +34,12 @@ impl RegentTask {
             managed_host_builder,
             expected_state,
             job,
-            correlation_id: nanoid!(),
+            correlation_id: nanoid!(
+                16,
+                &[
+                    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
+                ]
+            ),
         }
     }
 
@@ -42,25 +47,22 @@ impl RegentTask {
         &self.correlation_id
     }
 
-    pub fn run(
+    pub async fn run(
         &mut self,
-        optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<RegentTaskResult, Error> {
+        optional_secret_provider: Option<SecretProvider>,
+    ) -> Result<RegentTaskResult, RegentError> {
         // Build a ManagedHost
         let mut managed_host = self
             .managed_host_builder
             .clone()
-            .build(optional_secret_provider)?;
+            .build(optional_secret_provider)
+            .await?;
 
         managed_host.connect()?;
 
         let host_status = match self.job {
-            Job::Assess => {
-                managed_host.assess_compliance(&self.expected_state, optional_secret_provider)?
-            }
-            Job::Reach => {
-                managed_host.reach_compliance(&self.expected_state, optional_secret_provider)?
-            }
+            Job::Assess => managed_host.assess_compliance(&self.expected_state).await?,
+            Job::Reach => managed_host.reach_compliance(&self.expected_state).await?,
         };
 
         Ok(RegentTaskResult::from(

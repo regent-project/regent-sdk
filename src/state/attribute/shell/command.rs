@@ -1,8 +1,9 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::{SecretProvider, SecretReference};
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -30,28 +31,28 @@ impl CommandBlockExpectedState {
         }
     }
 
-    pub fn build(&self) -> Result<CommandBlockExpectedState, Error> {
-        // if let Err(error_detail) = self.check() {
-        //     return Err(error_detail);
-        // }
+    pub fn build(&self) -> Result<CommandBlockExpectedState, RegentError> {
+        if let Err(details) = self.check() {
+            return Err(details);
+        }
         Ok(self.clone())
     }
 }
 
-// impl Check for CommandBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
-//         Ok(())
-//     }
-// }
+impl Check for CommandBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         let mut remediations: Vec<Remediation> = Vec::new();
 
         let privilege = privilege.clone();
@@ -78,18 +79,19 @@ impl CommandApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         let cmd_result = host_handler
             .run_command(
                 &self
                     .cmd
                     .clone()
                     .inner_raw(optional_secret_provider)
+                    .await
                     .unwrap(),
                 &self.privilege,
             )

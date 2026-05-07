@@ -6,23 +6,19 @@ use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretProvider;
 use regent_sdk::{Attribute, ExpectedState};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Build a SecretProvider
-    let secret_provider = Some(SecretProvider::env_var());
+    let secret_provider = SecretProvider::env_var();
 
     // Describe the ManagedHost
-    // let mut managed_host = ManagedHost::new(
-    //     "<host-endpoint>:<port>",
-    //     env_var_secret_provider,
-    //     Ssh2HostHandler::key_file("regent-user", "<path/to/private/key>"),
-    // );
-
     let mut managed_host = ManagedHostBuilder::new(
         "<host-id>",
         "<host-endpoint>:<port>",
         Some(ConnectionMethod::Localhost(TargetUser::current_user())),
     )
-    .build(&secret_provider)
+    .build(Some(secret_provider))
+    .await
     .unwrap();
 
     // Open connection with this ManageHost
@@ -43,7 +39,7 @@ fn main() {
         .build();
 
     // Assess whether the host is compliant or not
-    match managed_host.assess_compliance(&expected_state, &secret_provider) {
+    match managed_host.assess_compliance(&expected_state).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");
@@ -54,7 +50,7 @@ fn main() {
                 );
 
                 // If not, try once to reach compliance
-                match managed_host.reach_compliance(&expected_state, &secret_provider) {
+                match managed_host.reach_compliance(&expected_state).await {
                     Ok(outcome) => {
                         println!(
                             "Try reach compliance outcome : {:#?}",

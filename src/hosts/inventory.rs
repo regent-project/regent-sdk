@@ -1,9 +1,10 @@
+use nanoid::nanoid;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::ExpectedState;
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::handlers::ConnectionMethod;
 use crate::hosts::managed_host::ManagedHost;
 use crate::hosts::managed_host::ManagedHostBuilder;
@@ -17,7 +18,7 @@ use tracing::{Level, debug, error, info, span, trace, warn};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
-pub struct InventoryBuilder {
+struct InventoryBuilder {
     name: Option<String>,
     hosts: Vec<ManagedHostBuilder>,
     default_connection_method: Option<ConnectionMethod>,
@@ -25,36 +26,43 @@ pub struct InventoryBuilder {
 }
 
 impl InventoryBuilder {
-    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, Error> {
+    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Inventory, RegentError> {
         match yaml_serde::from_str::<Self>(raw_yaml) {
             Ok(inventory_builder) => {
                 debug!("Successfully parsed YAML inventory");
-                Ok(inventory_builder)
+                inventory_builder.build()
             }
-            Err(error_detail) => {
-                error!("Failed to parse YAML inventory: {:?}", error_detail);
-                Err(Error::FailureToParseContent(format!("{:?}", error_detail)))
+            Err(details) => {
+                error!("Failed to parse YAML inventory: {:?}", details);
+                Err(RegentError::FailureToParseContent(format!("{:?}", details)))
             }
         }
     }
 
-    pub fn from_raw_json(raw_json: &str) -> Result<Self, Error> {
+    pub fn from_raw_json(raw_json: &str) -> Result<Inventory, RegentError> {
         match serde_json::from_str::<Self>(raw_json) {
             Ok(inventory_builder) => {
                 debug!("Successfully parsed JSON inventory");
-                Ok(inventory_builder)
+                inventory_builder.build()
             }
-            Err(error_detail) => {
-                error!("Failed to parse JSON inventory: {:?}", error_detail);
-                Err(Error::FailureToParseContent(format!("{:?}", error_detail)))
+            Err(details) => {
+                error!("Failed to parse JSON inventory: {:?}", details);
+                Err(RegentError::FailureToParseContent(format!("{:?}", details)))
             }
         }
     }
 
-    pub fn build(self) -> Result<Inventory, Error> {
+    pub fn build(self) -> Result<Inventory, RegentError> {
         let mut final_hosts: HashMap<String, ManagedHostBuilder> = HashMap::new();
-        let number_of_hosts = self.hosts.len();
-        let inventory_name = self.name.unwrap_or(format!("{} hosts", number_of_hosts));
+        let inventory_name = match self.name {
+            Some(name_value) => name_value,
+            None => nanoid!(
+                12,
+                &[
+                    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
+                ]
+            ),
+        };
 
         let span = span!(Level::INFO, "inventory_building", name = inventory_name);
         let _enter = span.enter();
@@ -83,7 +91,7 @@ impl InventoryBuilder {
                             "No HostConnectionMethod or GlobalConnectionMethod set. At least one of them must be set.",
                         );
                         error!(name = host.id, "{}", error_msg);
-                        return Err(Error::WrongInitialization(error_msg));
+                        return Err(RegentError::WrongInitialization(error_msg));
                     }
                 }
             }
@@ -91,7 +99,7 @@ impl InventoryBuilder {
             // When saving ManageHostBuilder for final result, check unicity of hosts by their id
             if let Some(old_managed_host_builder) = final_hosts.insert(host.id.to_string(), host) {
                 error!(name = old_managed_host_builder.id, "duplicate host id");
-                return Err(Error::WrongInitialization(format!(
+                return Err(RegentError::WrongInitialization(format!(
                     "duplicate host id : {}",
                     old_managed_host_builder.id
                 )));
@@ -108,7 +116,7 @@ impl InventoryBuilder {
 #[serde(deny_unknown_fields)]
 pub struct Inventory {
     name: String,
-    hosts: HashMap<String, ManagedHostBuilder>,
+    hosts: HashMap<String, ManagedHostBuilder>, // HostId -> ManagedHostBuilder
 }
 
 impl Inventory {
@@ -116,18 +124,29 @@ impl Inventory {
         Self { name, hosts }
     }
 
-    pub fn init_connections(
+    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Inventory, RegentError> {
+        InventoryBuilder::from_raw_yaml(raw_yaml)
+    }
+
+    pub fn from_raw_json(raw_json: &str) -> Result<Inventory, RegentError> {
+        InventoryBuilder::from_raw_json(raw_json)
+    }
+
+    pub async fn init(
         &mut self,
-        secret_provider: &Option<SecretProvider>,
-    ) -> Result<LivingInventory, Error> {
-        let span = span!(Level::INFO, "inventory_connections", name = self.name);
+        optional_secret_provider: Option<SecretProvider>,
+    ) -> Result<LivingInventory, RegentError> {
+        let span = span!(Level::INFO, "inventory_init", name = self.name);
         let _enter = span.enter();
 
         let mut managed_hosts: HashMap<String, ManagedHost> = HashMap::new();
 
         for (host_id, managed_host_builder) in self.hosts.clone() {
             // Try to build a ManagedHost out of a ManagedHostBuilder (implies fetching secrets when needed)
-            match managed_host_builder.build(secret_provider) {
+            match managed_host_builder
+                .build(optional_secret_provider.clone())
+                .await
+            {
                 Ok(mut managed_host) => {
                     let host_span = span!(Level::DEBUG, "host_connection", host_id);
                     let _host_enter = host_span.enter();
@@ -182,7 +201,7 @@ impl LivingInventory {
         info!(key, "Added variable to all hosts");
     }
 
-    pub fn collect_properties(&mut self) -> Result<(), Error> {
+    pub fn collect_properties(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "living_inventory_collect_properties");
         let _enter = span.enter();
 
@@ -201,7 +220,7 @@ impl LivingInventory {
                 debug!("Collecting properties");
                 managed_host.collect_properties()
             })
-            .collect::<Vec<Result<(), Error>>>()
+            .collect::<Vec<Result<(), RegentError>>>()
         {
             if let Err(details) = result {
                 error!("Failed to collect properties: {:?}", details);
@@ -213,7 +232,7 @@ impl LivingInventory {
         Ok(())
     }
 
-    pub fn disconnect(&mut self) -> Result<(), Error> {
+    pub fn disconnect(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "inventory_disconnect");
         let _enter = span.enter();
 
@@ -229,7 +248,7 @@ impl LivingInventory {
                 debug!("Disconnecting from host {}", host_id);
                 managed_host.disconnect()
             })
-            .collect::<Vec<Result<(), Error>>>()
+            .collect::<Vec<Result<(), RegentError>>>()
         {
             if let Err(details) = result {
                 error!("Failed to disconnect host: {:?}", details);
@@ -241,38 +260,35 @@ impl LivingInventory {
         Ok(())
     }
 
-    pub fn assess_compliance(
+    pub async fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
-        let span = span!(Level::INFO, "inventory");
-        let _enter = span.enter();
+    ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
+        let job_span = span!(Level::INFO, "job", id = self.name, goal = "assess");
+        let _enter = job_span.enter();
 
         info!("Assessing compliance for {} hosts", self.hosts.len());
 
-        let results: Result<Vec<_>, _> = self
-            .hosts
-            .par_iter_mut()
-            .map(|(host_id, managed_host)| {
-                let host_span = span!(Level::DEBUG, "host", host_id);
-                let _host_enter = host_span.enter();
+        let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
 
-                debug!(name = host_id, "Assessing compliance");
-                match managed_host.assess_compliance(expected_state, optional_secret_provider) {
-                    Ok(managed_host_status) => {
-                        debug!("Compliance assessment complete");
-                        Ok((host_id.to_string(), managed_host_status))
-                    }
-                    Err(details) => {
-                        error!("Failed to assess compliance : {:?}", details);
-                        Err(details)
-                    }
+        // TODO : make this run concurrently by spawning tasks
+        for (host_id, managed_host) in &mut self.hosts {
+            let host_span = span!(Level::DEBUG, "host", host_id);
+            let _host_enter = host_span.enter();
+
+            debug!(name = host_id, "Assessing compliance");
+            match managed_host.assess_compliance(expected_state).await {
+                Ok(managed_host_status) => {
+                    debug!("Compliance assessment complete");
+                    results.push((host_id.to_string(), managed_host_status));
                 }
-            })
-            .collect();
+                Err(details) => {
+                    error!("Failed to assess compliance : {:?}", details);
+                    return Err(details);
+                }
+            }
+        }
 
-        let results = results?;
         let results_map: HashMap<String, ManagedHostStatus> = results.into_iter().collect();
 
         info!(
@@ -282,54 +298,51 @@ impl LivingInventory {
         Ok(results_map)
     }
 
-    pub fn reach_compliance(
+    pub async fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<HashMap<String, ManagedHostStatus>, Error> {
-        let job_span = span!(Level::INFO, "job", inv = self.name, goal = "enforcement");
+    ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
+        let job_span = span!(Level::INFO, "job", id = self.name, goal = "enforce");
         let _enter = job_span.enter();
 
         debug!("Starting");
 
-        let results: Result<Vec<_>, _> = self
-            .hosts
-            .par_iter_mut()
-            .map(|(host_id, managed_host)| {
-                let host_span = span!(parent: &job_span, Level::INFO, "host", id = host_id);
-                let _host_enter = host_span.enter();
+        let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
 
-                info!(target: "run",
-                    "Starting to enforce compliance (described by {} attribute(s))",
-                    expected_state.attributes.len()
-                );
-                match managed_host.reach_compliance(expected_state, optional_secret_provider) {
-                    Ok(managed_host_status) => {
-                        match managed_host_status.state {
-                            HostStatus::AlreadyCompliant => {
-                                info!(target: "run","Already compliant");
-                            }
-                            HostStatus::NotCompliant => {
-                                warn!("Not compliant");
-                            }
-                            HostStatus::ReachComplianceSuccess => {
-                                info!(target: "run","Compliance reached")
-                            }
-                            HostStatus::ReachComplianceFailed => {
-                                warn!("Failed to reach compliance")
-                            }
+        // TODO : make this run concurrently by spawning tasks
+        for (host_id, managed_host) in &mut self.hosts {
+            let host_span = span!(parent: &job_span, Level::INFO, "host", id = host_id);
+            let _host_enter = host_span.enter();
+
+            info!(target: "run",
+                "Starting to enforce compliance (described by {} attribute(s))",
+                expected_state.attributes.len()
+            );
+            match managed_host.reach_compliance(expected_state).await {
+                Ok(managed_host_status) => {
+                    match managed_host_status.state {
+                        HostStatus::AlreadyCompliant => {
+                            info!(target: "run","Already compliant");
                         }
-                        Ok((host_id.to_string(), managed_host_status))
+                        HostStatus::NotCompliant => {
+                            warn!("Not compliant");
+                        }
+                        HostStatus::ReachComplianceSuccess => {
+                            info!(target: "run","Compliance reached")
+                        }
+                        HostStatus::ReachComplianceFailed => {
+                            warn!("Failed to reach compliance")
+                        }
                     }
-                    Err(details) => {
-                        warn!("Failed to reach compliance");
-                        Err(details)
-                    }
+                    results.push((host_id.to_string(), managed_host_status));
                 }
-            })
-            .collect();
+                Err(details) => {
+                    warn!("Failed to reach compliance");
+                    return Err(details);
+                }
+            }
+        }
 
-        let results = results?;
         let results_map: HashMap<String, ManagedHostStatus> = results.into_iter().collect();
 
         info!(target: "run","All hosts handled");

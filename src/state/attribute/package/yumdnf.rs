@@ -1,8 +1,9 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -72,47 +73,47 @@ impl YumDnfBlockExpectedState {
         self
     }
 
-    pub fn build(&self) -> Result<YumDnfBlockExpectedState, Error> {
-        // if let Err(error_detail) = self.check() {
-        //     return Err(error_detail);
-        // }
+    pub fn build(&self) -> Result<YumDnfBlockExpectedState, RegentError> {
+        if let Err(details) = self.check() {
+            return Err(details);
+        }
         Ok(self.clone())
     }
 }
 
-// impl Check for YumDnfBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
-//         if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "All parameters are unset. Please describe the expected state."
-//             )));
-//         }
-//         if let (None, Some(package_name)) = (&self.state, &self.package) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "Missing 'state' parameter. What is the expected state of the package ({}) ?",
-//                 package_name
-//             )));
-//         }
-//         if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "Missing 'package' parameter. Which package should be {:?} ?",
-//                 package_expected_state
-//             )));
-//         }
-//         Ok(())
-//     }
-// }
+impl Check for YumDnfBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "All parameters are unset. Please describe the expected state."
+            )));
+        }
+        if let (None, Some(package_name)) = (&self.state, &self.package) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Missing 'state' parameter. What is the expected state of the package ({}) ?",
+                package_name
+            )));
+        }
+        if let (Some(package_expected_state), None) = (&self.state, &self.package) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Missing 'package' parameter. Which package should be {:?} ?",
+                package_expected_state
+            )));
+        }
+        Ok(())
+    }
+}
 
 #[allow(unused_assignments)] // 'package_manager' is never actually read, only borrowed
 impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
 
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         let package_manager: RedHatFlavoredPackageManager;
 
         if host_handler
@@ -126,7 +127,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
         {
             package_manager = RedHatFlavoredPackageManager::Yum;
         } else {
-            return Err(Error::FailedDryRunEvaluation(
+            return Err(RegentError::FailedDryRunEvaluation(
                 "Neither YUM nor DNF work on this host".to_string(),
             ));
         }
@@ -246,12 +247,12 @@ impl YumDnfApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         let (cmd, privilege) = match &self.api_call {
             YumDnfModuleInternalApiCall::Install(package_name) => (
                 format!(
@@ -366,25 +367,24 @@ mod tests {
     #[test]
     fn rejecting_incorrect_yumdnf_module_block_from_yaml_str() {
         let raw_attribute = "---
-- 
+Package: httpd
     ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package: httpd
+Package:
+State: !Absent
     ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package:
-  State: !Absent
-    ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
-
-        let raw_attribute = "---
-- Package: httpd
-  State: !Absent
-  unknown_key: unknown_value
+Package: httpd
+State: !Absent
+unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
     }

@@ -1,8 +1,9 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::compliance::AttributeComplianceAssessment;
@@ -13,27 +14,27 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "PascalCase")]
 pub struct PingBlockExpectedState {}
 
-// impl Check for PingBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
-//         Ok(())
-//     }
-// }
+impl Check for PingBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         let cmd = String::from("id");
         let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
 
         if cmd_result.return_code == 0 {
             return Ok(AttributeComplianceAssessment::Compliant);
         } else {
-            return Err(Error::FailedDryRunEvaluation(
+            return Err(RegentError::FailedDryRunEvaluation(
                 "Host unreachable".to_string(),
             ));
         }
@@ -52,12 +53,12 @@ impl PingApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
-    fn call(
+    async fn call(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         Ok(InternalApiCallOutcome::Success(None))
     }
 }

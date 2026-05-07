@@ -6,9 +6,10 @@ use regent_sdk::secrets::SecretProvider;
 use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
 use regent_sdk::{Attribute, ExpectedState};
-use regent_sdk::{Error, Privilege};
+use regent_sdk::{Privilege, RegentError};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Sending end
     // Create a RegentTask out of multiple inputs
     let serialized_regent_task = create_a_regent_task();
@@ -22,7 +23,7 @@ fn main() {
     let secret_provider = SecretProvider::env_var();
 
     let regent_task_result =
-        run_a_given_regent_task(serialized_regent_task, &Some(secret_provider));
+        run_a_given_regent_task(serialized_regent_task, Some(secret_provider)).await;
     println!("{:?}", regent_task_result);
 }
 
@@ -55,11 +56,11 @@ fn create_a_regent_task() -> String {
     serde_json::to_string(&regent_task).unwrap()
 }
 
-fn run_a_given_regent_task(
+async fn run_a_given_regent_task(
     raw_regent_task: String,
-    secret_provider: &Option<SecretProvider>,
-) -> Result<RegentTaskResult, Error> {
+    secret_provider: Option<SecretProvider>,
+) -> Result<RegentTaskResult, RegentError> {
     let mut regent_task = serde_json::from_str::<RegentTask>(&raw_regent_task).unwrap();
 
-    regent_task.run(secret_provider)
+    regent_task.run(secret_provider).await
 }

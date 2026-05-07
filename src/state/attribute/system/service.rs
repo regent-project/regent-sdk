@@ -1,8 +1,9 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -89,52 +90,52 @@ impl ServiceBlockExpectedState {
         self
     }
 
-    pub fn build(&self) -> Result<ServiceBlockExpectedState, Error> {
-        // if let Err(error_detail) = self.check() {
-        //     return Err(error_detail);
-        // }
+    pub fn build(&self) -> Result<ServiceBlockExpectedState, RegentError> {
+        if let Err(details) = self.check() {
+            return Err(details);
+        }
         Ok(self.clone())
     }
 }
 
-// impl Check for ServiceBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
-//         if let (None, None) = (&self.current_status, &self.auto_start) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "Incomplete minimal description of the expected state of the service."
-//             )));
-//         }
-//         if let Some(false) = self.exists {
-//             if let Some(ServiceExpectedStatus::Active) = self.current_status {
-//                 return Err(Error::IncoherentExpectedState(format!(
-//                     "Service cannot be both active and non-existing."
-//                 )));
-//             }
-//             if let Some(ServiceExpectedAutoStart::Enabled) = self.auto_start {
-//                 return Err(Error::IncoherentExpectedState(format!(
-//                     "Service cannot be both enabled and non-existing."
-//                 )));
-//             }
-//         }
-//         Ok(())
-//     }
-// }
+impl Check for ServiceBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        if let (None, None) = (&self.current_status, &self.auto_start) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Incomplete minimal description of the expected state of the service."
+            )));
+        }
+        if let Some(false) = self.exists {
+            if let Some(ServiceExpectedStatus::Active) = self.current_status {
+                return Err(RegentError::IncoherentExpectedState(format!(
+                    "Service cannot be both active and non-existing."
+                )));
+            }
+            if let Some(ServiceExpectedAutoStart::Enabled) = self.auto_start {
+                return Err(RegentError::IncoherentExpectedState(format!(
+                    "Service cannot be both enabled and non-existing."
+                )));
+            }
+        }
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         // Prechecks
 
         if !host_handler
             .is_this_command_available("systemctl", &privilege)
             .unwrap()
         {
-            return Err(Error::FailedDryRunEvaluation(
+            return Err(RegentError::FailedDryRunEvaluation(
                 "SYSTEMCTL not available on this host".to_string(),
             ));
         }
@@ -146,12 +147,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
 
         let service_is_active = match service_is_active(host_handler, &self.name, must_exists) {
             Ok(active_state) => active_state,
-            Err(e) => return Err(Error::FailedDryRunEvaluation(e)),
+            Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
 
         let service_is_enabled = match service_is_enabled(host_handler, &self.name, must_exists) {
             Ok(enabled_state) => enabled_state,
-            Err(e) => return Err(Error::FailedDryRunEvaluation(e)),
+            Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
 
         // Changes assessment
@@ -161,17 +162,17 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         // - one of them is required
         if let (None, None) = (&self.current_status, &self.auto_start) {
             // PROBLEM : both 'state' and 'enabled' are empty
-            return Err(Error::FailedDryRunEvaluation(
+            return Err(RegentError::FailedDryRunEvaluation(
                 "STATE and ENABLED fields are both empty in provided Task List".to_string(),
             ));
         } else if let Some(false) = self.exists {
             if let Some(ServiceExpectedStatus::Active) = self.current_status {
-                return Err(Error::IncoherentExpectedState(format!(
+                return Err(RegentError::IncoherentExpectedState(format!(
                     "Service cannot be both active and non-existing."
                 )));
             }
             if let Some(ServiceExpectedAutoStart::Enabled) = self.auto_start {
-                return Err(Error::IncoherentExpectedState(format!(
+                return Err(RegentError::IncoherentExpectedState(format!(
                     "Service cannot be both enabled and non-existing."
                 )));
             }
@@ -283,12 +284,12 @@ impl ServiceApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         let (cmd, privilege) = match &self.api_call {
             ServiceModuleInternalApiCall::Start(service_name) => {
                 (format!("systemctl start {}", service_name), &self.privilege)

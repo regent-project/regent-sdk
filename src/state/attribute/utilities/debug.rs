@@ -1,8 +1,9 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -17,20 +18,20 @@ pub struct DebugBlockExpectedState {
     // var: Option<String>, // TODO
 }
 
-// impl Check for DebugBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
-//         Ok(())
-//     }
-// }
+impl Check for DebugBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         return Ok(AttributeComplianceAssessment::NonCompliant(Vec::from([
             Remediation::None(self.msg.clone()),
         ])));
@@ -47,12 +48,12 @@ impl DebugApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
-    fn call(
+    async fn call(
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         Ok(InternalApiCallOutcome::Success(None))
     }
 }

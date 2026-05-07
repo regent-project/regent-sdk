@@ -2,13 +2,15 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::{Router, extract::State, routing::get};
+use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
+use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use serde::Serialize;
 
 use regent_sdk::attribute::system::service::{
     ServiceBlockExpectedState, ServiceExpectedAutoStart, ServiceExpectedStatus,
 };
 use regent_sdk::{Attribute, ExpectedState};
-use regent_sdk::{LocalHostHandler, ManagedHost, Privilege, WhichUser};
+use regent_sdk::{ManagedHost, Privilege};
 
 #[tokio::main]
 async fn main() {
@@ -24,11 +26,18 @@ async fn main() {
         .with_attribute(Attribute::service(
             httpd_service_active_and_enabled,
             Privilege::None,
+            Some("http_service_up_and_running".to_string()),
         ))
         .build();
 
-    let mut localhost_manager =
-        ManagedHost::new("localhost", LocalHostHandler::new(WhichUser::CurrentUser));
+    let localhost_manager = ManagedHostBuilder::new(
+        "local_server",
+        "localhost",
+        Some(ConnectionMethod::Localhost(TargetUser::current_user())),
+    )
+    .build(None)
+    .await
+    .unwrap();
 
     // Create a state for the webapp, holding the host expected configuration and how regent is supposed to interact with it
     let app_state = AppState {
@@ -45,12 +54,14 @@ async fn main() {
         .await
         .unwrap();
 
-    axum::serve(api_endpoint, api_app.into_make_service()).await;
+    axum::serve(api_endpoint, api_app.into_make_service())
+        .await
+        .unwrap();
 }
 
 // This handler will run the healtcheck on localhost
 async fn health_check(State(mut app_state): State<AppState>) -> impl IntoResponse {
-    match app_state.check_localhost_health() {
+    match app_state.check_localhost_health().await {
         Ok((status_code, health_check_content)) => {
             (status_code, Json(health_check_content)).into_response()
         }
@@ -60,6 +71,7 @@ async fn health_check(State(mut app_state): State<AppState>) -> impl IntoRespons
         }
     }
 }
+
 #[derive(Serialize)]
 struct HealthCheckResponse {
     date: String,
@@ -75,13 +87,19 @@ enum HostStatus {
 
 #[derive(Clone)]
 struct AppState {
-    managed_host: ManagedHost<LocalHostHandler>,
+    managed_host: ManagedHost,
     expected_state: ExpectedState,
 }
 
 impl AppState {
-    fn check_localhost_health(&mut self) -> Result<(StatusCode, HealthCheckResponse), String> {
-        match self.managed_host.assess_compliance(&self.expected_state) {
+    async fn check_localhost_health(
+        &mut self,
+    ) -> Result<(StatusCode, HealthCheckResponse), String> {
+        match self
+            .managed_host
+            .assess_compliance(&self.expected_state)
+            .await
+        {
             Ok(compliance_status) => {
                 let date = chrono::Utc::now()
                     .format("%Y-%m-%dT%H:%M:%S+00:00")

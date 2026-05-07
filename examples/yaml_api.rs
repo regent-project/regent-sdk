@@ -1,14 +1,13 @@
 use regent_sdk::ExpectedState;
-use regent_sdk::hosts::inventory::InventoryBuilder;
+use regent_sdk::hosts::inventory::Inventory;
 use regent_sdk::secrets::SecretProvider;
 use tracing_subscriber;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     tracing_subscriber::fmt().init();
 
     let yaml_inventory_builder = r#"---
-Name: my_inventory
-
 DefaultConnectionMethod: !Ssh2
     AuthMethod: !Key
         Username: regenter
@@ -27,10 +26,7 @@ Hosts:
         SecRef: ./dev/credentials.secret
 "#;
 
-    let mut inventory = InventoryBuilder::from_raw_yaml(yaml_inventory_builder)
-        .unwrap()
-        .build()
-        .unwrap();
+    let mut inventory = Inventory::from_raw_yaml(yaml_inventory_builder).unwrap();
 
     // Describe the expected state
     let expected_state_description = r#"---
@@ -39,7 +35,7 @@ Attributes:
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      Line: "{{ line_content }}"
+      Line: "A_VERY_LONG_TOKEN"
       State: !Present
       Position: !Top
 
@@ -59,33 +55,30 @@ Attributes:
         }
     };
 
-    let secret_provider = Some(SecretProvider::files());
+    let secret_provider = SecretProvider::files();
 
     // Open connections within this Inventory
-    let mut living_inventory = inventory
-        .init_connections(&Some(SecretProvider::files()))
-        .unwrap();
+    let mut living_inventory = inventory.init(Some(secret_provider)).await.unwrap();
 
     // Try reach compliance if not already there
-    match living_inventory.reach_compliance(&expected_state, &secret_provider) {
+    match living_inventory.reach_compliance(&expected_state).await {
         Ok(inventory_compliance) => {
             for (host_id, compliance_status) in inventory_compliance {
                 if compliance_status.is_already_compliant() {
-                    println!("Congratulations, {} is already compliant !", host_id);
+                    // Do something with that information
                 } else {
-                    println!(
-                        "Oups ! {} is not compliant. Here is the list of required remediations :",
-                        host_id
-                    );
-
+                    // This host was not compliant. Actions have been taken to remedy this situation.
+                    // You have access to what was done :
+                    // - in realtime through tracing events created on the fly
+                    // - after the fact with this :
                     for (remediation, remediation_outcome) in compliance_status.actions_taken() {
                         println!("*** {:?} -> {:?}", remediation, remediation_outcome);
                     }
                 }
             }
         }
-        Err(_error_detail) => {
-            // println!("Failed to assess compliance : {:?}", error_detail);
+        Err(error_detail) => {
+            // Something went seriously wrong and forbade from even trying to assess/reach compliance.
         }
     }
 }

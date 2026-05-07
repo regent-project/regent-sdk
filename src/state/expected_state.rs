@@ -1,5 +1,5 @@
 use crate::secrets::SecretProvider;
-use crate::{Error, secrets::SecretReference, state::attribute::Attribute};
+use crate::{RegentError, secrets::SecretReference, state::attribute::Attribute};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display};
@@ -23,10 +23,17 @@ impl ExpectedState {
         self
     }
 
-    pub fn from_raw_yaml(raw_yaml_content: &str) -> Result<Self, Error> {
+    pub fn from_raw_yaml(raw_yaml_content: &str) -> Result<Self, RegentError> {
         match yaml_serde::from_str::<ExpectedState>(raw_yaml_content) {
-            Ok(expected_state) => Ok(expected_state),
-            Err(error_details) => Err(Error::FailureToParseContent(format!("{}", error_details))),
+            Ok(expected_state) => {
+                for attribute in &expected_state.attributes {
+                    if let Err(details) = attribute.check() {
+                        return Err(details);
+                    }
+                }
+                Ok(expected_state)
+            }
+            Err(detailss) => Err(RegentError::FailureToParseContent(format!("{}", detailss))),
         }
     }
 
@@ -77,23 +84,26 @@ where
 }
 
 impl Parameter<String> {
-    pub fn inner_raw(
+    pub async fn inner_raw(
         self,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<String, Error> {
+    ) -> Result<String, RegentError> {
         match self {
             Parameter::Clear(content) => Ok(content),
             Parameter::Secret(secret_reference) => match optional_secret_provider {
                 Some(secret_provider) => {
-                    match secret_provider.get_secret_raw(secret_reference.sec_ref()) {
+                    match secret_provider
+                        .get_secret_raw(secret_reference.sec_ref())
+                        .await
+                    {
                         Ok(secret) => Ok(secret.inner()),
-                        Err(error_detail) => {
-                            return Err(Error::FailedToGetSecret(format!("{:?}", error_detail)));
+                        Err(details) => {
+                            return Err(RegentError::FailedToGetSecret(format!("{:?}", details)));
                         }
                     }
                 }
                 None => {
-                    return Err(Error::WrongInitialization(
+                    return Err(RegentError::WrongInitialization(
                         "Secrets are referenced but no SecretProvider to retrieve them from"
                             .to_string(),
                     ));
@@ -104,20 +114,26 @@ impl Parameter<String> {
 }
 
 impl<T: DeserializeOwned> Parameter<T> {
-    pub fn inner(self, optional_secret_provider: &Option<SecretProvider>) -> Result<T, Error> {
+    pub async fn inner(
+        self,
+        optional_secret_provider: &Option<SecretProvider>,
+    ) -> Result<T, RegentError> {
         match self {
             Parameter::Clear(content) => Ok(content),
             Parameter::Secret(secret_reference) => match optional_secret_provider {
                 Some(secret_provider) => {
-                    match secret_provider.get_secret_typed::<T>(secret_reference.sec_ref()) {
+                    match secret_provider
+                        .get_secret_typed::<T>(secret_reference.sec_ref())
+                        .await
+                    {
                         Ok(secret) => Ok(secret.inner()),
-                        Err(error_detail) => {
-                            return Err(Error::FailedToGetSecret(format!("{:?}", error_detail)));
+                        Err(details) => {
+                            return Err(RegentError::FailedToGetSecret(format!("{:?}", details)));
                         }
                     }
                 }
                 None => {
-                    return Err(Error::WrongInitialization(
+                    return Err(RegentError::WrongInitialization(
                         "Secrets are referenced but no SecretProvider to retrieve them from"
                             .to_string(),
                     ));

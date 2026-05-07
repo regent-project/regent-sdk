@@ -9,7 +9,7 @@ use crate::LocalHostHandler;
 use crate::Ssh2AuthMethod;
 use crate::Ssh2HostHandler;
 use crate::WhichUser;
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::handlers::ConnectionMethod;
 use crate::hosts::handlers::Handler;
 use crate::hosts::handlers::HostHandler;
@@ -57,24 +57,27 @@ impl ManagedHostBuilder {
         self.host_vars = host_vars;
     }
 
-    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, Error> {
+    pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, RegentError> {
         match yaml_serde::from_str::<Self>(raw_yaml) {
             Ok(managed_host_builder) => Ok(managed_host_builder),
-            Err(error_detail) => Err(Error::FailureToParseContent(format!("{:?}", error_detail))),
+            Err(details) => Err(RegentError::FailureToParseContent(format!("{:?}", details))),
         }
     }
 
-    pub fn from_raw_json(raw_json: &str) -> Result<Self, Error> {
+    pub fn from_raw_json(raw_json: &str) -> Result<Self, RegentError> {
         match serde_json::from_str::<Self>(raw_json) {
             Ok(managed_host_builder) => Ok(managed_host_builder),
-            Err(error_detail) => Err(Error::FailureToParseContent(format!("{:?}", error_detail))),
+            Err(details) => Err(RegentError::FailureToParseContent(format!("{:?}", details))),
         }
     }
 
-    pub fn build(self, secret_provider: &Option<SecretProvider>) -> Result<ManagedHost, Error> {
+    pub async fn build(
+        self,
+        optional_secret_provider: Option<SecretProvider>,
+    ) -> Result<ManagedHost, RegentError> {
         // Check that each required field is set
         if let None = self.host_connection_method {
-            return Err(Error::WrongInitialization(format!(
+            return Err(RegentError::WrongInitialization(format!(
                 "connection method unset"
             )));
         }
@@ -95,41 +98,49 @@ impl ManagedHostBuilder {
                                     )),
                                     self.host_vars,
                                     self.host_properties,
-                                    secret_provider.clone(),
+                                    optional_secret_provider,
                                 ))
                             }
-                            TargetUserKind::User(secret_reference) => match secret_provider {
-                                Some(secret_provider) => {
-                                    match secret_provider
-                                        .get_secret_typed::<Credentials>(secret_reference.sec_ref())
-                                    {
-                                        Ok(secret) => Ok(ManagedHost::new(
-                                            self.id,
-                                            &self.endpoint,
-                                            Handler::localhost(LocalHostHandler::from(
-                                                WhichUser::UsernamePassword(secret.inner()),
+                            TargetUserKind::User(secret_reference) => {
+                                match &optional_secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret_typed::<Credentials>(
+                                                secret_reference.sec_ref(),
+                                            )
+                                            .await
+                                        {
+                                            Ok(secret) => Ok(ManagedHost::new(
+                                                self.id,
+                                                &self.endpoint,
+                                                Handler::localhost(LocalHostHandler::from(
+                                                    WhichUser::UsernamePassword(secret.inner()),
+                                                )),
+                                                self.host_vars,
+                                                self.host_properties,
+                                                optional_secret_provider,
                                             )),
-                                            self.host_vars,
-                                            self.host_properties,
-                                            Some(secret_provider.clone()),
-                                        )),
-                                        Err(error_detail) => Err(error_detail),
+                                            Err(details) => Err(details),
+                                        }
                                     }
+                                    None => Err(RegentError::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
                                 }
-                                None => Err(Error::WrongInitialization(format!(
-                                    "secret required to connect to host but secret_provider unset"
-                                ))),
-                            },
+                            }
                         }
                     }
                     ConnectionMethod::Ssh2(ssh2_auth_reference) => {
                         match ssh2_auth_reference.auth_method {
                             Ssh2AuthReference::UsernamePassword(secret_reference) => {
-                                match secret_provider {
+                                match &optional_secret_provider {
                                     Some(secret_provider) => {
-                                        match secret_provider.get_secret_typed::<Credentials>(
-                                            secret_reference.sec_ref(),
-                                        ) {
+                                        match secret_provider
+                                            .get_secret_typed::<Credentials>(
+                                                secret_reference.sec_ref(),
+                                            )
+                                            .await
+                                        {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
@@ -137,42 +148,47 @@ impl ManagedHostBuilder {
                                                     Ssh2AuthMethod::UsernamePassword(
                                                         secret.inner(),
                                                     ),
-                                                )),
+                                                )?),
                                                 self.host_vars,
                                                 self.host_properties,
-                                                Some(secret_provider.clone()),
+                                                optional_secret_provider,
                                             )),
-                                            Err(error_detail) => Err(error_detail),
+                                            Err(details) => Err(details),
                                         }
                                     }
-                                    None => Err(Error::WrongInitialization(format!(
+                                    None => Err(RegentError::WrongInitialization(format!(
                                         "secret required to connect to host but secret_provider unset"
                                     ))),
                                 }
                             }
-                            Ssh2AuthReference::Key(login_key_ref) => match secret_provider {
-                                Some(secret_provider) => {
-                                    match secret_provider.get_secret_raw(login_key_ref.key_ref()) {
-                                        Ok(secret) => Ok(ManagedHost::new(
-                                            self.id,
-                                            &self.endpoint,
-                                            Handler::ss2(Ssh2HostHandler::from(
-                                                Ssh2AuthMethod::Key(LoginKey::from(
-                                                    login_key_ref.username().to_string(),
-                                                    secret.inner(),
-                                                )),
+                            Ssh2AuthReference::Key(login_key_ref) => {
+                                match &optional_secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret_raw(login_key_ref.key_ref())
+                                            .await
+                                        {
+                                            Ok(secret) => Ok(ManagedHost::new(
+                                                self.id,
+                                                &self.endpoint,
+                                                Handler::ss2(Ssh2HostHandler::from(
+                                                    Ssh2AuthMethod::Key(LoginKey::from(
+                                                        login_key_ref.username().to_string(),
+                                                        secret.inner(),
+                                                    )),
+                                                )?),
+                                                self.host_vars,
+                                                self.host_properties,
+                                                optional_secret_provider,
                                             )),
-                                            self.host_vars,
-                                            self.host_properties,
-                                            Some(secret_provider.clone()),
-                                        )),
-                                        Err(error_detail) => Err(error_detail),
+                                            Err(details) => Err(details),
+                                        }
                                     }
+                                    None => Err(RegentError::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
                                 }
-                                None => Err(Error::WrongInitialization(format!(
-                                    "secret required to connect to host but secret_provider unset"
-                                ))),
-                            },
+                            }
                             Ssh2AuthReference::Agent(agent_name) => {
                                 // No secret required
                                 Ok(ManagedHost::new(
@@ -180,17 +196,17 @@ impl ManagedHostBuilder {
                                     &self.endpoint,
                                     Handler::ss2(Ssh2HostHandler::from(
                                         crate::Ssh2AuthMethod::Agent(agent_name),
-                                    )),
+                                    )?),
                                     self.host_vars,
                                     self.host_properties,
-                                    secret_provider.clone(),
+                                    optional_secret_provider,
                                 ))
                             }
                         }
                     }
                 }
             }
-            None => Err(Error::WrongInitialization(format!(
+            None => Err(RegentError::WrongInitialization(format!(
                 "connection_method unset"
             ))),
         }
@@ -216,13 +232,24 @@ impl ManagedHost {
         host_properties: Option<HostProperties>,
         secret_provider: Option<SecretProvider>,
     ) -> ManagedHost {
+        let context = match host_vars {
+            Some(content) => match tera::Context::from_serialize(content) {
+                Ok(context) => context,
+                Err(details) => {
+                    error!("Failed to create Tera context : {:?}", details);
+                    // TODO : turn this into an Err -> return type of this function -> Result
+                    tera::Context::new()
+                }
+            },
+            None => tera::Context::new(),
+        };
         ManagedHost {
             id,
             endpoint: endpoint.to_string(),
             handler,
-            context: tera::Context::from_serialize(host_vars).unwrap(),
+            context,
             host_properties,
-            secret_provider,
+            secret_provider: secret_provider.clone(),
         }
     }
 
@@ -269,13 +296,13 @@ impl ManagedHost {
         self.host_properties = host_properties;
     }
 
-    pub fn collect_properties(&mut self) -> Result<(), Error> {
+    pub fn collect_properties(&mut self) -> Result<(), RegentError> {
         match HostProperties::collect_dynamically(&mut self.handler) {
             Ok(host_properties) => {
                 self.host_properties = Some(host_properties);
                 Ok(())
             }
-            Err(error_detail) => Err(error_detail),
+            Err(details) => Err(details),
         }
     }
 
@@ -283,41 +310,46 @@ impl ManagedHost {
         &self.host_properties
     }
 
-    pub fn connect(&mut self) -> Result<(), Error> {
+    pub fn connect(&mut self) -> Result<(), RegentError> {
         self.handler
-            .connect(&self.endpoint, &self.secret_provider.clone().unwrap())
+            .connect(&self.endpoint, &self.secret_provider.clone())
     }
 
     pub fn is_connected(&mut self) -> bool {
         self.handler.is_connected()
     }
 
-    pub fn disconnect(&mut self) -> Result<(), Error> {
+    pub fn disconnect(&mut self) -> Result<(), RegentError> {
         self.handler.disconnect()
     }
 
     // Defaults to sequential assessment
-    pub fn assess_compliance(
+    pub async fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<ManagedHostStatus, Error> {
+    ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected() {
-            return Err(Error::NotConnectedToHost);
+            return Err(RegentError::NotConnectedToHost);
         }
 
         let mut already_compliant = true;
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
         for attribute in expected_state.attributes.clone().iter_mut() {
+            let span = span!(Level::INFO, "attribute", name = attribute.name());
+            let _enter = span.enter();
+
             // Taking context into account before working on the Attribute
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
-                    match context_aware_attribute.assess(
-                        &mut self.handler,
-                        &self.host_properties,
-                        optional_secret_provider,
-                    ) {
+                    match context_aware_attribute
+                        .assess(
+                            &mut self.handler,
+                            &self.host_properties,
+                            &self.secret_provider,
+                        )
+                        .await
+                    {
                         Ok(attribute_compliance) => {
                             if let AttributeComplianceAssessment::NonCompliant(remediations) =
                                 attribute_compliance
@@ -326,13 +358,18 @@ impl ManagedHost {
                                 final_remediations_list.extend(remediations);
                             }
                         }
-                        Err(error_detail) => {
-                            return Err(error_detail);
+                        Err(details) => {
+                            return Err(details);
                         }
                     }
                 }
-                Err(error_detail) => {
-                    return Err(error_detail);
+                Err(details) => {
+                    let content = match &details {
+                        RegentError::FailureToConsiderContext(content) => content,
+                        _ => &format!("{:?}", details),
+                    };
+                    error!("{}", content);
+                    return Err(details);
                 }
             }
         }
@@ -344,82 +381,89 @@ impl ManagedHost {
         }
     }
 
-    pub fn assess_compliance_in_parallel(
+    // pub async fn assess_compliance_in_parallel(
+    //     &mut self,
+    //     expected_state: &ExpectedState,
+    //     optional_secret_provider: Option<SecretProvider>,
+    // ) -> Result<ManagedHostStatus, RegentError> {
+    //     if !self.is_connected() {
+    //         return Err(RegentError::NotConnectedToHost);
+    //     }
+
+    //     let mut already_compliant = true;
+    //     let mut final_remediations_list: Vec<Remediation> = Vec::new();
+
+    //     let (sender, receiver) =
+    //         std::sync::mpsc::channel::<Result<AttributeComplianceAssessment, RegentError>>();
+
+    //     for attribute in &expected_state.attributes {
+    //         let span = span!(Level::INFO, "attribute", name = attribute.name());
+    //         let _enter = span.enter();
+
+    //         // Taking context into account before working on the Attribute
+
+    //         match attribute.consider_context(&self.context) {
+    //             Ok(context_aware_attribute) => {
+    //                 let sender_clone = sender.clone();
+    //                 std::thread::spawn({
+    //                     let mut host_handler = self.handler.clone();
+    //                     let host_properties = self.host_properties.clone();
+    //                     let optional_secret_provider_clone = optional_secret_provider.clone();
+    //                     async move || {
+    //                         let result = context_aware_attribute.assess(
+    //                             &mut host_handler,
+    //                             &host_properties,
+    //                             &optional_secret_provider_clone,
+    //                         ).await;
+    //                         let _ = sender_clone.send(result);
+    //                     }
+    //                 });
+    //             }
+    //             Err(details) => {
+    //                 let content = match &details {
+    //                     RegentError::FailureToConsiderContext(content) => content,
+    //                     _ => &format!("{:?}", details),
+    //                 };
+    //                 error!("{}", content);
+    //                 return Err(details);
+    //             }
+    //         }
+    //     }
+
+    //     for _ in 0..expected_state.attributes.len() {
+    //         match receiver.recv() {
+    //             Ok(result_dry_run_attribute) => match result_dry_run_attribute {
+    //                 Ok(attribute_compliance) => {
+    //                     if let AttributeComplianceAssessment::NonCompliant(remediations) =
+    //                         attribute_compliance
+    //                     {
+    //                         already_compliant = false;
+    //                         final_remediations_list.extend(remediations);
+    //                     }
+    //                 }
+    //                 Err(details) => {
+    //                     return Err(details);
+    //                 }
+    //             },
+    //             Err(details) => {
+    //                 return Err(RegentError::FailedDryRunEvaluation(format!("{}", details)));
+    //             }
+    //         }
+    //     }
+
+    //     if already_compliant {
+    //         Ok(ManagedHostStatus::already_compliant())
+    //     } else {
+    //         Ok(ManagedHostStatus::not_compliant(final_remediations_list))
+    //     }
+    // }
+
+    pub async fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<ManagedHostStatus, Error> {
+    ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected() {
-            return Err(Error::NotConnectedToHost);
-        }
-
-        let mut already_compliant = true;
-        let mut final_remediations_list: Vec<Remediation> = Vec::new();
-
-        let (sender, receiver) =
-            std::sync::mpsc::channel::<Result<AttributeComplianceAssessment, Error>>();
-
-        for attribute in &expected_state.attributes {
-            // Taking context into account before working on the Attribute
-
-            match attribute.consider_context(&self.context) {
-                Ok(context_aware_attribute) => {
-                    let sender_clone = sender.clone();
-                    std::thread::spawn({
-                        let mut host_handler = self.handler.clone();
-                        let host_properties = self.host_properties.clone();
-                        let optional_secret_provider_clone = optional_secret_provider.clone();
-                        move || {
-                            let result = context_aware_attribute.assess(
-                                &mut host_handler,
-                                &host_properties,
-                                &optional_secret_provider_clone,
-                            );
-                            let _ = sender_clone.send(result);
-                        }
-                    });
-                }
-                Err(error_detail) => {
-                    return Err(error_detail);
-                }
-            }
-        }
-
-        for _ in 0..expected_state.attributes.len() {
-            match receiver.recv() {
-                Ok(result_dry_run_attribute) => match result_dry_run_attribute {
-                    Ok(attribute_compliance) => {
-                        if let AttributeComplianceAssessment::NonCompliant(remediations) =
-                            attribute_compliance
-                        {
-                            already_compliant = false;
-                            final_remediations_list.extend(remediations);
-                        }
-                    }
-                    Err(error_detail) => {
-                        return Err(error_detail);
-                    }
-                },
-                Err(error_detail) => {
-                    return Err(Error::FailedDryRunEvaluation(format!("{}", error_detail)));
-                }
-            }
-        }
-
-        if already_compliant {
-            Ok(ManagedHostStatus::already_compliant())
-        } else {
-            Ok(ManagedHostStatus::not_compliant(final_remediations_list))
-        }
-    }
-
-    pub fn reach_compliance(
-        &mut self,
-        expected_state: &ExpectedState,
-        optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<ManagedHostStatus, Error> {
-        if !self.is_connected() {
-            return Err(Error::NotConnectedToHost);
+            return Err(RegentError::NotConnectedToHost);
         }
 
         let mut final_host_status = HostStatus::AlreadyCompliant;
@@ -427,19 +471,18 @@ impl ManagedHost {
         let mut actions_taken: Vec<Action> = Vec::new();
 
         for attribute in &expected_state.attributes {
+            let span = span!(Level::INFO, "attribute", name = attribute.name());
+            let _enter = span.enter();
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
-                    let span = span!(
-                        Level::INFO,
-                        "attribute",
-                        name = context_aware_attribute.name()
-                    );
-                    let _enter = span.enter();
-                    match context_aware_attribute.assess(
-                        &mut self.handler,
-                        &self.host_properties,
-                        optional_secret_provider,
-                    ) {
+                    match context_aware_attribute
+                        .assess(
+                            &mut self.handler,
+                            &self.host_properties,
+                            &self.secret_provider,
+                        )
+                        .await
+                    {
                         Ok(attribute_compliance) => {
                             let outcome = attribute_compliance.clone();
                             match attribute_compliance {
@@ -448,7 +491,7 @@ impl ManagedHost {
                                     // Nothing to do
                                 }
                                 AttributeComplianceAssessment::NonCompliant(remediations) => {
-                                    info!(target: "run",assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
+                                    warn!(target: "run",assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
 
                                     // Host is not compliant as there are remediations to perform
                                     // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
@@ -457,11 +500,14 @@ impl ManagedHost {
                                     // Try to remedy
 
                                     for remediation in remediations {
-                                        match remediation.reach_compliance(
-                                            &mut self.handler,
-                                            &self.host_properties,
-                                            optional_secret_provider,
-                                        ) {
+                                        match remediation
+                                            .reach_compliance(
+                                                &mut self.handler,
+                                                &self.host_properties,
+                                                &self.secret_provider,
+                                            )
+                                            .await
+                                        {
                                             Ok(internal_api_call_outcome) => {
                                                 actions_taken.push(Action::from(
                                                     remediation.clone(),
@@ -492,9 +538,9 @@ impl ManagedHost {
                                                     }
                                                 }
                                             }
-                                            Err(error_detail) => {
+                                            Err(details) => {
                                                 warn!("Failed to apply remediation");
-                                                return Err(error_detail);
+                                                return Err(details);
                                             }
                                         }
                                     }
@@ -506,14 +552,19 @@ impl ManagedHost {
                                 }
                             }
                         }
-                        Err(error_detail) => {
-                            warn!(reason = ?error_detail, "Failed assessment");
-                            return Err(error_detail);
+                        Err(details) => {
+                            warn!(reason = ?details, "Failed assessment");
+                            return Err(details);
                         }
                     }
                 }
-                Err(error_detail) => {
-                    return Err(error_detail);
+                Err(details) => {
+                    let content = match &details {
+                        RegentError::FailureToConsiderContext(content) => content,
+                        _ => &format!("{:?}", details),
+                    };
+                    error!("{}", content);
+                    return Err(details);
                 }
             }
         }
@@ -529,22 +580,22 @@ impl ManagedHost {
 }
 
 pub trait AssessCompliance<Handler: HostHandler> {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error>;
+    ) -> Result<AttributeComplianceAssessment, RegentError>;
 }
 
 pub trait ReachCompliance<Handler: HostHandler> {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error>;
+    ) -> Result<InternalApiCallOutcome, RegentError>;
 }
 
 #[derive(Serialize, Deserialize)]

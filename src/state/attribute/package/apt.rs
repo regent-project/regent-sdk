@@ -1,8 +1,9 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -72,54 +73,70 @@ impl AptBlockExpectedState {
         self
     }
 
-    pub fn build(&self) -> Result<AptBlockExpectedState, Error> {
-        // if let Err(error_detail) = self.check() {
-        //     return Err(error_detail);
-        // }
+    pub fn build(&self) -> Result<AptBlockExpectedState, RegentError> {
+        if let Err(details) = self.check() {
+            return Err(details);
+        }
         Ok(self.clone())
     }
 }
 
-// impl Check for AptBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
-//         if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "All parameters are unset. Please describe the expected state."
-//             )));
-//         }
-//         if let (None, Some(package_name)) = (&self.state, &self.package) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "Missing 'state' parameter. What is the expected state of the package ({}) ?",
-//                 package_name
-//             )));
-//         }
-//         if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "Missing 'package' parameter. Which package should be {:?} ?",
-//                 package_expected_state
-//             )));
-//         }
-//         Ok(())
-//     }
-// }
+impl Check for AptBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "All parameters are unset. Please describe the expected state."
+            )));
+        }
+        if let (None, Some(package_name)) = (&self.state, &self.package) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Missing 'state' parameter. What is the expected state of the package ({}) ?",
+                package_name
+            )));
+        }
+        if let (Some(package_expected_state), None) = (&self.state, &self.package) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Missing 'package' parameter. Which package should be {:?} ?",
+                package_expected_state
+            )));
+        }
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
-        if !host_handler
-            .is_this_command_available("apt-get", &Privilege::None)
-            .unwrap()
-            || !host_handler
-                .is_this_command_available("dpkg", &Privilege::None)
-                .unwrap()
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
+        let apt_available =
+            match host_handler.is_this_command_available("apt-get", &Privilege::None) {
+                Ok(availability) => availability,
+                Err(details) => {
+                    return Err(RegentError::FailedDryRunEvaluation(format!(
+                        "{:?}",
+                        details
+                    )));
+                }
+            };
+        let dpkg_available = match host_handler.is_this_command_available("dpkg", &Privilege::None)
         {
-            return Err(Error::FailedDryRunEvaluation(
-                "APT not working on this host".to_string(),
+            Ok(availability) => availability,
+            Err(details) => {
+                return Err(RegentError::FailedDryRunEvaluation(format!(
+                    "{:?}",
+                    details
+                )));
+            }
+        };
+
+        if !apt_available || !dpkg_available {
+            return Err(RegentError::FailedDryRunEvaluation(
+                "APT not working on this host. Is this a debian-flavored linux distribution ?"
+                    .to_string(),
             ));
         }
 
@@ -211,12 +228,12 @@ impl AptApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         let (cmd, privilege) = match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => (
                 format!(
@@ -303,25 +320,24 @@ mod tests {
     #[test]
     fn rejecting_incorrect_apt_module_block_from_yaml_str() {
         let raw_attribute = "---
-- 
+Package: apache2
     ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package: apache2
+Package:
+State: !Absent
     ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        let yaml_part = yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute);
+        assert!(yaml_part.is_ok());
+        assert!(yaml_part.unwrap().check().is_err());
 
         let raw_attribute = "---
-- Package:
-  State: !Absent
-    ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
-
-        let raw_attribute = "---
-- Package: apache2
-  State: !Absent
-  unknown_key: unknown_value
+Package: apache2
+State: !Absent
+unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
     }

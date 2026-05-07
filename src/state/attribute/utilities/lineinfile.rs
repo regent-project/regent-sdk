@@ -1,8 +1,9 @@
-use crate::error::Error;
+use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
@@ -64,31 +65,31 @@ pub struct LineInFileBlockExpectedState {
                               // with: Option<String> // ... with this one.
 }
 
-// impl Check for LineInFileBlockExpectedState {
-//     fn check(&self) -> Result<(), Error> {
-//         if let (None, None) = (&self.line, &self.position) {
-//             return Err(Error::IncoherentExpectedState(format!(
-//                 "Both 'line' and 'position' are unset. What is the expected state of this file ({}) ?",
-//                 self.file_path
-//             )));
-//         }
-//         Ok(())
-//     }
-// }
+impl Check for LineInFileBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        if let (None, None) = (&self.line, &self.position) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "Both 'line' and 'position' are unset. What is the expected state of this file ({}) ?",
+                self.file_path
+            )));
+        }
+        Ok(())
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpectedState {
-    fn assess_compliance(
+    async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<AttributeComplianceAssessment, Error> {
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
         if !host_handler
             .is_this_command_available("sed", &privilege)
             .unwrap()
         {
-            return Err(Error::FailedDryRunEvaluation(
+            return Err(RegentError::FailedDryRunEvaluation(
                 "Sed command not available on this host".to_string(),
             ));
         }
@@ -100,14 +101,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
             .unwrap();
 
         if file_exists_check.return_code != 0 {
-            return Err(Error::FailedDryRunEvaluation(format!(
+            return Err(RegentError::FailedDryRunEvaluation(format!(
                 "{} not found, access denied or not a regular file (directory or device ?)",
                 self.file_path
             )));
         }
 
         let line_content: Option<String> = match self.line.clone() {
-            Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).unwrap()),
+            Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).await.unwrap()),
             None => None,
         };
 
@@ -134,7 +135,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                     parsed_expected_position
                 {
                     if expected_line_number > filenumberoflines {
-                        return Err(Error::FailedDryRunEvaluation(
+                        return Err(RegentError::FailedDryRunEvaluation(
                             "Position value out of range (use \"bottom\" instead)".to_string(),
                         ));
                     }
@@ -317,12 +318,12 @@ impl LineInFileApiCall {
 }
 
 impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
-    fn call(
+    async fn call(
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvider>,
-    ) -> Result<InternalApiCallOutcome, Error> {
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {
                 let filenumberoflines = host_handler
@@ -343,7 +344,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 // };
 
                 let line_content: Option<String> = match self.line_content.clone() {
-                    Some(parameter) => Some(parameter.inner_raw(optional_secret_provider).unwrap()),
+                    Some(parameter) => {
+                        Some(parameter.inner_raw(optional_secret_provider).await.unwrap())
+                    }
                     None => None,
                 };
 

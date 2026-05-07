@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::hosts::handlers::HostHandler;
 
-use crate::{Error, Privilege};
+use crate::{Privilege, RegentError};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
@@ -15,9 +15,9 @@ pub struct HostProperties {
 impl HostProperties {
     pub fn collect_dynamically<Handler: HostHandler>(
         host_handler: &mut Handler,
-    ) -> Result<HostProperties, Error> {
+    ) -> Result<HostProperties, RegentError> {
         if !host_handler.is_connected() {
-            return Err(Error::NotConnectedToHost);
+            return Err(RegentError::NotConnectedToHost);
         }
 
         let mut os_kind = OsKind::Unknown;
