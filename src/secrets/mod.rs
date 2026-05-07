@@ -1,21 +1,23 @@
 pub mod local;
 pub mod remote;
 
-use aws_config::SdkConfig as AwsConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
+#[cfg(feature = "aws-secretsmanager")]
+use aws_config::SdkConfig as AwsConfig;
 
 use crate::error::RegentError;
 use crate::secrets::local::environment_variables::EnvVarSecretProvider;
 use crate::secrets::local::files::FilesSecretProvider;
+#[cfg(feature = "aws-secretsmanager")]
 use crate::secrets::remote::aws_secrets_manager::AwsSecretsManagerProvider;
 
 #[derive(Clone)]
 pub enum SecretProvider {
     Files(FilesSecretProvider),
     EnvironmentVariable(EnvVarSecretProvider),
-    // #[cfg(feature = "aws-secretsmanager")]
+    #[cfg(feature = "aws-secretsmanager")]
     AwsSecretsManager(AwsSecretsManagerProvider),
     // GcpSecretManager,
     // DelineaSecretServer,
@@ -31,6 +33,7 @@ impl SecretProvider {
         Self::EnvironmentVariable(EnvVarSecretProvider::new())
     }
 
+    #[cfg(feature = "aws-secretsmanager")]
     pub fn aws_secretsmanager(aws_config: AwsConfig) -> Self {
         Self::AwsSecretsManager(AwsSecretsManagerProvider::from(aws_config))
     }
@@ -46,7 +49,7 @@ impl SecretProvider {
             SecretProvider::EnvironmentVariable(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference).await
             }
-            // #[cfg(feature = "aws-secretsmanager")]
+            #[cfg(feature = "aws-secretsmanager")]
             SecretProvider::AwsSecretsManager(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference).await
             } // SecretProvider::GcpSecretManager => {}
@@ -66,7 +69,7 @@ impl SecretProvider {
             SecretProvider::EnvironmentVariable(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference).await
             }
-            // #[cfg(feature = "aws-secretsmanager")]
+            #[cfg(feature = "aws-secretsmanager")]
             SecretProvider::AwsSecretsManager(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference).await
             } // SecretProvider::GcpSecretManager => {}
