@@ -8,7 +8,7 @@
 //!     .
 //! ```
 
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidersPool;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
 use crate::{error::RegentError, hosts::managed_host::ManagedHostBuilder};
@@ -49,7 +49,7 @@ impl RegentTask {
 
     pub async fn run(
         &mut self,
-        optional_secret_provider: Option<SecretProvider>,
+        optional_secret_provider: Option<SecretProvidersPool>,
     ) -> Result<RegentTaskResult, RegentError> {
         // Build a ManagedHost
         let mut managed_host = self

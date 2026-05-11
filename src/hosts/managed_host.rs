@@ -20,6 +20,7 @@ use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidersPool;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::Action;
@@ -73,7 +74,7 @@ impl ManagedHostBuilder {
 
     pub async fn build(
         self,
-        optional_secret_provider: Option<SecretProvider>,
+        optional_secret_provider: Option<SecretProvidersPool>,
     ) -> Result<ManagedHost, RegentError> {
         // Check that each required field is set
         if let None = self.host_connection_method {
@@ -105,9 +106,7 @@ impl ManagedHostBuilder {
                                 match &optional_secret_provider {
                                     Some(secret_provider) => {
                                         match secret_provider
-                                            .get_secret_typed::<Credentials>(
-                                                secret_reference.sec_ref(),
-                                            )
+                                            .get_secret_typed::<Credentials>(&secret_reference)
                                             .await
                                         {
                                             Ok(secret) => Ok(ManagedHost::new(
@@ -136,9 +135,7 @@ impl ManagedHostBuilder {
                                 match &optional_secret_provider {
                                     Some(secret_provider) => {
                                         match secret_provider
-                                            .get_secret_typed::<Credentials>(
-                                                secret_reference.sec_ref(),
-                                            )
+                                            .get_secret_typed::<Credentials>(&secret_reference)
                                             .await
                                         {
                                             Ok(secret) => Ok(ManagedHost::new(
@@ -220,7 +217,8 @@ pub struct ManagedHost {
     pub handler: Handler,
     context: tera::Context,
     host_properties: Option<HostProperties>,
-    secret_provider: Option<SecretProvider>,
+    // TODO : how to avoid cloning the whole Pool for each Host ? Is it worth introducting Arc<Mutex<T>> ?
+    secret_providers: Option<SecretProvidersPool>,
 }
 
 impl ManagedHost {
@@ -230,7 +228,7 @@ impl ManagedHost {
         handler: Handler,
         host_vars: Option<HashMap<String, String>>,
         host_properties: Option<HostProperties>,
-        secret_provider: Option<SecretProvider>,
+        secret_providers: Option<SecretProvidersPool>,
     ) -> ManagedHost {
         let context = match host_vars {
             Some(content) => match tera::Context::from_serialize(content) {
@@ -249,7 +247,7 @@ impl ManagedHost {
             handler,
             context,
             host_properties,
-            secret_provider: secret_provider.clone(),
+            secret_providers: secret_providers.clone(),
         }
     }
 
@@ -259,7 +257,7 @@ impl ManagedHost {
         handler: Handler,
         vars: Option<impl IntoIterator<Item = (String, String)>>,
         host_properties: Option<HostProperties>,
-        secret_provider: SecretProvider,
+        secret_providers: Option<SecretProvidersPool>,
     ) -> ManagedHost {
         let final_vars = match vars {
             Some(vars_list) => {
@@ -280,7 +278,7 @@ impl ManagedHost {
             handler,
             context: tera::Context::from_serialize(final_vars).unwrap(),
             host_properties,
-            secret_provider: Some(secret_provider),
+            secret_providers: secret_providers.clone(),
         }
     }
 
@@ -311,8 +309,7 @@ impl ManagedHost {
     }
 
     pub fn connect(&mut self) -> Result<(), RegentError> {
-        self.handler
-            .connect(&self.endpoint, &self.secret_provider.clone())
+        self.handler.connect(&self.endpoint)
     }
 
     pub fn is_connected(&mut self) -> bool {
@@ -346,7 +343,7 @@ impl ManagedHost {
                         .assess(
                             &mut self.handler,
                             &self.host_properties,
-                            &self.secret_provider,
+                            &self.secret_providers,
                         )
                         .await
                     {
@@ -479,7 +476,7 @@ impl ManagedHost {
                         .assess(
                             &mut self.handler,
                             &self.host_properties,
-                            &self.secret_provider,
+                            &self.secret_providers,
                         )
                         .await
                     {
@@ -504,7 +501,7 @@ impl ManagedHost {
                                             .reach_compliance(
                                                 &mut self.handler,
                                                 &self.host_properties,
-                                                &self.secret_provider,
+                                                &self.secret_providers,
                                             )
                                             .await
                                         {
@@ -585,7 +582,7 @@ pub trait AssessCompliance<Handler: HostHandler> {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError>;
 }
 
@@ -594,7 +591,7 @@ pub trait ReachCompliance<Handler: HostHandler> {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError>;
 }
 

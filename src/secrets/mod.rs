@@ -5,7 +5,10 @@ pub mod remote;
 use aws_config::SdkConfig as AwsConfig;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt::Debug;
+#[allow(unused)]
+use tracing::{debug, error, info, trace, warn};
 
 use crate::error::RegentError;
 use crate::secrets::local::environment_variables::EnvVarSecretProvider;
@@ -135,16 +138,162 @@ impl<T> Secret<T> {
 #[serde(deny_unknown_fields)]
 pub struct SecretReference {
     sec_ref: String,
+    provider: Option<String>,
 }
 
 impl SecretReference {
-    pub fn from(sec_ref: &str) -> Self {
+    pub fn from(sec_ref: &str, provider: Option<String>) -> Self {
         Self {
             sec_ref: sec_ref.to_string(),
+            provider,
         }
     }
 
     pub fn sec_ref(&self) -> &str {
         &self.sec_ref
+    }
+
+    pub fn provider(&self) -> &Option<String> {
+        &self.provider
+    }
+}
+
+pub struct SecretProvidersPoolBuilder {
+    providers: HashMap<String, SecretProvider>,
+    default_provider: Option<String>,
+}
+
+impl SecretProvidersPoolBuilder {
+    pub fn new() -> Self {
+        Self {
+            providers: HashMap::new(),
+            default_provider: None,
+        }
+    }
+
+    pub fn add_provider(mut self, name: &str, provider: SecretProvider) -> Self {
+        if let Some(_old_secret_provider) = self.providers.insert(name.to_string(), provider) {
+            warn!(
+                "You just overrided a secret provider in the pool, also identified by the name {}",
+                name
+            );
+        }
+        self
+    }
+
+    pub fn add_default_provider(mut self, name: &str, provider: SecretProvider) -> Self {
+        if let Some(_old_secret_provider) = self.providers.insert(name.to_string(), provider) {
+            warn!(
+                "You just overrided a secret provider in the pool, also identified by the name {}",
+                name
+            );
+        }
+        self.default_provider = Some(name.to_string());
+        self
+    }
+
+    pub fn set_default(mut self, name: String) -> Self {
+        self.default_provider = Some(name);
+        self
+    }
+
+    pub fn build(self) -> Result<SecretProvidersPool, RegentError> {
+        match self.default_provider {
+            Some(default_provider_name) => match self.providers.get(&default_provider_name) {
+                Some(_secrets_provider) => Ok(SecretProvidersPool {
+                    providers: self.providers,
+                    default_provider: default_provider_name,
+                }),
+                None => {
+                    error!(
+                        "Default secrets provider ({}) is not set",
+                        default_provider_name
+                    );
+                    return Err(RegentError::SecretsIssue(format!(
+                        "Default secrets provider ({}) is not set",
+                        default_provider_name
+                    )));
+                }
+            },
+            None => {
+                error!("No default secrets provider set");
+                return Err(RegentError::SecretsIssue(
+                    "No default secrets provider set".to_string(),
+                ));
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct SecretProvidersPool {
+    providers: HashMap<String, SecretProvider>,
+    default_provider: String,
+}
+
+impl SecretProvidersPool {
+    pub fn from(name: &str, secret_provider: SecretProvider) -> Self {
+        let mut providers: HashMap<String, SecretProvider> = HashMap::new();
+        providers.insert(name.to_string(), secret_provider);
+        Self {
+            providers,
+            default_provider: name.to_string(),
+        }
+    }
+
+    pub async fn get_secret_typed<T: DeserializeOwned>(
+        &self,
+        secret_reference: &SecretReference,
+    ) -> Result<Secret<T>, RegentError> {
+        let provider = match secret_reference.provider() {
+            Some(user_defined_provider) => user_defined_provider,
+            None => &self.default_provider,
+        };
+
+        match self.providers.get(provider) {
+            Some(secret_provider) => {
+                secret_provider
+                    .get_secret_typed(secret_reference.sec_ref())
+                    .await
+            }
+            None => {
+                error!(
+                    "Default secrets provider {} not found. Was the SecretProvidersPoolBuilder type used to build this SecretProvidersPool ?",
+                    self.default_provider
+                );
+                return Err(RegentError::SecretsIssue(format!(
+                    "Default secrets provider {} not found. Was the SecretProvidersPoolBuilder type used to build this SecretProvidersPool ?",
+                    self.default_provider
+                )));
+            }
+        }
+    }
+
+    pub async fn get_secret_raw(
+        &self,
+        secret_reference: &SecretReference,
+    ) -> Result<Secret<String>, RegentError> {
+        let provider = match secret_reference.provider() {
+            Some(user_defined_provider) => user_defined_provider,
+            None => &self.default_provider,
+        };
+
+        match self.providers.get(provider) {
+            Some(secret_provider) => {
+                secret_provider
+                    .get_secret_raw(secret_reference.sec_ref())
+                    .await
+            }
+            None => {
+                error!(
+                    "Default secrets provider {} not found. Was the SecretProvidersPoolBuilder type used to build this SecretProvidersPool ?",
+                    self.default_provider
+                );
+                return Err(RegentError::SecretsIssue(format!(
+                    "Default secrets provider {} not found. Was the SecretProvidersPoolBuilder type used to build this SecretProvidersPool ?",
+                    self.default_provider
+                )));
+            }
+        }
     }
 }

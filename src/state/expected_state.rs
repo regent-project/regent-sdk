@@ -1,4 +1,4 @@
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidersPool;
 use crate::{RegentError, secrets::SecretReference, state::attribute::Attribute};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -86,14 +86,14 @@ where
 impl Parameter<String> {
     pub async fn inner_raw(
         self,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<String, RegentError> {
         match self {
             Parameter::Clear(content) => Ok(content),
             Parameter::Secret(secret_reference) => match optional_secret_provider {
-                Some(secret_provider) => {
-                    match secret_provider
-                        .get_secret_raw(secret_reference.sec_ref())
+                Some(secret_providers_pool) => {
+                    match secret_providers_pool
+                        .get_secret_raw(&secret_reference)
                         .await
                     {
                         Ok(secret) => Ok(secret.inner()),
@@ -116,14 +116,14 @@ impl Parameter<String> {
 impl<T: DeserializeOwned> Parameter<T> {
     pub async fn inner(
         self,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<T, RegentError> {
         match self {
             Parameter::Clear(content) => Ok(content),
             Parameter::Secret(secret_reference) => match optional_secret_provider {
-                Some(secret_provider) => {
-                    match secret_provider
-                        .get_secret_typed::<T>(secret_reference.sec_ref())
+                Some(secret_providers_pool) => {
+                    match secret_providers_pool
+                        .get_secret_typed::<T>(&secret_reference)
                         .await
                     {
                         Ok(secret) => Ok(secret.inner()),

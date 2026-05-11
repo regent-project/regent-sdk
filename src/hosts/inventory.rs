@@ -9,6 +9,7 @@ use crate::hosts::handlers::ConnectionMethod;
 use crate::hosts::managed_host::ManagedHost;
 use crate::hosts::managed_host::ManagedHostBuilder;
 use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidersPool;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
 
@@ -134,7 +135,7 @@ impl Inventory {
 
     pub async fn init(
         &mut self,
-        optional_secret_provider: Option<SecretProvider>,
+        optional_secret_provider: Option<SecretProvidersPool>,
     ) -> Result<LivingInventory, RegentError> {
         let span = span!(Level::INFO, "inventory_init", name = self.name);
         let _enter = span.enter();

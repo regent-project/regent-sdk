@@ -2,7 +2,7 @@ use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
@@ -26,7 +26,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        _optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         let cmd = String::from("id");
         let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
@@ -57,7 +57,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
         &self,
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
-        _optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
         Ok(InternalApiCallOutcome::Success(None))
     }

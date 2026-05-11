@@ -80,7 +80,7 @@ impl LoginKeyRef {
         &self.username
     }
 
-    pub fn key_ref(&self) -> &str {
-        &self.key.sec_ref()
+    pub fn key_ref(&self) -> &SecretReference {
+        &self.key
     }
 }

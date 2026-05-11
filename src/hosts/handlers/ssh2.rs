@@ -17,7 +17,7 @@ use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::LoginKeyRef;
 use crate::hosts::privilege::Privilege;
-use crate::secrets::SecretProvider;
+// use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
 
 #[derive(Clone)]
@@ -57,7 +57,7 @@ impl HostHandler for Ssh2HostHandler {
     fn connect(
         &mut self,
         endpoint: &str,
-        _secret_provider: &Option<SecretProvider>,
+        // _secret_provider: &Option<SecretProvider>,
     ) -> Result<(), RegentError> {
         // Check whether a session is already enabled or not (init() might have already been called
         // on this host)
@@ -410,19 +410,28 @@ pub struct Ssh2Auth {
 }
 
 impl Ssh2Auth {
-    pub fn username_password(secret_reference: &str) -> Self {
-        Self {
-            auth_method: Ssh2AuthReference::UsernamePassword(SecretReference::from(
-                secret_reference,
-            )),
+    pub fn username_password(secret_reference: &str, secret_provider_name: Option<&str>) -> Self {
+        match secret_provider_name {
+            Some(name) => Self {
+                auth_method: Ssh2AuthReference::UsernamePassword(SecretReference::from(
+                    secret_reference,
+                    Some(name.to_string()),
+                )),
+            },
+            None => Self {
+                auth_method: Ssh2AuthReference::UsernamePassword(SecretReference::from(
+                    secret_reference,
+                    None,
+                )),
+            },
         }
     }
 
-    pub fn key(username: &str, key_secret_reference: &str) -> Self {
+    pub fn key(username: &str, key_secret_reference: SecretReference) -> Self {
         Self {
             auth_method: Ssh2AuthReference::Key(LoginKeyRef::from(
                 username.to_string(),
-                SecretReference::from(key_secret_reference),
+                key_secret_reference,
             )),
         }
     }

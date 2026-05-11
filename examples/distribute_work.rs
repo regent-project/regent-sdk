@@ -2,7 +2,7 @@ use regent_sdk::attribute::package::pacman::{PackageExpectedState, PacmanBlockEx
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::TargetUser;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::SecretProvider;
+use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
 use regent_sdk::{Attribute, ExpectedState};
@@ -19,11 +19,11 @@ async fn main() {
     // ...
 
     // Receiving end
-    // Build a SecretProvider
-    let secret_provider = SecretProvider::env_var();
+    // Build a SecretProvidersPool
+    let secret_providers = SecretProvidersPool::from("env_vars", SecretProvider::env_var());
 
     let regent_task_result =
-        run_a_given_regent_task(serialized_regent_task, Some(secret_provider)).await;
+        run_a_given_regent_task(serialized_regent_task, Some(secret_providers)).await;
     println!("{:?}", regent_task_result);
 }
 
@@ -34,6 +34,7 @@ fn create_a_regent_task() -> String {
         "<address:port>",
         Some(ConnectionMethod::Localhost(TargetUser::user(
             "MY_CREDENTIALS_ENV_VAR_NAME",
+            Some("env_vars".to_string()),
         ))),
     );
 
@@ -58,7 +59,7 @@ fn create_a_regent_task() -> String {
 
 async fn run_a_given_regent_task(
     raw_regent_task: String,
-    secret_provider: Option<SecretProvider>,
+    secret_provider: Option<SecretProvidersPool>,
 ) -> Result<RegentTaskResult, RegentError> {
     let mut regent_task = serde_json::from_str::<RegentTask>(&raw_regent_task).unwrap();
 

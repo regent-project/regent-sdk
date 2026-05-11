@@ -3,13 +3,13 @@ use regent_sdk::attribute::package::apt::{AptBlockExpectedState, PackageExpected
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::TargetUser;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::SecretProvider;
+use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::{Attribute, ExpectedState};
 
 #[tokio::main]
 async fn main() {
-    // Build a SecretProvider
-    let secret_provider = SecretProvider::env_var();
+    // Build a SecretProvidersPool
+    let secret_providers = SecretProvidersPool::from("env_vars", SecretProvider::env_var());
 
     // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(
@@ -17,7 +17,7 @@ async fn main() {
         "<host-endpoint>:<port>",
         Some(ConnectionMethod::Localhost(TargetUser::current_user())),
     )
-    .build(Some(secret_provider))
+    .build(Some(secret_providers))
     .await
     .unwrap();
 
