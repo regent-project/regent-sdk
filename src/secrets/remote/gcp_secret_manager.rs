@@ -37,7 +37,7 @@ impl SecretProvidingSolution for GcpSecretProvider {
     async fn connect(&mut self) -> Result<(), RegentError> {
         match self.gcp_client.test_iam_permissions().send().await {
             Ok(_test_iam_permissions) => Ok(()),
-            Err(details) => Err(RegentError::ProblemWithSecretsProvider(format!(
+            Err(details) => Err(RegentError::SecretsIssue(format!(
                 "{}",
                 details
             ))),

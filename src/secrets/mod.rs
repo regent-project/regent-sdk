@@ -47,7 +47,7 @@ impl SecretProvider {
     pub async fn gcp_secretmanager() -> Result<Self, RegentError> {
         match GcpSecretProvider::new().await {
             Ok(gcp_secret_provider) => Ok(Self::GcpSecretManager(gcp_secret_provider)),
-            Err(details) => Err(RegentError::ProblemWithSecretsProvider(format!(
+            Err(details) => Err(RegentError::SecretsIssue(format!(
                 "Failed to create a GCP SecretManager client : {}",
                 details
             ))),

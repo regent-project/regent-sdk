@@ -24,7 +24,7 @@ pub enum RegentError {
     NotConnectedToHost,
     ConnectionLevel(String),
     ProblemWithHostConnection(String),
-    ProblemWithSecretsProvider(String),
+    SecretsIssue(String),
 }
 
 impl std::fmt::Display for RegentError {
