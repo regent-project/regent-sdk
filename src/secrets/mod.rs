@@ -12,6 +12,7 @@ use crate::secrets::local::environment_variables::EnvVarSecretProvider;
 use crate::secrets::local::files::FilesSecretProvider;
 #[cfg(feature = "aws-secretsmanager")]
 use crate::secrets::remote::aws_secrets_manager::AwsSecretsManagerProvider;
+use crate::secrets::remote::gcp_secret_manager::GcpSecretProvider;
 
 #[derive(Clone)]
 pub enum SecretProvider {
@@ -19,7 +20,8 @@ pub enum SecretProvider {
     EnvironmentVariable(EnvVarSecretProvider),
     #[cfg(feature = "aws-secretsmanager")]
     AwsSecretsManager(AwsSecretsManagerProvider),
-    // GcpSecretManager,
+    #[cfg(feature = "gcp-secretmanager")]
+    GcpSecretManager(GcpSecretProvider),
     // DelineaSecretServer,
     // HashicorpVault,
 }
@@ -38,6 +40,17 @@ impl SecretProvider {
         Self::AwsSecretsManager(AwsSecretsManagerProvider::from(aws_config))
     }
 
+    #[cfg(feature = "gcp-secretmanager")]
+    pub async fn gcp_secretmanager() -> Result<Self, RegentError> {
+        match GcpSecretProvider::new().await {
+            Ok(gcp_secret_provider) => Ok(Self::GcpSecretManager(gcp_secret_provider)),
+            Err(details) => Err(RegentError::ProblemWithSecretsProvider(format!(
+                "Failed to create a GCP SecretManager client : {}",
+                details
+            ))),
+        }
+    }
+
     pub async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
@@ -52,8 +65,11 @@ impl SecretProvider {
             #[cfg(feature = "aws-secretsmanager")]
             SecretProvider::AwsSecretsManager(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference).await
-            } // SecretProvider::GcpSecretManager => {}
-              // SecretProvider::DelineaSecretServer => {}
+            }
+            #[cfg(feature = "gcp-secretmanager")]
+            SecretProvider::GcpSecretManager(secret_provider) => {
+                secret_provider.get_secret_typed(secret_reference).await
+            } // SecretProvider::DelineaSecretServer => {}
               // SecretProvider::HashicorpVault => {}
         }
     }
@@ -72,8 +88,11 @@ impl SecretProvider {
             #[cfg(feature = "aws-secretsmanager")]
             SecretProvider::AwsSecretsManager(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference).await
-            } // SecretProvider::GcpSecretManager => {}
-              // SecretProvider::DelineaSecretServer => {}
+            }
+            #[cfg(feature = "gcp-secretmanager")]
+            SecretProvider::GcpSecretManager(secret_provider) => {
+                secret_provider.get_secret_raw(secret_reference).await
+            } // SecretProvider::DelineaSecretServer => {}
               // SecretProvider::HashicorpVault => {}
         }
     }

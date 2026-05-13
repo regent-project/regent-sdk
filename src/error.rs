@@ -24,6 +24,7 @@ pub enum RegentError {
     NotConnectedToHost,
     ConnectionLevel(String),
     ProblemWithHostConnection(String),
+    ProblemWithSecretsProvider(String),
 }
 
 impl std::fmt::Display for RegentError {
@@ -60,6 +61,9 @@ impl std::fmt::Display for RegentError {
             RegentError::ConnectionLevel(e) => write!(f, "Connection level: {}", e),
             RegentError::ProblemWithHostConnection(e) => {
                 write!(f, "Problem with host connection: {}", e)
+            }
+            RegentError::ProblemWithSecretsProvider(e) => {
+                write!(f, "Problem with secrets provider: {}", e)
             }
         }
     }
