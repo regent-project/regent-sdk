@@ -133,7 +133,7 @@ Secrets can be retrieved from :
 - [x] Environment variables
 - [x] Files
 - [x] AWS Secretsmanager
-- [ ] GCP Secret Manager
+- [x] GCP Secret Manager
 - [ ] Hashicorp Vault
 - [ ] Delinea SecretServer (Thycotic)
 
