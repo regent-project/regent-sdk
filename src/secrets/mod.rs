@@ -15,6 +15,7 @@ use crate::secrets::local::environment_variables::EnvVarSecretProvider;
 use crate::secrets::local::files::FilesSecretProvider;
 #[cfg(feature = "aws-secretsmanager")]
 use crate::secrets::remote::aws_secrets_manager::AwsSecretsManagerProvider;
+#[cfg(feature = "gcp-secretmanager")]
 use crate::secrets::remote::gcp_secret_manager::GcpSecretProvider;
 
 #[derive(Clone)]
