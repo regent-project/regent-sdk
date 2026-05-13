@@ -33,10 +33,10 @@ lto = true
 doctest = false
 
 [dev-dependencies]
-tracing-subscriber = "0.3.23"
-axum        = "0.8.9"
-chrono      = "0.4.44"
+tracing-subscriber  = "0.3.23"
+axum                = "0.8.9"
+chrono              = "0.4.44"
 
 [features]
-aws-secretsmanager= ["dep:aws-config", "dep:aws-sdk-secretsmanager"]
-gcp-secretmanager= ["dep:google-cloud-secretmanager-v1", "dep:google-cloud-gax"]
+aws-secretsmanager  = ["dep:aws-config", "dep:aws-sdk-secretsmanager"]
+gcp-secretmanager   = ["dep:google-cloud-secretmanager-v1", "dep:google-cloud-gax"]
