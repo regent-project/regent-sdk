@@ -21,31 +21,53 @@ Hosts:
     // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
-  - Name: first line from an environment variable
+  - Name: first line from AWS...
     Privilege: !None
     Detail: !LineInFile
-      FilePath: ~/my_token
+      FilePath: ~/.my_app_conf_file
       Line:
-        Provider: env_var
-        SecRef: TOKEN_CONTENT
+        Provider: aws_prod_account
+        SecRef: arn:aws:secretsmanager:eu-central-1:123456789:secret:MY_TOKEN_CONTENT-xyz
       State: !Present
       Position: !Top
 
-  - Name: last line from a file
+  - Name: ...seconde line from GCP...
     Privilege: !None
     Detail: !LineInFile
-      FilePath: ~/my_token
+      FilePath: ~/.my_app_conf_file
       Line:
-        SecRef: /home/romzor/last_line
+        Provider: gcp_regent_project
+        SecRef: projects/123456789123/secrets/MY_VERY_LONG_TOKEN/versions/latest
       State: !Present
-      Position: !Bottom
+      Position: 2
+
+  - Name: ...and the 3rd line taken out of an environment variable
+    Privilege: !None
+    Detail: !LineInFile
+      FilePath: ~/.my_app_conf_file
+      Line:
+        SecRef: THIRD_LINE_CONTENT
+      State: !Present
+      Position: 3
 "#;
 
     let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
 
+    // By default, secrets will be taken from environment variables...
+    let default_secrets_provider = SecretProvider::env_var();
+
+    // ...but we will also have secrets on AWS SecretsManager...
+    let config_aws = aws_config::load_from_env().await;
+    let aws_secretsmanager_prod_account = SecretProvider::aws_secretsmanager(config_aws);
+
+    // ...and also on Google Cloud SecretManager, because why not ?
+    let gcp_secretmanager_regent_project = SecretProvider::gcp_secretmanager().await.unwrap();
+
+    // Now we can build a pool of secrets providers.
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .add_default_provider("files", SecretProvider::files())
-        .add_provider("env_var", SecretProvider::env_var())
+        .add_default_provider("env_var", default_secrets_provider)
+        .add_provider("aws_prod_account", aws_secretsmanager_prod_account)
+        .add_provider("gcp_regent_project", gcp_secretmanager_regent_project)
         .build()
         .unwrap();
 
