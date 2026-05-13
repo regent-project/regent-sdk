@@ -2,7 +2,7 @@ use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
-use crate::secrets::{SecretProvider, SecretReference};
+use crate::secrets::{SecretProvidersPool, SecretReference};
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
@@ -25,9 +25,9 @@ impl CommandBlockExpectedState {
         }
     }
 
-    pub fn builder_secret(sec_ref: &str) -> CommandBlockExpectedState {
+    pub fn builder_secret(sec_ref: SecretReference) -> CommandBlockExpectedState {
         CommandBlockExpectedState {
-            cmd: Parameter::Secret(SecretReference::from(sec_ref)),
+            cmd: Parameter::Secret(sec_ref),
         }
     }
 
@@ -51,7 +51,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
         _host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        _optional_secret_provider: &Option<SecretProvider>,
+        _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         let mut remediations: Vec<Remediation> = Vec::new();
 
@@ -83,7 +83,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
         let cmd_result = host_handler
             .run_command(

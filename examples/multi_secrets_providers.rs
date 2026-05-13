@@ -21,13 +21,13 @@ Hosts:
     // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
-  - Name: token value set in conf file
+  - Name: first line from an environment variable
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
       Line:
-        SecRef: arn:aws:secretsmanager:eu-central-1:658712556498:secret:MY_TOKEN_CONTENT-xyz
-        Provider: aws_prod_account
+        Provider: env_var
+        SecRef: TOKEN_CONTENT
       State: !Present
       Position: !Top
 
@@ -36,30 +36,19 @@ Attributes:
     Detail: !LineInFile
       FilePath: ~/my_token
       Line:
-        SecRef: LAST_LINE_CONTENT
-        Provider: env_var
+        SecRef: /home/romzor/last_line
       State: !Present
       Position: !Bottom
 "#;
 
     let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
 
-    // We need to provide an AWS SdkConfig object for the Regent SecretProvider to be able to connect to AWS Secretsmanager.
-    // This part is not handled by the Regent crate. Refer to official aws_config crate documentation for this.
-    let config_aws = aws_config::load_from_env().await;
-
-    // Once the SdkConfig object is built, build a SecretProvidersPool from it
-
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .add_default_provider("env_vars", SecretProvider::env_var())
-        .add_provider(
-            "aws_prod_account",
-            SecretProvider::aws_secretsmanager(config_aws),
-        )
+        .add_default_provider("files", SecretProvider::files())
+        .add_provider("env_var", SecretProvider::env_var())
         .build()
         .unwrap();
 
-    // ... and just use this newly built secret_provider like any other Regent secret provider.
     let mut living_inventory = inventory.init(Some(secrets_providers_pool)).await.unwrap();
 
     // Try reach compliance if not already there

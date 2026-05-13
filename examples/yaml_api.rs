@@ -1,6 +1,6 @@
 use regent_sdk::ExpectedState;
 use regent_sdk::hosts::inventory::Inventory;
-use regent_sdk::secrets::SecretProvider;
+use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use tracing_subscriber;
 
 #[tokio::main]
@@ -55,10 +55,11 @@ Attributes:
         }
     };
 
-    let secret_provider = SecretProvider::files();
+    // Build a SecretProvidersPool
+    let secret_providers = SecretProvidersPool::from("env_vars", SecretProvider::files());
 
     // Open connections within this Inventory
-    let mut living_inventory = inventory.init(Some(secret_provider)).await.unwrap();
+    let mut living_inventory = inventory.init(Some(secret_providers)).await.unwrap();
 
     // Try reach compliance if not already there
     match living_inventory.reach_compliance(&expected_state).await {

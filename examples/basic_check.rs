@@ -5,12 +5,15 @@ use regent_sdk::attribute::system::service::{
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::ssh2::Ssh2Auth;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::SecretProvider;
+use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
 use regent_sdk::{Attribute, ExpectedState};
 
 #[tokio::main]
 async fn main() {
-    let secret_provider = SecretProvider::files();
+    let secrets_providers_pool = SecretProvidersPoolBuilder::new()
+        .add_default_provider("files", SecretProvider::files())
+        .build()
+        .unwrap();
 
     // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(
@@ -18,9 +21,10 @@ async fn main() {
         "<address:port>",
         Some(ConnectionMethod::Ssh2(Ssh2Auth::username_password(
             "/path/to/credentials/secret",
+            Some("files"),
         ))),
     )
-    .build(Some(secret_provider))
+    .build(Some(secrets_providers_pool))
     .await
     .unwrap();
 

@@ -2,7 +2,7 @@ use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
 use crate::hosts::properties::HostProperties;
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
@@ -83,7 +83,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         if !host_handler
             .is_this_command_available("sed", &privilege)
@@ -322,7 +322,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
         &self,
         host_handler: &mut Handler,
         _host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
         match &self.api_call {
             LineInFileModuleInternalApiCall::Add(line_expected_position) => {

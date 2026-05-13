@@ -62,9 +62,7 @@ impl std::fmt::Display for RegentError {
             RegentError::ProblemWithHostConnection(e) => {
                 write!(f, "Problem with host connection: {}", e)
             }
-            RegentError::ProblemWithSecretsProvider(e) => {
-                write!(f, "Problem with secrets provider: {}", e)
-            }
+            RegentError::SecretsIssue(e) => write!(f, "Issue related to secrets: {}", e),
         }
     }
 }

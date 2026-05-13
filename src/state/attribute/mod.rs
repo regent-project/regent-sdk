@@ -10,7 +10,7 @@ use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
-use crate::secrets::SecretProvider;
+use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::package::apt::AptApiCall;
 use crate::state::attribute::package::apt::AptBlockExpectedState;
@@ -105,7 +105,7 @@ impl Attribute {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         self.detail
             .assess(
@@ -121,7 +121,7 @@ impl Attribute {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceResult, RegentError> {
         self.detail
             .reach_compliance(
@@ -223,7 +223,7 @@ impl AttributeDetail {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         match self {
             AttributeDetail::Apt(expected_state_criteria) => {
@@ -314,7 +314,7 @@ impl AttributeDetail {
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceResult, RegentError> {
         match self
             .assess(
@@ -516,7 +516,7 @@ impl Remediation {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvider>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
         match self {
             Remediation::None(_) => {

@@ -34,9 +34,9 @@ impl TargetUser {
         }
     }
 
-    pub fn user(secret_reference: &str) -> Self {
+    pub fn user(sec_ref: &str, provider: Option<String>) -> Self {
         Self {
-            user_kind: TargetUserKind::User(SecretReference::from(secret_reference)),
+            user_kind: TargetUserKind::User(SecretReference::from(sec_ref, provider)),
         }
     }
 }
@@ -52,7 +52,7 @@ pub trait HostHandler: Sized {
     fn connect(
         &mut self,
         endpoint: &str,
-        secret_provider: &Option<SecretProvider>,
+        // secret_provider: &Option<SecretProvider>,
     ) -> Result<(), RegentError>;
 
     fn is_connected(&mut self) -> bool;
@@ -96,11 +96,11 @@ impl HostHandler for Handler {
     fn connect(
         &mut self,
         endpoint: &str,
-        secret_provider: &Option<SecretProvider>,
+        // secret_provider: &Option<SecretProvider>,
     ) -> Result<(), RegentError> {
         match self {
-            Handler::LocalHost(handler) => handler.connect(endpoint, secret_provider),
-            Handler::Ssh2(handler) => handler.connect(endpoint, secret_provider),
+            Handler::LocalHost(handler) => handler.connect(endpoint),
+            Handler::Ssh2(handler) => handler.connect(endpoint),
         }
     }
 
