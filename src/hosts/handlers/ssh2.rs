@@ -298,7 +298,7 @@ impl HostHandler for Ssh2HostHandler {
         let (mut file_channel, stat) = match self.session.scp_recv(&path) {
             Ok((channel, filestats)) => (channel, filestats),
             Err(details) => {
-                return Err(RegentError::ConnectionLevel(format!(
+                return Err(RegentError::ProblemWithHostConnection(format!(
                     "Failed to establish SSH2 channel to retrieve file : {:?}",
                     details
                 )));
@@ -311,7 +311,7 @@ impl HostHandler for Ssh2HostHandler {
         };
         if let Err(details) = file_channel.read_to_end(&mut buffer) {
             error!("Failed to read SSH2 buffer : {:?}", details);
-            return Err(RegentError::ConnectionLevel(format!(
+            return Err(RegentError::ProblemWithHostConnection(format!(
                 "Failed to read SSH2 buffer : {:?}",
                 details
             )));
@@ -319,16 +319,28 @@ impl HostHandler for Ssh2HostHandler {
 
         // Close the channel and wait for the whole content to be tranferred
         if let Err(details) = file_channel.send_eof() {
-            return Err(RegentError::ConnectionLevel(format!("{:?}", details)));
+            return Err(RegentError::ProblemWithHostConnection(format!(
+                "{:?}",
+                details
+            )));
         }
         if let Err(details) = file_channel.wait_eof() {
-            return Err(RegentError::ConnectionLevel(format!("{:?}", details)));
+            return Err(RegentError::ProblemWithHostConnection(format!(
+                "{:?}",
+                details
+            )));
         }
         if let Err(details) = file_channel.close() {
-            return Err(RegentError::ConnectionLevel(format!("{:?}", details)));
+            return Err(RegentError::ProblemWithHostConnection(format!(
+                "{:?}",
+                details
+            )));
         }
         if let Err(details) = file_channel.wait_close() {
-            return Err(RegentError::ConnectionLevel(format!("{:?}", details)));
+            return Err(RegentError::ProblemWithHostConnection(format!(
+                "{:?}",
+                details
+            )));
         }
 
         Ok(buffer)
@@ -339,7 +351,7 @@ impl Ssh2HostHandler {
     pub fn from(auth: Ssh2AuthMethod) -> Result<Ssh2HostHandler, RegentError> {
         match Session::new() {
             Ok(session) => Ok(Ssh2HostHandler { auth, session }),
-            Err(details) => Err(RegentError::ConnectionLevel(format!(
+            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
                 "Failed to create new SSH2 session : {:?}",
                 details
             ))),
@@ -354,7 +366,7 @@ impl Ssh2HostHandler {
             username, password,
         ))) {
             Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
-            Err(details) => Err(RegentError::ConnectionLevel(format!(
+            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
                 "Failed to create new Ssh2HostHandler : {:?}",
                 details
             ))),
@@ -367,7 +379,7 @@ impl Ssh2HostHandler {
             key,
         ))) {
             Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
-            Err(details) => Err(RegentError::ConnectionLevel(format!(
+            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
                 "Failed to create new Ssh2HostHandler : {:?}",
                 details
             ))),
@@ -377,7 +389,7 @@ impl Ssh2HostHandler {
     pub fn agent(agent_name: &str) -> Result<Ssh2HostHandler, RegentError> {
         match Ssh2HostHandler::from(Ssh2AuthMethod::Agent(agent_name.to_string())) {
             Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
-            Err(details) => Err(RegentError::ConnectionLevel(format!(
+            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
                 "Failed to create new Ssh2HostHandler : {:?}",
                 details
             ))),

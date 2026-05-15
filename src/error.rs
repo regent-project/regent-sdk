@@ -1,70 +1,68 @@
-use std::error::Error;
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum RegentError {
+    #[error("Failure to find group content")]
     FailureToFindGroupContent,
+
+    #[error("Failure to parse content: '{0}'")]
     FailureToParseContent(String),
+
+    #[error("Failure to run command: '{0}'")]
     FailureToRunCommand(String),
+
+    #[error("Failure to establish connection: '{0}'")]
     FailureToEstablishConnection(String),
+
+    #[error("Failed initialization: '{0}'")]
     FailedInitialization(String),
+
+    #[error("Failed TCP binding: '{0}'")]
     FailedTcpBinding(String),
+
+    #[error("Failed task dry run: '{0}'")]
     FailedTaskDryRun(String),
+
+    #[error("Failed dry run evaluation: '{0}'")]
     FailedDryRunEvaluation(String),
+
+    #[error("Failed to apply expected state: '{0}'")]
     FailedToApplyExpectedState(String),
+
+    #[error("Failed to get secret: '{0}'")]
     FailedToGetSecret(String),
+
+    #[error("Failure to consider context: '{0}'")]
     FailureToConsiderContext(String),
+    #[error("Missing initialization: '{0}'")]
     MissingInitialization(String),
+
+    #[error("Group not found")]
     GroupNotFound,
+
+    #[error("Missing groups list")]
     MissingGroupsList,
+
+    #[error("Workflow not followed: '{0}'")]
     WorkFlowNotFollowed(String),
+
+    #[error("Wrong initialization: '{0}'")]
     WrongInitialization(String),
+
+    #[error("Any other error: '{0}'")]
     AnyOtherError(String),
+    #[error("Incoherent expected state: '{0}'")]
     IncoherentExpectedState(String),
+
+    #[error("Internal logic error: '{0}'")]
     InternalLogicError(String),
+
+    #[error("Not connected to host")]
     NotConnectedToHost,
-    ConnectionLevel(String),
+
+    #[error("Problem with host connection: '{0}'")]
     ProblemWithHostConnection(String),
+
+    #[error("Secrets issue: '{0}'")]
     SecretsIssue(String),
 }
-
-impl std::fmt::Display for RegentError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RegentError::FailureToFindGroupContent => write!(f, "Failure to find group content"),
-            RegentError::FailureToParseContent(e) => write!(f, "Failure to parse content: {}", e),
-            RegentError::FailureToRunCommand(e) => write!(f, "Failure to run command: {}", e),
-            RegentError::FailureToEstablishConnection(e) => {
-                write!(f, "Failure to establish connection: {}", e)
-            }
-            RegentError::FailedInitialization(e) => write!(f, "Failed initialization: {}", e),
-            RegentError::FailedTcpBinding(e) => write!(f, "Failed TCP binding: {}", e),
-            RegentError::FailedTaskDryRun(e) => write!(f, "Failed task dry run: {}", e),
-            RegentError::FailedDryRunEvaluation(e) => write!(f, "Failed dry run evaluation: {}", e),
-            RegentError::FailedToApplyExpectedState(e) => {
-                write!(f, "Failed to apply expected state: {}", e)
-            }
-            RegentError::FailedToGetSecret(e) => write!(f, "Failed to get secret: {}", e),
-            RegentError::FailureToConsiderContext(e) => {
-                write!(f, "Failure to consider context: {}", e)
-            }
-            RegentError::MissingInitialization(e) => write!(f, "Missing initialization: {}", e),
-            RegentError::GroupNotFound => write!(f, "Group not found"),
-            RegentError::MissingGroupsList => write!(f, "Missing groups list"),
-            RegentError::WorkFlowNotFollowed(e) => write!(f, "Workflow not followed: {}", e),
-            RegentError::WrongInitialization(e) => write!(f, "Wrong initialization: {}", e),
-            RegentError::AnyOtherError(e) => write!(f, "Any other error: {}", e),
-            RegentError::IncoherentExpectedState(e) => {
-                write!(f, "Incoherent expected state: {}", e)
-            }
-            RegentError::InternalLogicError(e) => write!(f, "Internal logic error: {}", e),
-            RegentError::NotConnectedToHost => write!(f, "Not connected to host"),
-            RegentError::ConnectionLevel(e) => write!(f, "Connection level: {}", e),
-            RegentError::ProblemWithHostConnection(e) => {
-                write!(f, "Problem with host connection: {}", e)
-            }
-            RegentError::SecretsIssue(e) => write!(f, "Issue related to secrets: {}", e),
-        }
-    }
-}
-
-impl Error for RegentError {}
