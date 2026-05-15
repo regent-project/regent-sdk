@@ -2,6 +2,9 @@ use nanoid::nanoid;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::task::JoinSet;
 
 use crate::ExpectedState;
 use crate::error::RegentError;
@@ -180,15 +183,22 @@ impl Inventory {
 
 pub struct LivingInventory {
     name: String,
-    hosts: HashMap<String, ManagedHost>,
+    hosts: HashMap<String, Arc<Mutex<ManagedHost>>>, // HostId -> Arc<Mutex<ManagedHost>>
 }
 
 impl LivingInventory {
     pub fn from(name: String, hosts: HashMap<String, ManagedHost>) -> Self {
-        Self { name, hosts }
+        let mut new_hosts: HashMap<String, Arc<Mutex<ManagedHost>>> = HashMap::new();
+        for (host_id, managed_host) in hosts {
+            new_hosts.insert(host_id, Arc::new(Mutex::new(managed_host)));
+        }
+        Self {
+            name,
+            hosts: new_hosts,
+        }
     }
 
-    pub fn add_var(&mut self, key: String, value: String) {
+    pub async fn add_var(&mut self, key: String, value: String) {
         let span = span!(Level::DEBUG, "living_inventory_add_var");
         let _enter = span.enter();
 
@@ -196,68 +206,72 @@ impl LivingInventory {
 
         let _ = self.hosts.par_iter_mut().map(|(host_id, managed_host)| {
             trace!(host_id, key, value, "Adding variable to host");
-            managed_host.add_var(key.clone(), value.clone())
+            async {
+                let mut host = managed_host.lock().await;
+                host.add_var(key.clone(), value.clone())
+            }
         });
 
         info!(key, "Added variable to all hosts");
     }
 
-    pub fn collect_properties(&mut self) -> Result<(), RegentError> {
+    pub async fn collect_properties(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "living_inventory_collect_properties");
         let _enter = span.enter();
-
         info!(
             "Starting property collection for {} hosts",
             self.hosts.len()
         );
-
-        for result in self
-            .hosts
-            .par_iter_mut()
-            .map(|(host_id, managed_host)| {
+        let mut join_set = JoinSet::new();
+        for (host_id, managed_host) in self.hosts.clone() {
+            join_set.spawn(async move {
                 let host_span = span!(Level::DEBUG, "collect_properties_host", host_id);
                 let _host_enter = host_span.enter();
 
                 debug!("Collecting properties");
-                managed_host.collect_properties()
-            })
-            .collect::<Vec<Result<(), RegentError>>>()
-        {
-            if let Err(details) = result {
-                error!("Failed to collect properties: {:?}", details);
-                return Err(details);
-            }
+                match managed_host.lock().await.collect_properties() {
+                    Ok(()) => {
+                        info!("Host properties collected");
+                    }
+                    Err(details) => {
+                        error!("Failed to collect properties: {:?}", details);
+                    }
+                }
+            });
         }
 
-        info!("Successfully collected properties from all hosts");
+        join_set.join_all().await;
+
         Ok(())
     }
 
-    pub fn disconnect(&mut self) -> Result<(), RegentError> {
+    pub async fn disconnect(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "inventory_disconnect");
         let _enter = span.enter();
 
         info!("Disconnecting from {} hosts", self.hosts.len());
 
-        for result in self
-            .hosts
-            .par_iter_mut()
-            .map(|(host_id, managed_host)| {
+        let mut join_set = JoinSet::new();
+
+        for (host_id, managed_host) in self.hosts.clone() {
+            join_set.spawn(async move {
                 let host_span = span!(Level::DEBUG, "disconnect_host", host_id);
                 let _host_enter = host_span.enter();
 
                 debug!("Disconnecting from host {}", host_id);
-                managed_host.disconnect()
-            })
-            .collect::<Vec<Result<(), RegentError>>>()
-        {
-            if let Err(details) = result {
-                error!("Failed to disconnect host: {:?}", details);
-                return Err(details);
-            }
+                match managed_host.lock().await.disconnect() {
+                    Ok(()) => {
+                        info!("Host properties collected");
+                    }
+                    Err(details) => {
+                        error!("Failed to disconnect host: {:?}", details);
+                    }
+                }
+            });
         }
 
-        info!("Successfully disconnected from all hosts");
+        join_set.join_all().await;
+
         Ok(())
     }
 
@@ -270,32 +284,51 @@ impl LivingInventory {
 
         info!("Assessing compliance for {} hosts", self.hosts.len());
 
-        let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
+        let mut join_set = JoinSet::new();
+        let results: Arc<Mutex<Vec<(String, ManagedHostStatus)>>> =
+            Arc::new(Mutex::new(Vec::new()));
 
         // TODO : make this run concurrently by spawning tasks
-        for (host_id, managed_host) in &mut self.hosts {
-            let host_span = span!(Level::DEBUG, "host", host_id);
-            let _host_enter = host_span.enter();
+        for (host_id, managed_host) in self.hosts.clone() {
+            join_set.spawn({
+                let expected_state_clone = expected_state.clone();
+                let results_clone = results.clone();
+                async move {
+                    let host_span = span!(Level::DEBUG, "host", host_id);
+                    let _host_enter = host_span.enter();
 
-            debug!(name = host_id, "Assessing compliance");
-            match managed_host.assess_compliance(expected_state).await {
-                Ok(managed_host_status) => {
-                    debug!("Compliance assessment complete");
-                    results.push((host_id.to_string(), managed_host_status));
+                    debug!(name = host_id, "Assessing compliance");
+                    match managed_host
+                        .lock()
+                        .await
+                        .assess_compliance(&expected_state_clone)
+                        .await
+                    {
+                        Ok(managed_host_status) => {
+                            debug!("Compliance assessment complete");
+                            results_clone
+                                .lock()
+                                .await
+                                .push((host_id.to_string(), managed_host_status));
+                        }
+                        Err(details) => {
+                            error!("Failed to assess compliance : {:?}", details);
+                        }
+                    }
                 }
-                Err(details) => {
-                    error!("Failed to assess compliance : {:?}", details);
-                    return Err(details);
-                }
-            }
+            });
         }
 
-        let results_map: HashMap<String, ManagedHostStatus> = results.into_iter().collect();
+        join_set.join_all().await;
+
+        let results_map: HashMap<String, ManagedHostStatus> =
+            results.lock().await.clone().into_iter().collect();
 
         info!(
             "Completed compliance assessment for {} hosts",
             results_map.len()
         );
+
         Ok(results_map)
     }
 
@@ -308,43 +341,62 @@ impl LivingInventory {
 
         debug!("Starting");
 
-        let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
+        let mut join_set = JoinSet::new();
+        let results: Arc<Mutex<Vec<(String, ManagedHostStatus)>>> =
+            Arc::new(Mutex::new(Vec::new()));
 
         // TODO : make this run concurrently by spawning tasks
-        for (host_id, managed_host) in &mut self.hosts {
-            let host_span = span!(parent: &job_span, Level::INFO, "host", id = host_id);
-            let _host_enter = host_span.enter();
+        for (host_id, managed_host) in self.hosts.clone() {
+            join_set.spawn({
+                let expected_state_clone = expected_state.clone();
+                let results_clone = results.clone();
+                let job_span_clone = job_span.clone();
+                async move {
+                    let host_span =
+                        span!(parent: &job_span_clone, Level::INFO, "host", id = host_id);
+                    let _host_enter = host_span.enter();
 
-            info!(target: "run",
-                "Starting to enforce compliance (described by {} attribute(s))",
-                expected_state.attributes.len()
-            );
-            match managed_host.reach_compliance(expected_state).await {
-                Ok(managed_host_status) => {
-                    match managed_host_status.state {
-                        HostStatus::AlreadyCompliant => {
-                            info!(target: "run","Already compliant");
+                    info!(target: "run",
+                        "Starting to enforce compliance (described by {} attribute(s))",
+                        expected_state_clone.attributes.len()
+                    );
+                    match managed_host
+                        .lock()
+                        .await
+                        .reach_compliance(&expected_state_clone)
+                        .await
+                    {
+                        Ok(managed_host_status) => {
+                            match managed_host_status.state {
+                                HostStatus::AlreadyCompliant => {
+                                    info!(target: "run","Already compliant");
+                                }
+                                HostStatus::NotCompliant => {
+                                    warn!("Not compliant");
+                                }
+                                HostStatus::ReachComplianceSuccess => {
+                                    info!(target: "run","Compliance reached");
+                                }
+                                HostStatus::ReachComplianceFailed => {
+                                    warn!("Failed to reach compliance");
+                                }
+                            }
+                            results_clone
+                                .lock()
+                                .await
+                                .push((host_id.to_string(), managed_host_status));
                         }
-                        HostStatus::NotCompliant => {
-                            warn!("Not compliant");
-                        }
-                        HostStatus::ReachComplianceSuccess => {
-                            info!(target: "run","Compliance reached")
-                        }
-                        HostStatus::ReachComplianceFailed => {
-                            warn!("Failed to reach compliance")
+                        Err(details) => {
+                            warn!("Failed to reach compliance : {}", details);
                         }
                     }
-                    results.push((host_id.to_string(), managed_host_status));
                 }
-                Err(details) => {
-                    warn!("Failed to reach compliance");
-                    return Err(details);
-                }
-            }
+            });
         }
 
-        let results_map: HashMap<String, ManagedHostStatus> = results.into_iter().collect();
+        join_set.join_all().await;
+        let results_map: HashMap<String, ManagedHostStatus> =
+            results.lock().await.clone().into_iter().collect();
 
         info!(target: "run","All hosts handled");
         Ok(results_map)
