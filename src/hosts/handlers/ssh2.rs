@@ -319,28 +319,16 @@ impl HostHandler for Ssh2HostHandler {
 
         // Close the channel and wait for the whole content to be tranferred
         if let Err(details) = file_channel.send_eof() {
-            return Err(RegentError::ProblemWithHostConnection(format!(
-                "{:?}",
-                details
-            )));
+            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
         }
         if let Err(details) = file_channel.wait_eof() {
-            return Err(RegentError::ProblemWithHostConnection(format!(
-                "{:?}",
-                details
-            )));
+            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
         }
         if let Err(details) = file_channel.close() {
-            return Err(RegentError::ProblemWithHostConnection(format!(
-                "{:?}",
-                details
-            )));
+            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
         }
         if let Err(details) = file_channel.wait_close() {
-            return Err(RegentError::ProblemWithHostConnection(format!(
-                "{:?}",
-                details
-            )));
+            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
         }
 
         Ok(buffer)

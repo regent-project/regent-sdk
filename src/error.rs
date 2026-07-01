@@ -65,4 +65,10 @@ pub enum RegentError {
 
     #[error("Secrets issue: '{0}'")]
     SecretsIssue(String),
+
+    #[error("Attribute error: '{0}'")]
+    AttributeError(String),
+
+    #[error("TimeOut reached: '{0}'")]
+    TimeOutReached(String),
 }

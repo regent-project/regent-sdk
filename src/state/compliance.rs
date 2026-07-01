@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{hosts::managed_host::InternalApiCallOutcome, state::attribute::Remediation};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ManagedHostStatus {
     pub state: HostStatus,
     actions_taken: Option<Vec<Action>>,
@@ -103,7 +103,7 @@ impl ManagedHostStatus {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum HostStatus {
     AlreadyCompliant,
     NotCompliant,
@@ -111,7 +111,7 @@ pub enum HostStatus {
     ReachComplianceSuccess,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Action {
     remediation: Remediation,
     // action_result is Option since it can not have been tried yet

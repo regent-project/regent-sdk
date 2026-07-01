@@ -84,6 +84,10 @@ impl HostProperties {
 
         Ok(HostProperties { os_kind })
     }
+
+    pub fn os_kind(&self) -> &OsKind {
+        &self.os_kind
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

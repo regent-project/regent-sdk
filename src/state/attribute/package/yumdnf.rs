@@ -1,6 +1,6 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
-use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
@@ -9,6 +9,7 @@ use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -44,11 +45,12 @@ pub struct YumDnfBlockExpectedState {
     upgrade: Option<bool>,
 }
 
-// Chained methods to allow building an YumDnfBlockExpectedState as follows :
-// let apt_block = YumDnfBlockExpectedState::builder()
-//     .with_package_state("httpd", PackageExpectedState::Present)
-//     .with_system_upgrade()
-//     .build();
+impl Timeout for YumDnfBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+}
+
 impl YumDnfBlockExpectedState {
     pub fn builder() -> YumDnfBlockExpectedState {
         YumDnfBlockExpectedState {

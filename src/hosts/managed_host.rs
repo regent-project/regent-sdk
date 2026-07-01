@@ -4,6 +4,7 @@ use tracing::Level;
 use tracing::span;
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
+use std::time::Duration;
 
 use crate::LocalHostHandler;
 use crate::Ssh2AuthMethod;
@@ -19,7 +20,6 @@ use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
-use crate::secrets::SecretProvider;
 use crate::secrets::SecretProvidersPool;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
@@ -378,83 +378,6 @@ impl ManagedHost {
         }
     }
 
-    // pub async fn assess_compliance_in_parallel(
-    //     &mut self,
-    //     expected_state: &ExpectedState,
-    //     optional_secret_provider: Option<SecretProvider>,
-    // ) -> Result<ManagedHostStatus, RegentError> {
-    //     if !self.is_connected() {
-    //         return Err(RegentError::NotConnectedToHost);
-    //     }
-
-    //     let mut already_compliant = true;
-    //     let mut final_remediations_list: Vec<Remediation> = Vec::new();
-
-    //     let (sender, receiver) =
-    //         std::sync::mpsc::channel::<Result<AttributeComplianceAssessment, RegentError>>();
-
-    //     for attribute in &expected_state.attributes {
-    //         let span = span!(Level::INFO, "attribute", name = attribute.name());
-    //         let _enter = span.enter();
-
-    //         // Taking context into account before working on the Attribute
-
-    //         match attribute.consider_context(&self.context) {
-    //             Ok(context_aware_attribute) => {
-    //                 let sender_clone = sender.clone();
-    //                 std::thread::spawn({
-    //                     let mut host_handler = self.handler.clone();
-    //                     let host_properties = self.host_properties.clone();
-    //                     let optional_secret_provider_clone = optional_secret_provider.clone();
-    //                     async move || {
-    //                         let result = context_aware_attribute.assess(
-    //                             &mut host_handler,
-    //                             &host_properties,
-    //                             &optional_secret_provider_clone,
-    //                         ).await;
-    //                         let _ = sender_clone.send(result);
-    //                     }
-    //                 });
-    //             }
-    //             Err(details) => {
-    //                 let content = match &details {
-    //                     RegentError::FailureToConsiderContext(content) => content,
-    //                     _ => &format!("{:?}", details),
-    //                 };
-    //                 error!("{}", content);
-    //                 return Err(details);
-    //             }
-    //         }
-    //     }
-
-    //     for _ in 0..expected_state.attributes.len() {
-    //         match receiver.recv() {
-    //             Ok(result_dry_run_attribute) => match result_dry_run_attribute {
-    //                 Ok(attribute_compliance) => {
-    //                     if let AttributeComplianceAssessment::NonCompliant(remediations) =
-    //                         attribute_compliance
-    //                     {
-    //                         already_compliant = false;
-    //                         final_remediations_list.extend(remediations);
-    //                     }
-    //                 }
-    //                 Err(details) => {
-    //                     return Err(details);
-    //                 }
-    //             },
-    //             Err(details) => {
-    //                 return Err(RegentError::FailedDryRunEvaluation(format!("{}", details)));
-    //             }
-    //         }
-    //     }
-
-    //     if already_compliant {
-    //         Ok(ManagedHostStatus::already_compliant())
-    //     } else {
-    //         Ok(ManagedHostStatus::not_compliant(final_remediations_list))
-    //     }
-    // }
-
     pub async fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
@@ -595,6 +518,10 @@ pub trait ReachCompliance<Handler: HostHandler> {
     ) -> Result<InternalApiCallOutcome, RegentError>;
 }
 
+pub trait Timeout {
+    fn default_timeout(&self) -> Duration;
+}
+
 #[derive(Serialize, Deserialize)]
 pub enum AttributeLevelOperationOutcome {
     AlreadyCompliant,
@@ -610,65 +537,3 @@ pub enum InternalApiCallOutcome {
     Failure(String),
     AllowedFailure(String),
 }
-
-// #[derive(Clone, Serialize, Deserialize, Debug)]
-// pub struct ManagedHostIntermediateRepresentation {
-//     alias: String,
-//     endpoint: String,
-//     connection_type: ConnectionType,
-//     #[serde(skip_serializing)]
-//     connection_secrets_ref: String,
-//     vars: Option<HashMap<String, String>>,
-// }
-
-// impl ManagedHostIntermediateRepresentation {
-//     pub fn to_managed_host<Handler: HostHandler + Clone + Send + 'static>(
-//         self
-//     ) -> ManagedHost {
-
-//         let endpoint: String = self.endpoint;
-
-//         let mut vars: HashMap<String, String> = HashMap::new();
-//         if let Some(vars_list) = self.host_vars {
-//             vars.extend(vars_list);
-//         }
-
-//         match self.connection.kind {
-//             HandlerKind::Localhost(local_host_handler) => {
-//                 ManagedHost::from(endpoint, handler, vars) { endpoint, handler: local_host_handler, vars }
-
-//             }
-//             HandlerKind::Ssh2(ssh2_auth_method) => {
-//                 Ssh2HostHandler::from(ssh2_auth_method)
-//             }
-//         }
-//     }
-// }
-
-// #[derive(Clone, Serialize, Deserialize, Debug)]
-// pub enum ConnectionType {
-//     Localhost,
-//     Ssh2,
-// }
-
-// #[cfg(test)]
-// mod tests {
-//     use crate::{LocalHostHandler, secrets::local::environment_variables::EnvVarSecretProvider};
-
-//     use super::*;
-
-//     #[test]
-//     fn test_deserialize_localhost_managed_host_from_yaml() {
-//         let yaml_content = r#"
-// endpoint: "localhost"
-// handler:
-//     user: CurrentUser
-// vars: {}
-// secret_provider: !EnvironmentVariable
-// "#; // EnvVarSecretProvider
-
-//         let managed_host: ManagedHost<LocalHostHandler> =
-//             yaml_serde::from_str(yaml_content).unwrap();
-//         assert_eq!(managed_host.endpoint, "localhost");
-//     }
-// }

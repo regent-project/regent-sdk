@@ -1,6 +1,6 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
-use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
@@ -8,6 +8,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -17,6 +18,12 @@ pub struct PingBlockExpectedState {}
 impl Check for PingBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
+    }
+}
+
+impl Timeout for PingBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(5)
     }
 }
 
