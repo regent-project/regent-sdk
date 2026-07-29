@@ -36,7 +36,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         let cmd = String::from("id");
-        let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
+        let cmd_result = host_handler.run_command(cmd.as_str(), &privilege).await?;
 
         if cmd_result.return_code == 0 {
             return Ok(AttributeComplianceAssessment::Compliant);

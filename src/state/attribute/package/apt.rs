@@ -114,17 +114,21 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        let apt_available =
-            match host_handler.is_this_command_available("apt-get", &Privilege::None) {
-                Ok(availability) => availability,
-                Err(details) => {
-                    return Err(RegentError::FailedDryRunEvaluation(format!(
-                        "{:?}",
-                        details
-                    )));
-                }
-            };
-        let dpkg_available = match host_handler.is_this_command_available("dpkg", &Privilege::None)
+        let apt_available = match host_handler
+            .is_this_command_available("apt-get", &Privilege::None)
+            .await
+        {
+            Ok(availability) => availability,
+            Err(details) => {
+                return Err(RegentError::FailedDryRunEvaluation(format!(
+                    "{:?}",
+                    details
+                )));
+            }
+        };
+        let dpkg_available = match host_handler
+            .is_this_command_available("dpkg", &Privilege::None)
+            .await
         {
             Ok(availability) => availability,
             Err(details) => {
@@ -150,7 +154,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
                 match state {
                     PackageExpectedState::Present => {
                         // Check is package is already installed or needs to be
-                        if is_package_installed(host_handler, self.package.clone().unwrap()) {
+                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
                             remediations.push(Remediation::None(format!(
                                 "{} already present",
                                 self.package.clone().unwrap()
@@ -165,7 +169,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
                     }
                     PackageExpectedState::Absent => {
                         // Check is package is already absent or needs to be removed
-                        if is_package_installed(host_handler, self.package.clone().unwrap()) {
+                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
                             // Package is present and needs to be removed
                             remediations.push(Remediation::Apt(AptApiCall::from(
                                 AptModuleInternalApiCall::Remove(self.package.clone().unwrap()),
@@ -257,7 +261,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
             ),
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -279,9 +286,13 @@ impl AptApiCall {
     }
 }
 
-fn is_package_installed<Handler: HostHandler>(host_handler: &mut Handler, package: String) -> bool {
+async fn is_package_installed<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    package: String,
+) -> bool {
     let test = host_handler
         .run_command(format!("dpkg -s {}", package).as_str(), &Privilege::None)
+        .await
         .unwrap();
 
     if test.return_code == 0 { true } else { false }

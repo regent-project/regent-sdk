@@ -407,6 +407,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
             let check_chain_cmd = format!("{} 2>/dev/null", check_chain_cmd);
             let chain_result = host_handler
                 .run_command(&check_chain_cmd, &Privilege::None)
+                .await
                 .unwrap();
 
             match expected_state {
@@ -449,6 +450,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
             let list_cmd = format!("{} 2>/dev/null", list_cmd);
             let list_result = host_handler
                 .run_command(&list_cmd, &Privilege::None)
+                .await
                 .unwrap();
 
             // Parse policy from first line: "Chain INPUT (policy ACCEPT)"
@@ -495,6 +497,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
             let check_rule_cmd = format!("{} 2>/dev/null", check_rule_cmd);
             let check_result = host_handler
                 .run_command(&check_rule_cmd, &Privilege::None)
+                .await
                 .unwrap();
 
             match expected_state {
@@ -756,7 +759,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for IptablesApiCall {
             } => build_cmd(binary, table_arg, &format!("-D {} {}", chain, rule_args)),
         };
 
-        let result = host_handler.run_command(&cmd, &self.privilege).unwrap();
+        let result = host_handler
+            .run_command(&cmd, &self.privilege)
+            .await
+            .unwrap();
 
         if result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))

@@ -160,6 +160,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         if !host_handler
             .is_this_command_available("sed", privilege)
+            .await
             .unwrap()
         {
             return Err(RegentError::FailedDryRunEvaluation(
@@ -173,6 +174,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
 
         let file_exists = host_handler
             .run_command(&format!("test -f {}", self.file_path), &Privilege::None)
+            .await
             .unwrap()
             .return_code
             == 0;
@@ -211,28 +213,31 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
 
         match state {
             LineExpectedState::Absent => {
-                assess_absent(self, host_handler, privilege, &line_content)
+                assess_absent(self, host_handler, privilege, &line_content).await
             }
-            LineExpectedState::Present => assess_present(
-                self,
-                host_handler,
-                privilege,
-                &line_content,
-                backrefs,
-                firstmatch,
-            ),
+            LineExpectedState::Present => {
+                assess_present(
+                    self,
+                    host_handler,
+                    privilege,
+                    &line_content,
+                    backrefs,
+                    firstmatch,
+                )
+                .await
+            }
         }
     }
 }
 
-fn assess_absent<Handler: HostHandler>(
+async fn assess_absent<Handler: HostHandler>(
     block: &LineInFileBlockExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
     line_content: &Option<String>,
 ) -> Result<AttributeComplianceAssessment, RegentError> {
     if let Some(ref regexp) = block.regexp {
-        let matches = grep_lines(host_handler, regexp, &block.file_path, false);
+        let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
         if matches.is_empty() {
             return Ok(AttributeComplianceAssessment::Compliant);
         }
@@ -253,9 +258,9 @@ fn assess_absent<Handler: HostHandler>(
     if let Some(text) = needle {
         let fixed = block.search_string.is_some() || block.regexp.is_none();
         let matches = if fixed {
-            grep_exact_line(host_handler, text, &block.file_path)
+            grep_exact_line(host_handler, text, &block.file_path).await
         } else {
-            grep_lines(host_handler, text, &block.file_path, false)
+            grep_lines(host_handler, text, &block.file_path, false).await
         };
         if matches.is_empty() {
             return Ok(AttributeComplianceAssessment::Compliant);
@@ -274,7 +279,7 @@ fn assess_absent<Handler: HostHandler>(
     Ok(AttributeComplianceAssessment::Compliant)
 }
 
-fn assess_present<Handler: HostHandler>(
+async fn assess_present<Handler: HostHandler>(
     block: &LineInFileBlockExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
@@ -284,7 +289,7 @@ fn assess_present<Handler: HostHandler>(
 ) -> Result<AttributeComplianceAssessment, RegentError> {
     // ── regexp path ──────────────────────────────────────────────────────────
     if let Some(ref regexp) = block.regexp {
-        let matches = grep_lines(host_handler, regexp, &block.file_path, false);
+        let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
 
         if !matches.is_empty() {
             let target = if firstmatch {
@@ -311,7 +316,7 @@ fn assess_present<Handler: HostHandler>(
             }
 
             if let Some(expected) = &line_content {
-                let current = get_line(host_handler, target, &block.file_path);
+                let current = get_line(host_handler, target, &block.file_path).await;
                 if current.as_deref() == Some(expected.as_str()) {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
@@ -338,7 +343,7 @@ fn assess_present<Handler: HostHandler>(
     }
     // ── search_string path ───────────────────────────────────────────────────
     else if let Some(ref search) = block.search_string {
-        let matches = grep_exact_line(host_handler, search, &block.file_path);
+        let matches = grep_exact_line(host_handler, search, &block.file_path).await;
 
         if !matches.is_empty() {
             if let Some(expected) = &line_content {
@@ -347,7 +352,7 @@ fn assess_present<Handler: HostHandler>(
                 } else {
                     *matches.last().unwrap()
                 };
-                let current = get_line(host_handler, target, &block.file_path);
+                let current = get_line(host_handler, target, &block.file_path).await;
                 if current.as_deref() == Some(expected.as_str()) {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
@@ -367,7 +372,7 @@ fn assess_present<Handler: HostHandler>(
     }
     // ── exact line path ──────────────────────────────────────────────────────
     else if let Some(line) = &line_content {
-        let matches = grep_exact_line(host_handler, line, &block.file_path);
+        let matches = grep_exact_line(host_handler, line, &block.file_path).await;
         if !matches.is_empty() {
             return Ok(AttributeComplianceAssessment::Compliant);
         }
@@ -381,7 +386,8 @@ fn assess_present<Handler: HostHandler>(
         &block.insert_before,
         firstmatch,
         &block.file_path,
-    );
+    )
+    .await;
 
     Ok(AttributeComplianceAssessment::NonCompliant(vec![
         Remediation::LineInFile(LineInFileApiCall {
@@ -394,7 +400,7 @@ fn assess_present<Handler: HostHandler>(
     ]))
 }
 
-fn determine_insert_position<Handler: HostHandler>(
+async fn determine_insert_position<Handler: HostHandler>(
     host_handler: &mut Handler,
     insert_after: &Option<String>,
     insert_before: &Option<String>,
@@ -406,7 +412,7 @@ fn determine_insert_position<Handler: HostHandler>(
             "BOF" => LineInFileModuleInternalApiCall::InsertTop,
             "EOF" | "" => LineInFileModuleInternalApiCall::InsertBottom,
             _ => {
-                let matches = grep_lines(host_handler, pattern, file_path, false);
+                let matches = grep_lines(host_handler, pattern, file_path, false).await;
                 if matches.is_empty() {
                     LineInFileModuleInternalApiCall::InsertBottom
                 } else {
@@ -425,7 +431,7 @@ fn determine_insert_position<Handler: HostHandler>(
         return match pattern.as_str() {
             "BOF" => LineInFileModuleInternalApiCall::InsertTop,
             _ => {
-                let matches = grep_lines(host_handler, pattern, file_path, false);
+                let matches = grep_lines(host_handler, pattern, file_path, false).await;
                 if matches.is_empty() {
                     LineInFileModuleInternalApiCall::InsertBottom
                 } else {
@@ -445,7 +451,7 @@ fn determine_insert_position<Handler: HostHandler>(
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn grep_lines<Handler: HostHandler>(
+async fn grep_lines<Handler: HostHandler>(
     host_handler: &mut Handler,
     pattern: &str,
     file_path: &str,
@@ -457,6 +463,7 @@ fn grep_lines<Handler: HostHandler>(
             &format!("grep {} '{}' {}", flag, pattern, file_path),
             &Privilege::None,
         )
+        .await
         .unwrap();
     if result.return_code != 0 {
         return Vec::new();
@@ -468,7 +475,7 @@ fn grep_lines<Handler: HostHandler>(
         .collect()
 }
 
-fn grep_exact_line<Handler: HostHandler>(
+async fn grep_exact_line<Handler: HostHandler>(
     host_handler: &mut Handler,
     line: &str,
     file_path: &str,
@@ -478,6 +485,7 @@ fn grep_exact_line<Handler: HostHandler>(
             &format!("grep -nxF '{}' {}", line, file_path),
             &Privilege::None,
         )
+        .await
         .unwrap();
     if result.return_code != 0 {
         return Vec::new();
@@ -489,7 +497,7 @@ fn grep_exact_line<Handler: HostHandler>(
         .collect()
 }
 
-fn get_line<Handler: HostHandler>(
+async fn get_line<Handler: HostHandler>(
     host_handler: &mut Handler,
     line_number: u64,
     file_path: &str,
@@ -499,6 +507,7 @@ fn get_line<Handler: HostHandler>(
             &format!("sed -n '{}p' {}", line_number, file_path),
             &Privilege::None,
         )
+        .await
         .unwrap();
     if result.return_code == 0 {
         Some(result.stdout.trim_end_matches('\n').to_string())
@@ -507,13 +516,14 @@ fn get_line<Handler: HostHandler>(
     }
 }
 
-fn get_line_count<Handler: HostHandler>(
+async fn get_line_count<Handler: HostHandler>(
     host_handler: &mut Handler,
     file_path: &str,
     privilege: &Privilege,
 ) -> u64 {
     host_handler
         .run_command(&format!("wc -l < {}", file_path), privilege)
+        .await
         .unwrap()
         .stdout
         .trim()
@@ -622,7 +632,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
             }
             LineInFileModuleInternalApiCall::InsertTop => {
                 let l = line.unwrap_or_default();
-                let count = get_line_count(host_handler, &self.file_path, &self.privilege);
+                let count = get_line_count(host_handler, &self.file_path, &self.privilege).await;
                 if count == 0 {
                     format!(
                         "printf '%s\\n' '{}' > {}",
@@ -700,6 +710,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
 
         let result = host_handler
             .run_command(cmd.as_str(), &self.privilege)
+            .await
             .unwrap();
 
         if result.return_code == 0 {

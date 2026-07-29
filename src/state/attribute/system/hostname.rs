@@ -60,9 +60,7 @@ impl Check for HostnameBlockExpectedState {
                 "Hostname cannot be empty.".to_string(),
             ));
         } else if let Err(details) = is_valid_hostname(&self.name) {
-            return Err(RegentError::IncoherentExpectedState(
-                details
-            ));
+            return Err(RegentError::IncoherentExpectedState(details));
         }
 
         Ok(())
@@ -79,12 +77,16 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         if let Some(host_properties) = host_properties {
             if matches!(host_properties.os_kind(), OsKind::Windows) {
-                return Err(RegentError::AttributeError("OS not supported by the module".to_string()));
+                return Err(RegentError::AttributeError(
+                    "OS not supported by the module".to_string(),
+                ));
             }
         }
-        
 
-        let current_hostname = match host_handler.run_command("cat /etc/hostname", &Privilege::None) {
+        let current_hostname = match host_handler
+            .run_command("cat /etc/hostname", &Privilege::None)
+            .await
+        {
             Ok(result) => {
                 if result.return_code != 0 {
                     return Err(RegentError::FailedDryRunEvaluation(
@@ -180,7 +182,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
             }
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -224,7 +229,9 @@ fn is_valid_hostname(hostname: &str) -> Result<(), String> {
                         return Err("element forbidden to end with -".to_string());
                     }
                 }
-                forbidden_character => return Err(format!("forbidden character : {forbidden_character}")),
+                forbidden_character => {
+                    return Err(format!("forbidden character : {forbidden_character}"));
+                }
             }
         }
     }

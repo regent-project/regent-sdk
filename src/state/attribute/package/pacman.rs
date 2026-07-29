@@ -116,6 +116,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         if !host_handler
             .is_this_command_available("pacman", &Privilege::None)
+            .await
             .unwrap()
         {
             return Err(RegentError::FailedDryRunEvaluation(
@@ -131,7 +132,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
                 match state {
                     PackageExpectedState::Present => {
                         // Check is package is already installed or needs to be
-                        if is_package_installed(host_handler, self.package.clone().unwrap()) {
+                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
                             remediations.push(Remediation::None(format!(
                                 "{} already present",
                                 self.package.clone().unwrap()
@@ -146,7 +147,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
                     }
                     PackageExpectedState::Absent => {
                         // Check is package is already absent or needs to be removed
-                        if is_package_installed(host_handler, self.package.clone().unwrap()) {
+                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
                             // Package is present and needs to be removed
                             remediations.push(Remediation::Pacman(PacmanApiCall::from(
                                 PacmanModuleInternalApiCall::Remove(self.package.clone().unwrap()),
@@ -226,7 +227,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
             PacmanModuleInternalApiCall::Upgrade => ("pacman -Syu".to_string(), &self.privilege),
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -248,12 +252,16 @@ impl PacmanApiCall {
     }
 }
 
-fn is_package_installed<Handler: HostHandler>(host_handler: &mut Handler, package: String) -> bool {
+async fn is_package_installed<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    package: String,
+) -> bool {
     let test = host_handler
         .run_command(
             format!("LC_ALL=en_US.UTF-8 pacman -Q -i {}", package).as_str(),
             &Privilege::None,
         )
+        .await
         .unwrap();
 
     if test.return_code == 0 { true } else { false }

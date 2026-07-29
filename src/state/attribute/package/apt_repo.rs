@@ -208,7 +208,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
         let is_legacy = self.repo.is_some();
         let file_path = apt_repo_file_path(&self.filename, is_legacy);
 
-        let current_content = match read_file(host_handler, &file_path) {
+        let current_content = match read_file(host_handler, &file_path).await {
             Ok(c) => c,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
@@ -331,7 +331,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptRepoApiCall {
             }
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -389,11 +392,14 @@ fn escape_for_printf(content: &str) -> String {
         .replace('\n', "\\n")
 }
 
-fn read_file<Handler: HostHandler>(
+async fn read_file<Handler: HostHandler>(
     host_handler: &mut Handler,
     path: &str,
 ) -> Result<Option<String>, String> {
-    match host_handler.run_command(&format!("cat {}", path), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("cat {}", path), &Privilege::None)
+        .await
+    {
         Ok(result) => {
             if result.return_code == 0 {
                 Ok(Some(result.stdout))

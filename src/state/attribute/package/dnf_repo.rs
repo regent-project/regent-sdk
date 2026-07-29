@@ -185,7 +185,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
         let file_name = self.repo_filename();
         let file_path = format!("/etc/yum.repos.d/{}.repo", file_name);
 
-        let current_content = match read_file(host_handler, &file_path) {
+        let current_content = match read_file(host_handler, &file_path).await {
             Ok(c) => c,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
@@ -341,6 +341,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DnfRepoApiCall {
 
         let cmd_result = host_handler
             .run_command(cmd.as_str(), &self.privilege)
+            .await
             .unwrap();
 
         if cmd_result.return_code == 0 {
@@ -449,11 +450,14 @@ fn build_remove_cmd(file_name: &str, repo_name: &str) -> String {
     )
 }
 
-fn read_file<Handler: HostHandler>(
+async fn read_file<Handler: HostHandler>(
     host_handler: &mut Handler,
     path: &str,
 ) -> Result<Option<String>, String> {
-    match host_handler.run_command(&format!("cat {}", path), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("cat {}", path), &Privilege::None)
+        .await
+    {
         Ok(result) => {
             if result.return_code == 0 {
                 Ok(Some(result.stdout))

@@ -96,7 +96,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
         let expected_state = self.state.as_ref().unwrap_or(&GroupExpectedState::Present);
         let local = self.local.unwrap_or(false);
 
-        let group_exists = match group_exists(host_handler, &self.name) {
+        let group_exists = match group_exists(host_handler, &self.name).await {
             Ok(exists) => exists,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
@@ -133,7 +133,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
 
                 // Group exists: check GID if specified
                 if let Some(expected_gid) = self.gid {
-                    let current_gid = match get_group_gid(host_handler, &self.name) {
+                    let current_gid = match get_group_gid(host_handler, &self.name).await {
                         Ok(gid) => gid,
                         Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
                     };
@@ -258,7 +258,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
             }
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -271,21 +274,27 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
     }
 }
 
-fn group_exists<Handler: HostHandler>(
+async fn group_exists<Handler: HostHandler>(
     host_handler: &mut Handler,
     groupname: &str,
 ) -> Result<bool, String> {
-    match host_handler.run_command(&format!("getent group {}", groupname), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("getent group {}", groupname), &Privilege::None)
+        .await
+    {
         Ok(result) => Ok(result.return_code == 0),
         Err(e) => Err(format!("Unable to check if group exists: {:?}", e)),
     }
 }
 
-fn get_group_gid<Handler: HostHandler>(
+async fn get_group_gid<Handler: HostHandler>(
     host_handler: &mut Handler,
     groupname: &str,
 ) -> Result<u32, String> {
-    match host_handler.run_command(&format!("getent group {}", groupname), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("getent group {}", groupname), &Privilege::None)
+        .await
+    {
         Ok(result) => {
             if result.return_code != 0 {
                 return Err(format!("getent group failed for group {}", groupname));

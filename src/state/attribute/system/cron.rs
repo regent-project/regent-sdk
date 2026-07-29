@@ -20,7 +20,6 @@ pub enum CronExpectedState {
     Absent,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum CronSpecialTime {
@@ -192,6 +191,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState 
         if !is_cron_d
             && !host_handler
                 .is_this_command_available("crontab", privilege)
+                .await
                 .unwrap()
         {
             return Err(RegentError::FailedDryRunEvaluation(
@@ -199,7 +199,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState 
             ));
         }
 
-        let content = match get_cron_content(host_handler, &self.user, &self.cron_file) {
+        let content = match get_cron_content(host_handler, &self.user, &self.cron_file).await {
             Ok(c) => c,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
@@ -362,7 +362,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CronApiCall {
             }
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -382,7 +385,7 @@ fn user_flag(user: &Option<String>) -> String {
     }
 }
 
-fn get_cron_content<Handler: HostHandler>(
+async fn get_cron_content<Handler: HostHandler>(
     host_handler: &mut Handler,
     user: &Option<String>,
     cron_file: &Option<String>,
@@ -390,6 +393,7 @@ fn get_cron_content<Handler: HostHandler>(
     if let Some(file) = cron_file {
         let result = host_handler
             .run_command(&format!("cat /etc/cron.d/{}", file), &Privilege::None)
+            .await
             .map_err(|e| format!("Failed to read cron file: {:?}", e))?;
         Ok(if result.return_code == 0 {
             result.stdout
@@ -403,6 +407,7 @@ fn get_cron_content<Handler: HostHandler>(
         };
         let result = host_handler
             .run_command(&cmd, &Privilege::None)
+            .await
             .map_err(|e| format!("Failed to read crontab: {:?}", e))?;
         // rc=1 means "no crontab for user" — treat as empty
         Ok(if result.return_code == 0 {

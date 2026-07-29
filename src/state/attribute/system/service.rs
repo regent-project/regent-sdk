@@ -87,6 +87,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         if !host_handler
             .is_this_command_available("systemctl", privilege)
+            .await
             .unwrap()
         {
             return Err(RegentError::FailedDryRunEvaluation(
@@ -100,6 +101,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         match &self.state {
             Some(ServiceExpectedState::Started) => {
                 let active = service_is_active(host_handler, &self.name)
+                    .await
                     .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                 if !active {
                     remediations.push(Remediation::Service(ServiceApiCall::from(
@@ -110,6 +112,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
             }
             Some(ServiceExpectedState::Stopped) => {
                 let active = service_is_active(host_handler, &self.name)
+                    .await
                     .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                 if active {
                     remediations.push(Remediation::Service(ServiceApiCall::from(
@@ -139,6 +142,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         match self.enabled {
             Some(true) => {
                 let is_enabled = service_is_enabled(host_handler, &self.name)
+                    .await
                     .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                 if !is_enabled {
                     remediations.push(Remediation::Service(ServiceApiCall::from(
@@ -149,6 +153,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
             }
             Some(false) => {
                 let is_enabled = service_is_enabled(host_handler, &self.name)
+                    .await
                     .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                 if is_enabled {
                     remediations.push(Remediation::Service(ServiceApiCall::from(
@@ -234,7 +239,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
             ServiceModuleInternalApiCall::Disable(s) => format!("systemctl disable {}", s),
         };
 
-        let result = host_handler.run_command(&cmd, &self.privilege).unwrap();
+        let result = host_handler
+            .run_command(&cmd, &self.privilege)
+            .await
+            .unwrap();
 
         if result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -247,11 +255,14 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
     }
 }
 
-fn service_is_active<Handler: HostHandler>(
+async fn service_is_active<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
 ) -> Result<bool, String> {
-    match host_handler.run_command(&format!("systemctl is-active {}", name), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("systemctl is-active {}", name), &Privilege::None)
+        .await
+    {
         Ok(r) => match r.return_code {
             0 => Ok(true),
             3 => Ok(false),
@@ -262,11 +273,14 @@ fn service_is_active<Handler: HostHandler>(
     }
 }
 
-fn service_is_enabled<Handler: HostHandler>(
+async fn service_is_enabled<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
 ) -> Result<bool, String> {
-    match host_handler.run_command(&format!("systemctl is-enabled {}", name), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("systemctl is-enabled {}", name), &Privilege::None)
+        .await
+    {
         Ok(r) => match r.return_code {
             0 => Ok(true),
             1 | 3 => Ok(false),

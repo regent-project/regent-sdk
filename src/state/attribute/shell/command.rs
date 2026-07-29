@@ -102,6 +102,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
                     .unwrap(),
                 &self.privilege,
             )
+            .await
             .unwrap();
 
         if cmd_result.return_code == 0 {
@@ -128,4 +129,3 @@ mod tests {
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 }
-

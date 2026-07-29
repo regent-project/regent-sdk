@@ -179,6 +179,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                 "test -f /usr/local/bin/ollama || which ollama 2>/dev/null",
                 &Privilege::None,
             )
+            .await
             .unwrap()
             .return_code
             == 0;
@@ -227,6 +228,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
             // We need to know the current active state for both service and api logic.
             service_is_currently_active = host_handler
                 .run_command("systemctl is-active ollama", &Privilege::None)
+                .await
                 .unwrap()
                 .return_code
                 == 0;
@@ -269,6 +271,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
         if let Some(should_be_enabled) = self.service_enabled {
             let is_enabled = host_handler
                 .run_command("systemctl is-enabled ollama", &Privilege::None)
+                .await
                 .unwrap()
                 .return_code
                 == 0;
@@ -300,6 +303,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     "ollama list 2>/dev/null | awk 'NR>1 {print $1}'",
                     &Privilege::None,
                 )
+                .await
                 .unwrap();
 
             let installed_models: Vec<String> = if list_result.return_code == 0 {
@@ -351,6 +355,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     "cat /etc/systemd/system/ollama.service.d/override.conf 2>/dev/null",
                     &Privilege::None,
                 )
+                .await
                 .unwrap();
 
             let current_content = if current_result.return_code == 0 {
@@ -584,7 +589,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
             OllamaModuleInternalApiCall::DaemonReload => "systemctl daemon-reload".to_string(),
         };
 
-        let result = host_handler.run_command(&cmd, &self.privilege).unwrap();
+        let result = host_handler
+            .run_command(&cmd, &self.privilege)
+            .await
+            .unwrap();
 
         if result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))

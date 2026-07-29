@@ -161,7 +161,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         let expected_state = self.state.as_ref().unwrap_or(&UserExpectedState::Present);
 
-        let user_exists = match user_exists(host_handler, &self.name) {
+        let user_exists = match user_exists(host_handler, &self.name).await {
             Ok(exists) => exists,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
@@ -213,7 +213,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                 let mod_password = self.password.clone();
                 let append = self.append.unwrap_or(false);
 
-                let passwd_entry = match get_passwd_entry(host_handler, &self.name) {
+                let passwd_entry = match get_passwd_entry(host_handler, &self.name).await {
                     Ok(entry) => entry,
                     Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
                 };
@@ -243,7 +243,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                 }
 
                 if let Some(ref expected_group) = self.group {
-                    let current_group = match get_primary_group(host_handler, &self.name) {
+                    let current_group = match get_primary_group(host_handler, &self.name).await {
                         Ok(g) => g,
                         Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
                     };
@@ -254,7 +254,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
 
                 if let Some(ref expected_groups) = self.groups {
                     let current_supp_groups =
-                        match get_supplementary_groups(host_handler, &self.name) {
+                        match get_supplementary_groups(host_handler, &self.name).await {
                             Ok(g) => g,
                             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
                         };
@@ -494,7 +494,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
             }
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -514,21 +517,27 @@ struct PasswdEntry {
     shell: String,
 }
 
-fn user_exists<Handler: HostHandler>(
+async fn user_exists<Handler: HostHandler>(
     host_handler: &mut Handler,
     username: &str,
 ) -> Result<bool, String> {
-    match host_handler.run_command(&format!("id {}", username), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("id {}", username), &Privilege::None)
+        .await
+    {
         Ok(result) => Ok(result.return_code == 0),
         Err(e) => Err(format!("Unable to check if user exists: {:?}", e)),
     }
 }
 
-fn get_passwd_entry<Handler: HostHandler>(
+async fn get_passwd_entry<Handler: HostHandler>(
     host_handler: &mut Handler,
     username: &str,
 ) -> Result<PasswdEntry, String> {
-    match host_handler.run_command(&format!("getent passwd {}", username), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("getent passwd {}", username), &Privilege::None)
+        .await
+    {
         Ok(result) => {
             if result.return_code != 0 {
                 return Err(format!("getent passwd failed for user {}", username));
@@ -558,11 +567,14 @@ fn get_passwd_entry<Handler: HostHandler>(
     }
 }
 
-fn get_primary_group<Handler: HostHandler>(
+async fn get_primary_group<Handler: HostHandler>(
     host_handler: &mut Handler,
     username: &str,
 ) -> Result<String, String> {
-    match host_handler.run_command(&format!("id -gn {}", username), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("id -gn {}", username), &Privilege::None)
+        .await
+    {
         Ok(result) => {
             if result.return_code != 0 {
                 return Err(format!("id -gn failed for user {}", username));
@@ -576,13 +588,16 @@ fn get_primary_group<Handler: HostHandler>(
     }
 }
 
-fn get_supplementary_groups<Handler: HostHandler>(
+async fn get_supplementary_groups<Handler: HostHandler>(
     host_handler: &mut Handler,
     username: &str,
 ) -> Result<Vec<String>, String> {
-    let primary_group = get_primary_group(host_handler, username)?;
+    let primary_group = get_primary_group(host_handler, username).await?;
 
-    match host_handler.run_command(&format!("id -Gn {}", username), &Privilege::None) {
+    match host_handler
+        .run_command(&format!("id -Gn {}", username), &Privilege::None)
+        .await
+    {
         Ok(result) => {
             if result.return_code != 0 {
                 return Err(format!("id -Gn failed for user {}", username));
