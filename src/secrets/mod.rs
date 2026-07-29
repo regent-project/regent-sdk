@@ -1,3 +1,31 @@
+//! Secret management
+//!
+//! This module provides comprehensive secret management capabilities for Regent SDK.
+//! It supports multiple secret providers including local files, environment variables,
+//! and cloud-based secret managers (AWS, GCP).
+//!
+//! ## Features
+//!
+//! - **Multiple Providers**: Files, environment variables, AWS Secrets Manager, GCP Secret Manager
+//! - **Secret Pool**: Manage multiple providers with a unified interface
+//! - **Typed Secrets**: Retrieve secrets as specific types (string, structs, etc.)
+//! - **Builder Pattern**: Easy configuration of secret provider pools
+//!
+//! ## Quick Start
+//!
+//! ```no_run
+//! use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+//!
+//! // Create a pool with file-based secrets
+//! let pool = SecretProvidersPoolBuilder::new()
+//!     .add_default_provider("files", SecretProvider::files())
+//!     .build()
+//!     .unwrap();
+//!
+//! // Or use environment variables
+//! let pool = SecretProvidersPool::from("env", SecretProvider::env_var());
+//! ```
+
 pub mod local;
 pub mod remote;
 
@@ -18,12 +46,45 @@ use crate::secrets::remote::aws_secrets_manager::AwsSecretsManagerProvider;
 #[cfg(feature = "gcp-secretmanager")]
 use crate::secrets::remote::gcp_secret_manager::GcpSecretProvider;
 
+/// Enum representing different types of secret providers.
+///
+/// Each variant wraps a specific secret provider implementation.
+///
+/// # Variants
+///
+/// - `Files`: Secret provider that reads from files
+/// - `EnvironmentVariable`: Secret provider that reads from environment variables
+/// - `AwsSecretsManager`: AWS Secrets Manager provider (requires `aws-secretsmanager` feature)
+/// - `GcpSecretManager`: Google Cloud Secret Manager provider (requires `gcp-secretmanager` feature)
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::secrets::SecretProvider;
+///
+/// // Create a file-based provider
+/// let provider = SecretProvider::files();
+///
+/// // Create an environment variable provider
+/// let provider = SecretProvider::env_var();
+///
+/// // Create an AWS provider (requires feature flag)
+/// // let provider = SecretProvider::aws_secretsmanager(aws_config);
+/// ```
 #[derive(Clone)]
 pub enum SecretProvider {
+    /// Secret provider that retrieves secrets from files on disk.
     Files(FilesSecretProvider),
+    /// Secret provider that retrieves secrets from environment variables.
     EnvironmentVariable(EnvVarSecretProvider),
+    /// AWS Secrets Manager provider.
+    ///
+    /// Requires the `aws-secretsmanager` feature to be enabled.
     #[cfg(feature = "aws-secretsmanager")]
     AwsSecretsManager(AwsSecretsManagerProvider),
+    /// Google Cloud Secret Manager provider.
+    ///
+    /// Requires the `gcp-secretmanager` feature to be enabled.
     #[cfg(feature = "gcp-secretmanager")]
     GcpSecretManager(GcpSecretProvider),
     // DelineaSecretServer,
@@ -31,19 +92,77 @@ pub enum SecretProvider {
 }
 
 impl SecretProvider {
+    /// Create a file-based secret provider.
+    ///
+    /// Secrets are retrieved from files on the filesystem.
+    /// The secret reference should be the file path.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::SecretProvider;
+    ///
+    /// let provider = SecretProvider::files();
+    /// // Secret reference: "/path/to/secret/file"
+    /// ```
     pub fn files() -> Self {
         Self::Files(FilesSecretProvider::new())
     }
 
+    /// Create an environment variable-based secret provider.
+    ///
+    /// Secrets are retrieved from environment variables.
+    /// The secret reference should be the environment variable name.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::SecretProvider;
+    ///
+    /// let provider = SecretProvider::env_var();
+    /// // Secret reference: "MY_ENV_VAR"
+    /// ```
     pub fn env_var() -> Self {
         Self::EnvironmentVariable(EnvVarSecretProvider::new())
     }
 
+    /// Create an AWS Secrets Manager provider.
+    ///
+    /// Requires the `aws-secretsmanager` feature to be enabled.
+    ///
+    /// # Arguments
+    ///
+    /// * `aws_config` - AWS SDK configuration
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::SecretProvider;
+    /// use aws_config::SdkConfig;
+    ///
+    /// let aws_config = SdkConfig::default();
+    /// let provider = SecretProvider::aws_secretsmanager(aws_config);
+    /// ```
     #[cfg(feature = "aws-secretsmanager")]
     pub fn aws_secretsmanager(aws_config: AwsConfig) -> Self {
         Self::AwsSecretsManager(AwsSecretsManagerProvider::from(aws_config))
     }
 
+    /// Create a Google Cloud Secret Manager provider.
+    ///
+    /// Requires the `gcp-secretmanager` feature to be enabled.
+    ///
+    /// # Returns
+    ///
+    /// A new GCP Secret Manager provider or an error if initialization fails.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::SecretProvider;
+    ///
+    /// let provider = SecretProvider::gcp_secretmanager().await.unwrap();
+    /// ```
     #[cfg(feature = "gcp-secretmanager")]
     pub async fn gcp_secretmanager() -> Result<Self, RegentError> {
         match GcpSecretProvider::new().await {
@@ -102,29 +221,126 @@ impl SecretProvider {
     }
 }
 
-// Each SecretProvider variant's nested type must implement this trait
+/// Trait for synchronous secret providers.
+///
+/// Implement this trait for secret providers that can operate synchronously.
+///
+/// # Requirements
+///
+/// Implementers must provide methods for connecting to the secret backend
+/// and retrieving secrets in both typed and raw string formats.
 pub trait SecretProvidingSolution {
+    /// Connect to the secret provider backend.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if connection was successful, or a [`RegentError`] if it failed.
     async fn connect(&mut self) -> Result<(), RegentError>;
+
+    /// Retrieve a secret as a specific type.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type to deserialize the secret into (must implement `DeserializeOwned`)
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_reference` - The reference/identifier for the secret
+    ///
+    /// # Returns
+    ///
+    /// The secret wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError>;
+
+    /// Retrieve a secret as a raw string.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_reference` - The reference/identifier for the secret
+    ///
+    /// # Returns
+    ///
+    /// The secret as a string wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
 }
 
+/// Trait for asynchronous secret providers.
+///
+/// Similar to [`SecretProvidingSolution`] but for providers that require async operations.
+///
+/// # Requirements
+///
+/// Implementers must provide methods for connecting to the secret backend
+/// and retrieving secrets in both typed and raw string formats.
 pub trait AsyncSecretProvidingSolution {
+    /// Connect to the secret provider backend.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if connection was successful, or a [`RegentError`] if it failed.
     async fn connect(&mut self) -> Result<(), RegentError>;
+
+    /// Retrieve a secret as a specific type.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type to deserialize the secret into (must implement `DeserializeOwned`)
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_reference` - The reference/identifier for the secret
+    ///
+    /// # Returns
+    ///
+    /// The secret wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError>;
+
+    /// Retrieve a secret as a raw string.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_reference` - The reference/identifier for the secret
+    ///
+    /// # Returns
+    ///
+    /// The secret as a string wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
 }
 
+/// A wrapper type that holds secret content and prevents accidental leaking.
+///
+/// This type wraps secret values and implements a custom `Debug` formatter that
+/// redacts the actual secret content, preventing accidental exposure in logs.
+///
+/// # Type Parameters
+///
+/// * `T` - The type of the secret value
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::secrets::Secret;
+///
+/// let password = Secret::from("db_password", "super_secret_123".to_string());
+///
+/// // The secret content is redacted in Debug output
+/// println!("{:?}", password); // Prints: Secret { sec_ref: "db_password", inner: <redacted> }
+///
+/// // Access the inner value when needed
+/// let actual_password = password.inner();
+/// ```
 // Wrapper type which holds secrets content and helps to avoid leaking secrets (usual or debug logging in general...)
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 pub struct Secret<T> {
+    /// Reference identifier for this secret (used for auditing and debugging).
     sec_ref: String,
+    /// The actual secret value.
     inner: T,
 }
 
@@ -141,6 +357,20 @@ where
 }
 
 impl<T> Secret<T> {
+    /// Create a new secret wrapper.
+    ///
+    /// # Arguments
+    ///
+    /// * `sec_ref` - A reference identifier for this secret (used for auditing)
+    /// * `inner` - The actual secret value
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::Secret;
+    ///
+    /// let secret = Secret::from("api_key", "sk-1234567890");
+    /// ```
     pub fn from(sec_ref: &str, inner: T) -> Self {
         Self {
             sec_ref: sec_ref.to_string(),
@@ -148,20 +378,73 @@ impl<T> Secret<T> {
         }
     }
 
+    /// Consume the secret wrapper and return the inner value.
+    ///
+    /// **Warning**: This exposes the secret value. Use with caution.
+    ///
+    /// # Returns
+    ///
+    /// The inner secret value.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::Secret;
+    ///
+    /// let secret = Secret::from("password", "my_password");
+    /// let password: String = secret.inner();
+    /// ```
     pub fn inner(self) -> T {
         self.inner
     }
 }
 
+/// Reference to a secret in a secret provider.
+///
+/// This struct is used to identify secrets without containing the actual secret value.
+/// It consists of a secret reference string and an optional provider name.
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::secrets::SecretReference;
+///
+/// // Reference to a secret in the default provider
+/// let ref1 = SecretReference::from("my_secret", None);
+///
+/// // Reference to a secret in a specific provider
+/// let ref2 = SecretReference::from("my_secret", Some("aws".to_string()));
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
 pub struct SecretReference {
+    /// The reference/identifier for the secret (e.g., file path, env var name, secret name).
     sec_ref: String,
+    /// Optional name of the secret provider to use.
+    /// If `None`, the default provider will be used.
     provider: Option<String>,
 }
 
 impl SecretReference {
+    /// Create a new secret reference.
+    ///
+    /// # Arguments
+    ///
+    /// * `sec_ref` - The reference/identifier for the secret
+    /// * `provider` - Optional name of the secret provider
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::SecretReference;
+    ///
+    /// // Use default provider
+    /// let ref1 = SecretReference::from("password", None);
+    ///
+    /// // Use specific provider
+    /// let ref2 = SecretReference::from("api_key", Some("aws".to_string()));
+    /// ```
     pub fn from(sec_ref: &str, provider: Option<String>) -> Self {
         Self {
             sec_ref: sec_ref.to_string(),
@@ -169,21 +452,56 @@ impl SecretReference {
         }
     }
 
+    /// Get the secret reference string.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the secret reference string.
     pub fn sec_ref(&self) -> &str {
         &self.sec_ref
     }
 
+    /// Get the optional provider name.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the optional provider name.
     pub fn provider(&self) -> &Option<String> {
         &self.provider
     }
 }
 
+/// Builder for creating [`SecretProvidersPool`] instances.
+///
+/// This builder allows you to configure multiple secret providers and set a default.
+/// Use the builder pattern to add providers and then call [`build`] to create the pool.
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+///
+/// let pool = SecretProvidersPoolBuilder::new()
+///     .add_provider("files", SecretProvider::files())
+///     .add_default_provider("env", SecretProvider::env_var())
+///     .build()
+///     .unwrap();
+/// ```
 pub struct SecretProvidersPoolBuilder {
     providers: HashMap<String, SecretProvider>,
     default_provider: Option<String>,
 }
 
 impl SecretProvidersPoolBuilder {
+    /// Create a new, empty secret providers pool builder.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::SecretProvidersPoolBuilder;
+    ///
+    /// let builder = SecretProvidersPoolBuilder::new();
+    /// ```
     pub fn new() -> Self {
         Self {
             providers: HashMap::new(),
@@ -191,6 +509,25 @@ impl SecretProvidersPoolBuilder {
         }
     }
 
+    /// Add a secret provider to the pool.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Unique identifier for this provider
+    /// * `provider` - The secret provider instance
+    ///
+    /// # Returns
+    ///
+    /// The builder, for method chaining.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+    ///
+    /// let builder = SecretProvidersPoolBuilder::new()
+    ///     .add_provider("files", SecretProvider::files());
+    /// ```
     pub fn add_provider(mut self, name: &str, provider: SecretProvider) -> Self {
         if let Some(_old_secret_provider) = self.providers.insert(name.to_string(), provider) {
             warn!(
@@ -201,6 +538,27 @@ impl SecretProvidersPoolBuilder {
         self
     }
 
+    /// Add a secret provider and set it as the default.
+    ///
+    /// This is a convenience method that combines [`add_provider`] and [`set_default`].
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Unique identifier for this provider
+    /// * `provider` - The secret provider instance
+    ///
+    /// # Returns
+    ///
+    /// The builder, for method chaining.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+    ///
+    /// let builder = SecretProvidersPoolBuilder::new()
+    ///     .add_default_provider("files", SecretProvider::files());
+    /// ```
     pub fn add_default_provider(mut self, name: &str, provider: SecretProvider) -> Self {
         if let Some(_old_secret_provider) = self.providers.insert(name.to_string(), provider) {
             warn!(
@@ -212,11 +570,52 @@ impl SecretProvidersPoolBuilder {
         self
     }
 
+    /// Set the default provider by name.
+    ///
+    /// The provider must have been previously added with [`add_provider`].
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name of the provider to set as default
+    ///
+    /// # Returns
+    ///
+    /// The builder, for method chaining.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+    ///
+    /// let builder = SecretProvidersPoolBuilder::new()
+    ///     .add_provider("files", SecretProvider::files())
+    ///     .add_provider("env", SecretProvider::env_var())
+    ///     .set_default("files".to_string());
+    /// ```
     pub fn set_default(mut self, name: String) -> Self {
         self.default_provider = Some(name);
         self
     }
 
+    /// Build the secret providers pool.
+    ///
+    /// This consumes the builder and returns a new [`SecretProvidersPool`] if validation passes.
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(SecretProvidersPool)` if the pool was successfully built
+    /// - `Err(RegentError)` if validation failed (e.g., no default provider set, or default provider not found)
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+    ///
+    /// let pool = SecretProvidersPoolBuilder::new()
+    ///     .add_default_provider("files", SecretProvider::files())
+    ///     .build()
+    ///     .unwrap();
+    /// ```
     pub fn build(self) -> Result<SecretProvidersPool, RegentError> {
         match self.default_provider {
             Some(default_provider_name) => match self.providers.get(&default_provider_name) {
@@ -245,13 +644,54 @@ impl SecretProvidersPoolBuilder {
     }
 }
 
+/// A pool of multiple secret providers with a unified interface.
+///
+/// This struct manages multiple [`SecretProvider`] instances and provides a single
+/// interface for retrieving secrets. When a secret is requested, the pool uses
+/// either the provider specified in the secret reference or the default provider.
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool, SecretReference};
+///
+/// // Create a pool with a single provider
+/// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+///
+/// // Retrieve a secret
+/// let secret_ref = SecretReference::from("/path/to/secret", None);
+/// let secret = pool.get_secret_raw(&secret_ref).await.unwrap();
+/// ```
 #[derive(Clone)]
 pub struct SecretProvidersPool {
+    /// Map of provider names to provider instances.
     providers: HashMap<String, SecretProvider>,
+    /// Name of the default provider to use when none is specified.
     default_provider: String,
 }
 
 impl SecretProvidersPool {
+    /// Create a new secret providers pool with a single provider.
+    ///
+    /// This is a convenience constructor for pools with only one provider,
+    /// which will automatically be set as the default.
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Name for the provider
+    /// * `secret_provider` - The secret provider instance
+    ///
+    /// # Returns
+    ///
+    /// A new [`SecretProvidersPool`] with the specified provider as the default.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
+    ///
+    /// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// ```
     pub fn from(name: &str, secret_provider: SecretProvider) -> Self {
         let mut providers: HashMap<String, SecretProvider> = HashMap::new();
         providers.insert(name.to_string(), secret_provider);
@@ -261,6 +701,36 @@ impl SecretProvidersPool {
         }
     }
 
+    /// Retrieve a secret as a specific type.
+    ///
+    /// # Type Parameters
+    ///
+    /// * `T` - The type to deserialize the secret into (must implement `DeserializeOwned`)
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_reference` - Reference to the secret to retrieve
+    ///
+    /// # Returns
+    ///
+    /// The secret wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvidersPool, SecretReference};
+    /// use serde::Deserialize;
+    ///
+    /// #[derive(Deserialize)]
+    /// struct ApiCredentials {
+    ///     key: String,
+    ///     secret: String,
+    /// }
+    ///
+    /// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// let secret_ref = SecretReference::from("api_creds.json", None);
+    /// let creds: Secret<ApiCredentials> = pool.get_secret_typed(&secret_ref).await.unwrap();
+    /// ```
     pub async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &SecretReference,
@@ -289,6 +759,26 @@ impl SecretProvidersPool {
         }
     }
 
+    /// Retrieve a secret as a raw string.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_reference` - Reference to the secret to retrieve
+    ///
+    /// # Returns
+    ///
+    /// The secret as a string wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvidersPool, SecretReference};
+    ///
+    /// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// let secret_ref = SecretReference::from("/path/to/password.txt", None);
+    /// let password = pool.get_secret_raw(&secret_ref).await.unwrap();
+    /// let password_str: String = password.inner();
+    /// ```
     pub async fn get_secret_raw(
         &self,
         secret_reference: &SecretReference,

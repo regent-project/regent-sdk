@@ -1,10 +1,15 @@
+//! Managed host and builder
+//!
+//! This module provides the [`ManagedHost`] and [`ManagedHostBuilder`] types for
+//! managing connections to target hosts and executing compliance operations.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Duration;
 use tracing::Level;
 use tracing::span;
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
-use std::time::Duration;
 
 use crate::LocalHostHandler;
 use crate::Ssh2AuthMethod;
@@ -28,18 +33,95 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
 
+/// Builder for creating [`ManagedHost`] instances.
+///
+/// This struct is used to configure a managed host before it's built and connected.
+/// It holds all the configuration needed to establish a connection and manage the host.
+///
+/// # Serialization
+///
+/// `ManagedHostBuilder` can be serialized and deserialized as JSON or YAML:
+///
+/// ```no_run
+/// use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+/// use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
+///
+/// let builder = ManagedHostBuilder::new(
+///     "web-server-01",
+///     "192.168.1.100:22",
+///     Some(ConnectionMethod::Localhost(TargetUser::current_user())),
+/// );
+///
+/// let yaml = serde_yaml::to_string(&builder).unwrap();
+/// let json = serde_json::to_string(&builder).unwrap();
+/// ```
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+/// use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
+/// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+///
+/// let builder = ManagedHostBuilder::new(
+///     "web-server-01",
+///     "192.168.1.100:22",
+///     Some(ConnectionMethod::Localhost(TargetUser::current_user())),
+/// );
+///
+/// let secrets_pool = SecretProvidersPoolBuilder::new()
+///     .add_default_provider("files", SecretProvider::files())
+///     .build()
+///     .unwrap();
+///
+/// let managed_host = builder.build(Some(secrets_pool)).await.unwrap();
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
 pub struct ManagedHostBuilder {
+    /// Unique identifier for this managed host.
+    ///
+    /// Used for tracking and logging purposes.
     pub id: String,
+    /// The network endpoint for the host (e.g., "192.168.1.100:22" or "localhost").
     endpoint: String,
+    /// The connection method to use for connecting to the host.
     pub host_connection_method: Option<ConnectionMethod>,
+    /// Optional host properties that have been collected.
     host_properties: Option<HostProperties>,
+    /// Optional host-specific variables for templating.
+    ///
+    /// These variables are available during template rendering and can be used
+    /// to customize attribute behavior per host.
     pub host_vars: Option<HashMap<String, String>>,
 }
 
 impl ManagedHostBuilder {
+    /// Create a new managed host builder.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique identifier for the host
+    /// * `endpoint` - Network endpoint for the host
+    /// * `connection_method` - How to connect to the host
+    ///
+    /// # Returns
+    ///
+    /// A new [`ManagedHostBuilder`] instance.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+    /// use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
+    ///
+    /// let builder = ManagedHostBuilder::new(
+    ///     "web-server-01",
+    ///     "192.168.1.100:22",
+    ///     Some(ConnectionMethod::Localhost(TargetUser::current_user())),
+    /// );
+    /// ```
     pub fn new(id: &str, endpoint: &str, connection_method: Option<ConnectionMethod>) -> Self {
         Self {
             id: id.to_string(),
@@ -50,14 +132,75 @@ impl ManagedHostBuilder {
         }
     }
 
+    /// Set the connection method for this host.
+    ///
+    /// # Arguments
+    ///
+    /// * `connection_method` - The connection method to use
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+    /// use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
+    ///
+    /// let mut builder = ManagedHostBuilder::new("host-01", "localhost", None);
+    /// builder.set_connection_method(ConnectionMethod::Localhost(TargetUser::current_user()));
+    /// ```
     pub fn set_connection_method(&mut self, connection_method: ConnectionMethod) {
         self.host_connection_method = Some(connection_method);
     }
 
+    /// Set the host variables for templating.
+    ///
+    /// # Arguments
+    ///
+    /// * `host_vars` - HashMap of variable names to values
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+    /// use std::collections::HashMap;
+    ///
+    /// let mut builder = ManagedHostBuilder::new("host-01", "localhost", None);
+    ///
+    /// let mut vars = HashMap::new();
+    /// vars.insert("env".to_string(), "production".to_string());
+    /// vars.insert("region".to_string(), "us-east-1".to_string());
+    ///
+    /// builder.set_host_vars(Some(vars));
+    /// ```
     pub fn set_host_vars(&mut self, host_vars: Option<HashMap<String, String>>) {
         self.host_vars = host_vars;
     }
 
+    /// Parse a managed host builder from raw YAML content.
+    ///
+    /// # Arguments
+    ///
+    /// * `raw_yaml` - The YAML string to parse
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(ManagedHostBuilder)` if parsing succeeded
+    /// - `Err(RegentError)` if parsing failed
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+    ///
+    /// let yaml = r#"
+    /// Id: web-server-01
+    /// Endpoint: 192.168.1.100:22
+    /// HostConnectionMethod:
+    ///   Localhost:
+    ///     UserKind: CurrentUser
+    /// "#;
+    ///
+    /// let builder = ManagedHostBuilder::from_raw_yaml(yaml).unwrap();
+    /// ```
     pub fn from_raw_yaml(raw_yaml: &str) -> Result<Self, RegentError> {
         match yaml_serde::from_str::<Self>(raw_yaml) {
             Ok(managed_host_builder) => Ok(managed_host_builder),
@@ -65,6 +208,25 @@ impl ManagedHostBuilder {
         }
     }
 
+    /// Parse a managed host builder from raw JSON content.
+    ///
+    /// # Arguments
+    ///
+    /// * `raw_json` - The JSON string to parse
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(ManagedHostBuilder)` if parsing succeeded
+    /// - `Err(RegentError)` if parsing failed
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+    ///
+    /// let json = r#"{"Id":"web-server-01","Endpoint":"192.168.1.100:22"}"#;
+    /// let builder = ManagedHostBuilder::from_raw_json(json).unwrap();
+    /// ```
     pub fn from_raw_json(raw_json: &str) -> Result<Self, RegentError> {
         match serde_json::from_str::<Self>(raw_json) {
             Ok(managed_host_builder) => Ok(managed_host_builder),
@@ -141,11 +303,11 @@ impl ManagedHostBuilder {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
-                                                Handler::ss2(Ssh2HostHandler::from(
+                                                Handler::ss2(Ssh2HostHandler::NotConnected(
                                                     Ssh2AuthMethod::UsernamePassword(
                                                         secret.inner(),
                                                     ),
-                                                )?),
+                                                )),
                                                 self.host_vars,
                                                 self.host_properties,
                                                 optional_secret_provider,
@@ -168,12 +330,12 @@ impl ManagedHostBuilder {
                                             Ok(secret) => Ok(ManagedHost::new(
                                                 self.id,
                                                 &self.endpoint,
-                                                Handler::ss2(Ssh2HostHandler::from(
+                                                Handler::ss2(Ssh2HostHandler::NotConnected(
                                                     Ssh2AuthMethod::Key(LoginKey::from(
                                                         login_key_ref.username().to_string(),
                                                         secret.inner(),
                                                     )),
-                                                )?),
+                                                )),
                                                 self.host_vars,
                                                 self.host_properties,
                                                 optional_secret_provider,
@@ -186,19 +348,6 @@ impl ManagedHostBuilder {
                                     ))),
                                 }
                             }
-                            Ssh2AuthReference::Agent(agent_name) => {
-                                // No secret required
-                                Ok(ManagedHost::new(
-                                    self.id,
-                                    &self.endpoint,
-                                    Handler::ss2(Ssh2HostHandler::from(
-                                        crate::Ssh2AuthMethod::Agent(agent_name),
-                                    )?),
-                                    self.host_vars,
-                                    self.host_properties,
-                                    optional_secret_provider,
-                                ))
-                            }
                         }
                     }
                 }
@@ -210,18 +359,84 @@ impl ManagedHostBuilder {
     }
 }
 
-#[derive(Clone)]
+/// A managed host that can execute compliance operations.
+///
+/// `ManagedHost` represents a target system that can be connected to and managed.
+/// It provides methods for assessing and reaching compliance with expected states.
+///
+/// # Lifecycle
+///
+/// 1. Create using [`ManagedHostBuilder::build()`]
+/// 2. Connect using [`connect()`]
+/// 3. Execute operations (assess/reach compliance)
+/// 4. Disconnect using [`disconnect()`]
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::hosts::managed_host::{ManagedHost, ManagedHostBuilder};
+/// use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
+/// use regent_sdk::state::ExpectedState;
+///
+/// let builder = ManagedHostBuilder::new(
+///     "web-server-01",
+///     "192.168.1.100:22",
+///     Some(ConnectionMethod::Localhost(TargetUser::current_user())),
+/// );
+///
+/// let mut host = builder.build(None).await.unwrap();
+/// host.connect().unwrap();
+///
+/// let expected_state = ExpectedState::new();
+/// let status = host.assess_compliance(&expected_state).await.unwrap();
+///
+/// host.disconnect().unwrap();
+/// ```
+// #[derive(Clone)]
 pub struct ManagedHost {
+    /// Unique identifier for this managed host.
     id: String,
+    /// The network endpoint for the host.
     endpoint: String,
+    /// The handler used for connecting and executing commands on the host.
     pub handler: Handler,
+    /// Tera context for template rendering with host variables.
     context: tera::Context,
+    /// Cached host properties (OS, architecture, etc.).
     host_properties: Option<HostProperties>,
+    /// Secret providers pool for retrieving secrets.
     // TODO : how to avoid cloning the whole Pool for each Host ? Is it worth introducting Arc<Mutex<T>> ?
     secret_providers: Option<SecretProvidersPool>,
 }
 
+impl Clone for ManagedHost {
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            endpoint: self.endpoint.clone(),
+            handler: self.handler.clone(),
+            context: self.context.clone(),
+            host_properties: self.host_properties.clone(),
+            secret_providers: self.secret_providers.clone(),
+        }
+    }
+}
+
 impl ManagedHost {
+    /// Create a new managed host.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique identifier for the host
+    /// * `endpoint` - Network endpoint for the host
+    /// * `handler` - Connection handler for the host
+    /// * `host_vars` - Host-specific variables for templating
+    /// * `host_properties` - Optional cached host properties
+    /// * `secret_providers` - Optional secret providers pool
+    ///
+    /// # Returns
+    ///
+    /// A new [`ManagedHost`] instance.
     pub fn new(
         id: String,
         endpoint: &str,
@@ -231,7 +446,7 @@ impl ManagedHost {
         secret_providers: Option<SecretProvidersPool>,
     ) -> ManagedHost {
         let context = match host_vars {
-            Some(content) => match tera::Context::from_serialize(content) {
+            Some(content) => match tera::Context::from_serialize(&content) {
                 Ok(context) => context,
                 Err(details) => {
                     error!("Failed to create Tera context : {:?}", details);
@@ -251,6 +466,22 @@ impl ManagedHost {
         }
     }
 
+    /// Create a new managed host from an iterator of variables.
+    ///
+    /// This is a convenience constructor that accepts variables as an iterator.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - Unique identifier for the host
+    /// * `endpoint` - Network endpoint for the host
+    /// * `handler` - Connection handler for the host
+    /// * `vars` - Iterator of (key, value) pairs for host variables
+    /// * `host_properties` - Optional cached host properties
+    /// * `secret_providers` - Optional secret providers pool
+    ///
+    /// # Returns
+    ///
+    /// A new [`ManagedHost`] instance.
     pub fn from(
         id: String,
         endpoint: &str,
@@ -276,26 +507,54 @@ impl ManagedHost {
             id,
             endpoint: endpoint.to_string(),
             handler,
-            context: tera::Context::from_serialize(final_vars).unwrap(),
+            context: tera::Context::from_serialize(&final_vars).unwrap(),
             host_properties,
             secret_providers: secret_providers.clone(),
         }
     }
 
+    /// Get the unique identifier for this managed host.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the host's ID string.
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// Add a variable to the host's template context.
+    ///
+    /// This variable will be available during template rendering for attributes.
+    ///
+    /// # Arguments
+    ///
+    /// * `key` - The variable name
+    /// * `value` - The variable value
     pub fn add_var(&mut self, key: String, value: String) {
         self.context.insert(key, &value);
     }
 
+    /// Set the host properties.
+    ///
+    /// This replaces any existing host properties with the provided value.
+    ///
+    /// # Arguments
+    ///
+    /// * `host_properties` - The host properties to set
     pub fn set_host_properties(&mut self, host_properties: Option<HostProperties>) {
         self.host_properties = host_properties;
     }
 
-    pub fn collect_properties(&mut self) -> Result<(), RegentError> {
-        match HostProperties::collect_dynamically(&mut self.handler) {
+    /// Collect host properties dynamically from the host.
+    ///
+    /// This method connects to the host and collects information about its
+    /// operating system, architecture, and other properties.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if property collection succeeded, or a [`RegentError`] if it failed.
+    pub async fn collect_properties(&mut self) -> Result<(), RegentError> {
+        match HostProperties::collect_dynamically(&mut self.handler).await {
             Ok(host_properties) => {
                 self.host_properties = Some(host_properties);
                 Ok(())
@@ -304,28 +563,93 @@ impl ManagedHost {
         }
     }
 
+    /// Get the host properties.
+    ///
+    /// # Returns
+    ///
+    /// A reference to the optional host properties.
     pub fn get_host_properties(&self) -> &Option<HostProperties> {
         &self.host_properties
     }
 
-    pub fn connect(&mut self) -> Result<(), RegentError> {
-        self.handler.connect(&self.endpoint)
+    /// Connect to the host.
+    ///
+    /// This method establishes a connection to the host using the configured handler.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if connection succeeded, or a [`RegentError`] if it failed.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHost;
+    ///
+    /// let mut host = /* create host */;
+    /// host.connect().unwrap();
+    /// assert!(host.is_connected());
+    /// ```
+    pub async fn connect(&mut self) -> Result<(), RegentError> {
+        self.handler.connect(&self.endpoint).await
     }
 
-    pub fn is_connected(&mut self) -> bool {
-        self.handler.is_connected()
+    /// Check if the host is currently connected.
+    ///
+    /// # Returns
+    ///
+    /// `true` if connected, `false` otherwise.
+    pub async fn is_connected(&mut self) -> bool {
+        self.handler.is_connected().await
     }
 
-    pub fn disconnect(&mut self) -> Result<(), RegentError> {
-        self.handler.disconnect()
+    /// Disconnect from the host.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if disconnection succeeded, or a [`RegentError`] if it failed.
+    pub async fn disconnect(&mut self) -> Result<(), RegentError> {
+        self.handler.disconnect().await
     }
 
+    /// Assess compliance of the host with the expected state.
+    ///
+    /// This method checks each attribute in the expected state and determines
+    /// whether the host is compliant. It does not make any changes to the host.
+    ///
+    /// # Arguments
+    ///
+    /// * `expected_state` - The expected state to check against
+    ///
+    /// # Returns
+    ///
+    /// A [`ManagedHostStatus`] indicating whether the host is compliant and
+    /// what remediations would be needed to reach compliance.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHost;
+    /// use regent_sdk::state::{ExpectedState, Attribute};
+    ///
+    /// let mut host = /* create and connect host */;
+    /// let expected_state = ExpectedState::new()
+    ///     .with_attribute(Attribute::service(/* ... */))
+    ///     .build();
+    ///
+    /// let status = host.assess_compliance(&expected_state).await.unwrap();
+    ///
+    /// if status.is_already_compliant() {
+    ///     println!("Host is compliant!");
+    /// } else {
+    ///     println!("Host needs remediation");
+    /// }
+    /// ```
     // Defaults to sequential assessment
     pub async fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ManagedHostStatus, RegentError> {
-        if !self.is_connected() {
+        if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
 
@@ -378,11 +702,45 @@ impl ManagedHost {
         }
     }
 
+    /// Automatically reach compliance with the expected state.
+    ///
+    /// This method assesses compliance and then automatically performs the necessary
+    /// remediations to bring the host into the expected state. It will stop at the
+    /// first failure unless all remediations are marked as allowed to fail.
+    ///
+    /// # Arguments
+    ///
+    /// * `expected_state` - The expected state to reach
+    ///
+    /// # Returns
+    ///
+    /// A [`ManagedHostStatus`] indicating the final compliance status and
+    /// what actions were taken.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::hosts::managed_host::ManagedHost;
+    /// use regent_sdk::state::{ExpectedState, Attribute};
+    ///
+    /// let mut host = /* create and connect host */;
+    /// let expected_state = ExpectedState::new()
+    ///     .with_attribute(Attribute::service(/* ... */))
+    ///     .build();
+    ///
+    /// let result = host.reach_compliance(&expected_state).await.unwrap();
+    ///
+    /// if result.is_reach_compliance_success() {
+    ///     println!("Compliance reached successfully!");
+    /// } else if result.is_reach_compliance_failed() {
+    ///     println!("Failed to reach compliance");
+    /// }
+    /// ```
     pub async fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ManagedHostStatus, RegentError> {
-        if !self.is_connected() {
+        if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
 
@@ -395,6 +753,8 @@ impl ManagedHost {
             let _enter = span.enter();
             match attribute.consider_context(&self.context) {
                 Ok(context_aware_attribute) => {
+                    let timeout_duration = context_aware_attribute.timeout()?;
+
                     match context_aware_attribute
                         .assess(
                             &mut self.handler,
@@ -425,6 +785,7 @@ impl ManagedHost {
                                                 &mut self.handler,
                                                 &self.host_properties,
                                                 &self.secret_providers,
+                                                timeout_duration,
                                             )
                                             .await
                                         {
@@ -499,7 +860,27 @@ impl ManagedHost {
     }
 }
 
+/// Trait for types that can assess compliance of a host.
+///
+/// Implement this trait for custom attribute types that need to check
+/// whether a host is compliant with a specific configuration.
+///
+/// # Type Parameters
+///
+/// * `Handler` - The type of host handler
 pub trait AssessCompliance<Handler: HostHandler> {
+    /// Assess whether the host is compliant.
+    ///
+    /// # Arguments
+    ///
+    /// * `host_handler` - The handler for executing commands on the host
+    /// * `host_properties` - Optional host properties
+    /// * `privilege` - The privilege level to use for command execution
+    /// * `optional_secret_provider` - Optional secret providers pool
+    ///
+    /// # Returns
+    ///
+    /// An [`AttributeComplianceAssessment`] indicating whether the host is compliant.
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -509,7 +890,26 @@ pub trait AssessCompliance<Handler: HostHandler> {
     ) -> Result<AttributeComplianceAssessment, RegentError>;
 }
 
+/// Trait for types that can perform remediation to reach compliance.
+///
+/// Implement this trait for custom remediation types that need to make
+/// changes to a host to bring it into compliance.
+///
+/// # Type Parameters
+///
+/// * `Handler` - The type of host handler
 pub trait ReachCompliance<Handler: HostHandler> {
+    /// Perform remediation on the host.
+    ///
+    /// # Arguments
+    ///
+    /// * `host_handler` - The handler for executing commands on the host
+    /// * `host_properties` - Optional host properties
+    /// * `optional_secret_provider` - Optional secret providers pool
+    ///
+    /// # Returns
+    ///
+    /// An [`InternalApiCallOutcome`] indicating the result of the remediation.
     async fn call(
         &self,
         host_handler: &mut Handler,
@@ -518,22 +918,73 @@ pub trait ReachCompliance<Handler: HostHandler> {
     ) -> Result<InternalApiCallOutcome, RegentError>;
 }
 
+/// Trait for types that have a default timeout.
+///
+/// Implement this trait for operations that should have a configurable timeout.
 pub trait Timeout {
+    /// Get the default timeout for this operation.
+    ///
+    /// # Returns
+    ///
+    /// A [`Duration`] representing the default timeout.
     fn default_timeout(&self) -> Duration;
 }
 
+/// Outcome of an attribute-level operation.
+///
+/// This enum represents the possible results of assessing and/or remediating
+/// a single attribute on a host.
+///
+/// # Variants
+///
+/// - `AlreadyCompliant`: The attribute was already compliant
+/// - `NotCompliant`: The attribute was not compliant, with list of required remediations
+/// - `ReachComplianceFailed`: Attempt to reach compliance failed
+/// - `ComplianceReachedWithAllowedFailure`: Compliance reached but with allowed failures
+/// - `ComplianceReached`: Compliance successfully reached with list of actions taken
 #[derive(Serialize, Deserialize)]
 pub enum AttributeLevelOperationOutcome {
+    /// The attribute was already compliant.
     AlreadyCompliant,
+    /// The attribute was not compliant.
+    ///
+    /// Contains the list of remediations that would be needed to reach compliance.
     NotCompliant(Vec<Remediation>),
+    /// Attempt to reach compliance failed.
+    ///
+    /// Contains the failure outcome.
     ReachComplianceFailed(InternalApiCallOutcome),
+    /// Compliance reached but with allowed failures.
+    ///
+    /// Some remediations failed but were marked as allowed to fail.
     ComplianceReachedWithAllowedFailure(InternalApiCallOutcome),
+    /// Compliance successfully reached.
+    ///
+    /// Contains the list of remediations performed and their outcomes.
     ComplianceReached(Vec<(Remediation, InternalApiCallOutcome)>),
 }
 
+/// Outcome of an internal API call (remediation execution).
+///
+/// This enum represents the result of executing a single remediation action.
+///
+/// # Variants
+///
+/// - `Success`: The remediation succeeded, with optional details
+/// - `Failure`: The remediation failed, with error details
+/// - `AllowedFailure`: The remediation failed but was allowed to fail
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum InternalApiCallOutcome {
+    /// The remediation succeeded.
+    ///
+    /// Contains optional details about the success.
     Success(Option<String>),
+    /// The remediation failed.
+    ///
+    /// Contains error details.
     Failure(String),
+    /// The remediation failed but was marked as allowed to fail.
+    ///
+    /// This allows for "best effort" compliance where some failures are acceptable.
     AllowedFailure(String),
 }
