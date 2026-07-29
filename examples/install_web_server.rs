@@ -22,7 +22,7 @@ async fn main() {
     .unwrap();
 
     // Open connection with this ManageHost
-    assert!(managed_host.connect().is_ok());
+    assert!(managed_host.connect().await.is_ok());
 
     // Describe the expected state
     let apache_expected_state = AptBlockExpectedState::builder()

@@ -6,9 +6,7 @@ use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use serde::Serialize;
 
-use regent_sdk::attribute::system::service::{
-    ServiceBlockExpectedState, ServiceExpectedState,
-};
+use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
 use regent_sdk::{Attribute, ExpectedState};
 use regent_sdk::{ManagedHost, Privilege};
 

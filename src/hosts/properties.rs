@@ -13,17 +13,17 @@ pub struct HostProperties {
 }
 
 impl HostProperties {
-    pub fn collect_dynamically<Handler: HostHandler>(
+    pub async fn collect_dynamically<Handler: HostHandler>(
         host_handler: &mut Handler,
     ) -> Result<HostProperties, RegentError> {
-        if !host_handler.is_connected() {
+        if !host_handler.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
 
         let mut os_kind = OsKind::Unknown;
 
         // Linux & FreeBSD -> try to get file /etc/os-release
-        if let Ok(os_release_file_content) = host_handler.get_file(PathBuf::from("/etc/os-release"))
+        if let Ok(os_release_file_content) = host_handler.get_file(PathBuf::from("/etc/os-release")).await
         {
             let content = String::from_utf8_lossy(&os_release_file_content);
             for line in content.lines() {
@@ -64,7 +64,7 @@ impl HostProperties {
 
         // OsKind stille unknown, trying to detect Windows -> run "systeminfo"
         if let OsKind::Unknown = os_kind {
-            if let Ok(cmd_result) = host_handler.run_windows_command("systeminfo") {
+            if let Ok(cmd_result) = host_handler.run_windows_command("systeminfo").await {
                 if cmd_result.stdout.contains("Microsoft Windows") {
                     os_kind = OsKind::Windows;
                 }
@@ -73,8 +73,9 @@ impl HostProperties {
 
         // OsKind stille unknown, trying to detect MacOS -> run "sw_vers -productName"
         if let OsKind::Unknown = os_kind {
-            if let Ok(cmd_result) =
-                host_handler.run_command("sw_vers -productName", &Privilege::None)
+            if let Ok(cmd_result) = host_handler
+                .run_command("sw_vers -productName", &Privilege::None)
+                .await
             {
                 if cmd_result.stdout.contains("macOS") {
                     os_kind = OsKind::MacOs;

@@ -1,3 +1,9 @@
+//! Local host connection handler
+//!
+//! This module provides the [`LocalHostHandler`] for executing operations
+//! on the local machine. It implements the [`HostHandler`] trait and provides
+//! command execution, file retrieval, and connection management for local operations.
+
 use crate::command::CommandResult;
 use crate::error::RegentError;
 use crate::hosts::handlers::HostHandler;
@@ -8,21 +14,65 @@ use crate::secrets::SecretProvider;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command;
+use tokio::process::Command;
+// use std::process::Command;
 
+/// Handler for executing operations on the local machine.
+///
+/// This handler provides the ability to run commands, check for command availability,
+/// and retrieve files from the local filesystem. Unlike remote handlers, the local
+/// handler doesn't require actual connection/disconnection as it operates directly
+/// on the current machine.
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::{LocalHostHandler, command::CommandResult};
+/// use regent_sdk::hosts::handlers::localhost::WhichUser;
+/// use regent_sdk::hosts::privilege::Privilege;
+///
+/// let mut handler = LocalHostHandler::from(WhichUser::CurrentUser);
+/// // Local handler is always "connected"
+/// assert!(handler.is_connected());
+///
+/// // Run a command
+/// let result = handler.run_command("echo hello", &Privilege::None).unwrap();
+/// assert_eq!(result.stdout, "hello\n");
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalHostHandler {
+    /// The user context for command execution.
+    ///
+    /// This determines how commands are executed (as current user or with credentials).
     pub user: WhichUser,
 }
 
 impl LocalHostHandler {
+    /// Create a new local host handler with the specified user context.
+    ///
+    /// # Arguments
+    ///
+    /// * `user` - The user to execute commands as
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::{LocalHostHandler};
+    /// use regent_sdk::hosts::handlers::localhost::WhichUser;
+    ///
+    /// // Create handler for current user
+    /// let handler = LocalHostHandler::from(WhichUser::CurrentUser);
+    ///
+    /// // Create handler with specific credentials
+    /// // let handler = LocalHostHandler::from(WhichUser::UsernamePassword(creds));
+    /// ```
     pub fn from(user: WhichUser) -> Self {
         Self { user }
     }
 }
 
 impl HostHandler for LocalHostHandler {
-    fn connect(
+    async fn connect(
         &mut self,
         _endpoint: &str,
         // _secret_provider: &Option<SecretProvider>,
@@ -30,15 +80,15 @@ impl HostHandler for LocalHostHandler {
         Ok(())
     }
 
-    fn is_connected(&mut self) -> bool {
+    async fn is_connected(&mut self) -> bool {
         true
     }
 
-    fn disconnect(&mut self) -> Result<(), RegentError> {
+    async fn disconnect(&mut self) -> Result<(), RegentError> {
         Ok(())
     }
 
-    fn is_this_command_available(
+    async fn is_this_command_available(
         &mut self,
         command: &str,
         _privilege: &Privilege,
@@ -47,7 +97,8 @@ impl HostHandler for LocalHostHandler {
         let check_cmd_result = Command::new("sh")
             .arg("-c")
             .arg(format!("command -v {}", command))
-            .output();
+            .output()
+            .await;
 
         match check_cmd_result {
             Ok(cmd_result) => {
@@ -74,20 +125,24 @@ impl HostHandler for LocalHostHandler {
         }
     }
 
-    fn run_command(
+    async fn run_command(
         &mut self,
         command: &str,
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError> {
         let final_command = final_command(command, privilege, &self.user);
 
-        let result = Command::new("sh").arg("-c").arg(final_command).output();
+        let result = Command::new("sh")
+            .arg("-c")
+            .arg(final_command)
+            .output()
+            .await;
 
         match result {
             Ok(output) => {
                 match output.status.code() {
                     Some(code) => Ok(CommandResult {
-                        return_code: code,
+                        return_code: code.into(),
                         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
                         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                     }),
@@ -104,11 +159,11 @@ impl HostHandler for LocalHostHandler {
         }
     }
 
-    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
-        match Command::new("cmd").args(&["/C", command]).output() {
+    async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
+        match Command::new("cmd").args(&["/C", command]).output().await {
             Ok(output) => match output.status.code() {
                 Some(code) => Ok(CommandResult {
-                    return_code: code,
+                    return_code: code.into(),
                     stdout: String::from_utf8_lossy(&output.stdout).to_string(),
                     stderr: String::from_utf8_lossy(&output.stderr).to_string(),
                 }),
@@ -124,8 +179,8 @@ impl HostHandler for LocalHostHandler {
         }
     }
 
-    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError> {
-        if !self.is_connected() {
+    async fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError> {
+        if !self.is_connected().await {
             return Err(RegentError::FailedInitialization(
                 "Not connected to host".to_string(),
             ));
@@ -140,8 +195,30 @@ impl HostHandler for LocalHostHandler {
     }
 }
 
+/// Specifies which user to execute commands as on the local machine.
+///
+/// # Variants
+///
+/// - `CurrentUser`: Execute commands as the current process user
+/// - `UsernamePassword`: Execute commands as a specific user with credentials
+///
+/// # Example
+///
+/// ```no_run
+/// use regent_sdk::hosts::handlers::localhost::WhichUser;
+/// use regent_sdk::hosts::privilege::Credentials;
+///
+/// // Execute as current user
+/// let user = WhichUser::CurrentUser;
+///
+/// // Execute as specific user
+/// let creds = Credentials::new("admin", "password");
+/// let user = WhichUser::UsernamePassword(creds);
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WhichUser {
+    /// Execute commands as the current user.
     CurrentUser,
+    /// Execute commands as a specific user with provided credentials.
     UsernamePassword(Credentials),
 }

@@ -1,7 +1,5 @@
 use regent_sdk::Privilege;
-use regent_sdk::attribute::system::service::{
-    ServiceBlockExpectedState, ServiceExpectedState,
-};
+use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::ssh2::Ssh2Auth;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
@@ -29,7 +27,7 @@ async fn main() {
     .unwrap();
 
     // Open connection with this ManageHost
-    assert!(managed_host.connect().is_ok());
+    assert!(managed_host.connect().await.is_ok());
 
     // Describe the expected state
     let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
