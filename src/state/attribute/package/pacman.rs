@@ -1,6 +1,6 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
-use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
@@ -9,6 +9,7 @@ use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -44,11 +45,12 @@ pub struct PacmanBlockExpectedState {
     upgrade: Option<bool>,
 }
 
-// Chained methods to allow building an PacmanBlockExpectedState as follows :
-// let pacman_block = PacmanBlockExpectedState::builder()
-//     .with_package_state("apache2", PackageExpectedState::Present)
-//     .with_system_upgrade()
-//     .build();
+impl Timeout for PacmanBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+}
+
 impl PacmanBlockExpectedState {
     pub fn builder() -> PacmanBlockExpectedState {
         PacmanBlockExpectedState {
@@ -114,6 +116,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         if !host_handler
             .is_this_command_available("pacman", &Privilege::None)
+            .await
             .unwrap()
         {
             return Err(RegentError::FailedDryRunEvaluation(
@@ -129,7 +132,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
                 match state {
                     PackageExpectedState::Present => {
                         // Check is package is already installed or needs to be
-                        if is_package_installed(host_handler, self.package.clone().unwrap()) {
+                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
                             remediations.push(Remediation::None(format!(
                                 "{} already present",
                                 self.package.clone().unwrap()
@@ -144,7 +147,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
                     }
                     PackageExpectedState::Absent => {
                         // Check is package is already absent or needs to be removed
-                        if is_package_installed(host_handler, self.package.clone().unwrap()) {
+                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
                             // Package is present and needs to be removed
                             remediations.push(Remediation::Pacman(PacmanApiCall::from(
                                 PacmanModuleInternalApiCall::Remove(self.package.clone().unwrap()),
@@ -224,7 +227,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
             PacmanModuleInternalApiCall::Upgrade => ("pacman -Syu".to_string(), &self.privilege),
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -246,12 +252,16 @@ impl PacmanApiCall {
     }
 }
 
-fn is_package_installed<Handler: HostHandler>(host_handler: &mut Handler, package: String) -> bool {
+async fn is_package_installed<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    package: String,
+) -> bool {
     let test = host_handler
         .run_command(
             format!("LC_ALL=en_US.UTF-8 pacman -Q -i {}", package).as_str(),
             &Privilege::None,
         )
+        .await
         .unwrap();
 
     if test.return_code == 0 { true } else { false }

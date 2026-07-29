@@ -19,10 +19,10 @@ async fn main() {
     .unwrap();
 
     // Open connection with this ManagedHost
-    assert!(managed_host.connect().is_ok());
+    assert!(managed_host.connect().await.is_ok());
 
     // What kind of OS are we dealing with ?
-    match managed_host.collect_properties() {
+    match managed_host.collect_properties().await {
         Ok(()) => {
             println!("Host properties : {:?}", managed_host.get_host_properties());
         }

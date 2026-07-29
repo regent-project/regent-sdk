@@ -1,6 +1,6 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
-use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
@@ -8,6 +8,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -20,6 +21,12 @@ impl Check for PingBlockExpectedState {
     }
 }
 
+impl Timeout for PingBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(5)
+    }
+}
+
 impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState {
     async fn assess_compliance(
         &self,
@@ -29,7 +36,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         let cmd = String::from("id");
-        let cmd_result = host_handler.run_command(cmd.as_str(), &privilege)?;
+        let cmd_result = host_handler.run_command(cmd.as_str(), &privilege).await?;
 
         if cmd_result.return_code == 0 {
             return Ok(AttributeComplianceAssessment::Compliant);

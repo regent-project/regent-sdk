@@ -2,6 +2,7 @@ use nanoid::nanoid;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tokio::task::JoinSet;
 
 use crate::ExpectedState;
 use crate::error::RegentError;
@@ -65,7 +66,11 @@ impl InventoryBuilder {
             ),
         };
 
-        let span = span!(Level::INFO, "inventory_building", name = inventory_name);
+        let span = span!(
+            Level::INFO,
+            "inventory_building",
+            inventory = inventory_name
+        );
         let _enter = span.enter();
 
         for mut host in self.hosts {
@@ -137,7 +142,7 @@ impl Inventory {
         &mut self,
         optional_secret_provider: Option<SecretProvidersPool>,
     ) -> Result<LivingInventory, RegentError> {
-        let span = span!(Level::INFO, "inventory_init", name = self.name);
+        let span = span!(Level::INFO, "inventory_init", inventory = self.name);
         let _enter = span.enter();
 
         let mut managed_hosts: HashMap<String, ManagedHost> = HashMap::new();
@@ -152,7 +157,7 @@ impl Inventory {
                     let host_span = span!(Level::DEBUG, "host_connection", host_id);
                     let _host_enter = host_span.enter();
 
-                    match managed_host.connect() {
+                    match managed_host.connect().await {
                         Ok(()) => {
                             debug!(host_id, "Successfully connected to host");
                             managed_hosts.insert(host_id, managed_host);
@@ -202,7 +207,7 @@ impl LivingInventory {
         info!(key, "Added variable to all hosts");
     }
 
-    pub fn collect_properties(&mut self) -> Result<(), RegentError> {
+    pub async fn collect_properties(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "living_inventory_collect_properties");
         let _enter = span.enter();
 
@@ -211,46 +216,62 @@ impl LivingInventory {
             self.hosts.len()
         );
 
-        for result in self
-            .hosts
-            .par_iter_mut()
-            .map(|(host_id, managed_host)| {
+        let mut set = JoinSet::new();
+
+        for (host_id, managed_host) in self.hosts.iter_mut() {
+            let host_id = host_id.clone();
+            let mut managed_host = managed_host.clone();
+            set.spawn(async move {
                 let host_span = span!(Level::DEBUG, "collect_properties_host", host_id);
                 let _host_enter = host_span.enter();
 
                 debug!("Collecting properties");
-                managed_host.collect_properties()
-            })
-            .collect::<Vec<Result<(), RegentError>>>()
-        {
-            if let Err(details) = result {
-                error!("Failed to collect properties: {:?}", details);
-                return Err(details);
-            }
+                (host_id, managed_host.collect_properties().await)
+            });
         }
 
-        info!("Successfully collected properties from all hosts");
-        Ok(())
+        let results = set.join_all().await;
+
+        let failures: Vec<(String, RegentError)> = results
+            .iter()
+            .filter(|(_host_id, result)| result.is_err())
+            .map(|(host_id, result)| (host_id.to_string(), result.clone().unwrap_err()))
+            .collect();
+
+        if failures.is_empty() {
+            info!("Successfully collected properties from all hosts");
+            Ok(())
+        } else {
+            error!("Failed to collect properties for {:?}", failures);
+            return Err(RegentError::AnyOtherError(format!(
+                "Failure to collect properties for {:?}",
+                failures
+            )));
+        }
     }
 
-    pub fn disconnect(&mut self) -> Result<(), RegentError> {
+    pub async fn disconnect(&mut self) -> Result<(), RegentError> {
         let span = span!(Level::INFO, "inventory_disconnect");
         let _enter = span.enter();
 
         info!("Disconnecting from {} hosts", self.hosts.len());
 
-        for result in self
-            .hosts
-            .par_iter_mut()
-            .map(|(host_id, managed_host)| {
+        let mut set = JoinSet::new();
+        
+        for (host_id, managed_host) in &mut self.hosts {
+            let host_id = host_id.clone();
+            let mut managed_host = managed_host.clone();
+            set.spawn(async move {
                 let host_span = span!(Level::DEBUG, "disconnect_host", host_id);
                 let _host_enter = host_span.enter();
-
+                
                 debug!("Disconnecting from host {}", host_id);
-                managed_host.disconnect()
-            })
-            .collect::<Vec<Result<(), RegentError>>>()
-        {
+                managed_host.disconnect().await
+            });
+        }
+        
+        let results = set.join_all().await;
+        for result in results {
             if let Err(details) = result {
                 error!("Failed to disconnect host: {:?}", details);
                 return Err(details);
@@ -265,7 +286,7 @@ impl LivingInventory {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
-        let job_span = span!(Level::INFO, "job", id = self.name, goal = "assess");
+        let job_span = span!(Level::INFO, "job", inventory = self.name, goal = "assess");
         let _enter = job_span.enter();
 
         info!("Assessing compliance for {} hosts", self.hosts.len());
@@ -303,7 +324,7 @@ impl LivingInventory {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<HashMap<String, ManagedHostStatus>, RegentError> {
-        let job_span = span!(Level::INFO, "job", id = self.name, goal = "enforce");
+        let job_span = span!(Level::INFO, "job", inventory = self.name, goal = "enforce");
         let _enter = job_span.enter();
 
         debug!("Starting");

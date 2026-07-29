@@ -6,9 +6,7 @@ use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use serde::Serialize;
 
-use regent_sdk::attribute::system::service::{
-    ServiceBlockExpectedState, ServiceExpectedAutoStart, ServiceExpectedStatus,
-};
+use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
 use regent_sdk::{Attribute, ExpectedState};
 use regent_sdk::{ManagedHost, Privilege};
 
@@ -17,8 +15,8 @@ async fn main() {
     // Build up the expected configuration of this host.
     // You can fetch this from a remote location (http endpoint, git, ftp...).
     let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
-        .with_service_state(ServiceExpectedStatus::Active)
-        .with_autostart_state(ServiceExpectedAutoStart::Enabled)
+        .with_state(ServiceExpectedState::Started)
+        .with_enabled(true)
         .build()
         .unwrap();
 

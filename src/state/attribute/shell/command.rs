@@ -1,6 +1,6 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
-use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::{SecretProvidersPool, SecretReference};
 use crate::state::Check;
@@ -10,12 +10,19 @@ use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct CommandBlockExpectedState {
     cmd: Parameter<String>,
+}
+
+impl Timeout for CommandBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(10)
+    }
 }
 
 impl CommandBlockExpectedState {
@@ -95,6 +102,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
                     .unwrap(),
                 &self.privilege,
             )
+            .await
             .unwrap();
 
         if cmd_result.return_code == 0 {

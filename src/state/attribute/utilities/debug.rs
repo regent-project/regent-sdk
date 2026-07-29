@@ -1,6 +1,6 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
-use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
@@ -9,6 +9,7 @@ use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -16,6 +17,12 @@ use serde::{Deserialize, Serialize};
 pub struct DebugBlockExpectedState {
     msg: String,
     // var: Option<String>, // TODO
+}
+
+impl Timeout for DebugBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(1)
+    }
 }
 
 impl Check for DebugBlockExpectedState {
@@ -44,6 +51,12 @@ pub struct DebugApiCall {}
 impl DebugApiCall {
     pub fn display(&self) -> String {
         "Debug module".into()
+    }
+}
+
+impl Timeout for DebugApiCall {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(1)
     }
 }
 

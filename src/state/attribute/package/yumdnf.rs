@@ -1,6 +1,6 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
-use crate::hosts::managed_host::{AssessCompliance, ReachCompliance};
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
@@ -9,6 +9,7 @@ use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -44,11 +45,12 @@ pub struct YumDnfBlockExpectedState {
     upgrade: Option<bool>,
 }
 
-// Chained methods to allow building an YumDnfBlockExpectedState as follows :
-// let apt_block = YumDnfBlockExpectedState::builder()
-//     .with_package_state("httpd", PackageExpectedState::Present)
-//     .with_system_upgrade()
-//     .build();
+impl Timeout for YumDnfBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(30)
+    }
+}
+
 impl YumDnfBlockExpectedState {
     pub fn builder() -> YumDnfBlockExpectedState {
         YumDnfBlockExpectedState {
@@ -118,11 +120,13 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
 
         if host_handler
             .is_this_command_available("dnf", &Privilege::None)
+            .await
             .unwrap()
         {
             package_manager = RedHatFlavoredPackageManager::Dnf;
         } else if host_handler
             .is_this_command_available("yum", &Privilege::None)
+            .await
             .unwrap()
         {
             package_manager = RedHatFlavoredPackageManager::Yum;
@@ -145,7 +149,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
                             &package_manager,
                             self.package.clone().unwrap(),
                             privilege.clone(),
-                        ) {
+                        )
+                        .await
+                        {
                             remediations.push(Remediation::None(format!(
                                 "{} already present",
                                 self.package.clone().unwrap()
@@ -166,7 +172,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
                             &package_manager,
                             self.package.clone().unwrap(),
                             privilege.clone(),
-                        ) {
+                        )
+                        .await
+                        {
                             // Package is present and needs to be removed
                             remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
                                 YumDnfModuleInternalApiCall::Remove(self.package.clone().unwrap()),
@@ -279,7 +287,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
             ),
         };
 
-        let cmd_result = host_handler.run_command(cmd.as_str(), privilege).unwrap();
+        let cmd_result = host_handler
+            .run_command(cmd.as_str(), privilege)
+            .await
+            .unwrap();
 
         if cmd_result.return_code == 0 {
             Ok(InternalApiCallOutcome::Success(None))
@@ -306,7 +317,7 @@ impl YumDnfApiCall {
     }
 }
 
-fn is_package_installed<Handler: HostHandler>(
+async fn is_package_installed<Handler: HostHandler>(
     host_handler: &mut Handler,
     package_manager: &RedHatFlavoredPackageManager,
     package_name: String,
@@ -322,6 +333,7 @@ fn is_package_installed<Handler: HostHandler>(
             .as_str(),
             &privilege,
         )
+        .await
         .unwrap();
 
     if test.return_code == 0 {
