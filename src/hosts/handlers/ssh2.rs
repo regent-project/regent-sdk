@@ -1,10 +1,17 @@
+use bytes::Bytes;
+use russh::Disconnect;
+use russh::client::AuthResult;
+use russh::client::{Config, Handle, Handler};
+use russh::keys::key::PrivateKeyWithHashAlg;
+use russh::keys::{load_secret_key, ssh_key};
+use russh::{Channel, ChannelMsg};
+use russh::Preferred;
 use serde::Deserialize;
 use serde::Serialize;
-use serde::de;
-use ssh2::Session;
-use std::io::Read;
-use std::net::TcpStream;
+use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::time::{Duration, timeout};
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
 
@@ -20,48 +27,64 @@ use crate::hosts::privilege::Privilege;
 // use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
 
-#[derive(Clone)]
-pub struct Ssh2HostHandler {
-    auth: Ssh2AuthMethod,
-    session: Session,
+// #[derive(Clone)]
+// pub struct Ssh2HostHandler {
+//     auth: Ssh2AuthMethod,
+//     session: Handle<Ssh2Client>,
+// }
+
+pub enum Ssh2HostHandler {
+    NotConnected(Ssh2AuthMethod),
+    Connected(Ssh2AuthMethod, Handle<Ssh2Client>),
 }
 
-impl<'de> Deserialize<'de> for Ssh2HostHandler {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Ssh2HostHandlerHelper {
-            auth: Ssh2AuthMethod,
-        }
+struct Ssh2Client {}
 
-        let helper = Ssh2HostHandlerHelper::deserialize(deserializer)?;
-        match Ssh2HostHandler::from(helper.auth) {
-            Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
-            Err(details) => Err(de::Error::custom(format!("{:?}", details))),
+impl Handler for Ssh2Client {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &ssh_key::PublicKey,
+    ) -> Result<bool, Self::Error> {
+        Ok(true)
+    }
+}
+
+impl Clone for Ssh2HostHandler {
+    fn clone(&self) -> Self {
+        match self {
+            Ssh2HostHandler::NotConnected(auth) => Ssh2HostHandler::NotConnected(auth.clone()),
+            Ssh2HostHandler::Connected(auth, _) => {
+                // When cloning a connected handler, return a new NotConnected handler
+                // The caller will need to reconnect
+                Ssh2HostHandler::NotConnected(auth.clone())
+            }
         }
     }
 }
 
+
 impl std::fmt::Debug for Ssh2HostHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Ssh2HostHandler")
-            .field("auth", &self.auth)
-            .field("authenticated", &self.session.authenticated())
-            .finish()
+        match self {
+            Ssh2HostHandler::NotConnected(auth) => {
+                f.debug_tuple("NotConnected").field(auth).finish()
+            }
+            Ssh2HostHandler::Connected(auth, _) => f
+                .debug_tuple("Connected")
+                .field(auth)
+                .field(&"*SESSION HANDLE*")
+                .finish(),
+        }
     }
 }
 
 impl HostHandler for Ssh2HostHandler {
-    fn connect(
-        &mut self,
-        endpoint: &str,
-        // _secret_provider: &Option<SecretProvider>,
-    ) -> Result<(), RegentError> {
+    async fn connect(&mut self, endpoint: &str) -> Result<(), RegentError> {
         // Check whether a session is already enabled or not (init() might have already been called
         // on this host)
-        if self.is_connected() {
+        if self.is_connected().await {
             return Ok(());
         }
 
@@ -86,80 +109,166 @@ impl HostHandler for Ssh2HostHandler {
             None => 22,
         };
 
-        match TcpStream::connect(format!("{}:{}", address, ssh_port)) {
-            Ok(tcp) => {
-                self.session.set_tcp_stream(tcp);
+        let addrs = format!("{}:{}", address, ssh_port);
 
-                if let Err(details) = self.session.handshake() {
-                    return Err(RegentError::FailedInitialization(format!("{:?}", details)));
-                }
+        // Create russh configuration
+        let config = Arc::new(Config {
+            keepalive_interval : Some(Duration::from_secs(5)),
+            keepalive_max : 3,
+            nodelay: true,
+            window_size: 2097152, // 2 Mo
+            maximum_packet_size: 32768, // 32 Ko
+            channel_buffer_size: 128,
+            inactivity_timeout: None,
+            preferred: Preferred::default(),
+            ..Default::default()
+        });
 
-                match &self.auth {
-                    Ssh2AuthMethod::UsernamePassword(credentials) => {
-                        match self
-                            .session
-                            .userauth_password(credentials.username(), credentials.password())
-                        {
-                            Ok(()) => Ok(()),
-                            Err(detailss) => {
-                                Err(RegentError::FailedInitialization(format!("{:?}", detailss)))
-                            }
-                        }
-                    }
-                    Ssh2AuthMethod::Key(login_key) => {
-                        match self.session.userauth_pubkey_memory(
-                            login_key.username(),
-                            None,
-                            login_key.key(),
-                            None,
-                        ) {
-                            Ok(()) => Ok(()),
-                            Err(detailss) => {
-                                Err(RegentError::FailedInitialization(format!("{:?}", detailss)))
-                            }
-                        }
-                    }
-                    // Ssh2AuthMethod::Agent(_agent) => {
-                    //     return Ok(());
-                    // }
-                    _ => {
-                        return Err(RegentError::FailedInitialization(String::from(
-                            "Other RegentError",
-                        )));
+        // Connect using russh
+        let client_handler = Ssh2Client {};
+        let connection_timeout = Duration::from_secs(10);
+        let mut handle = match timeout(connection_timeout, russh::client::connect(config, addrs, client_handler)).await {
+            Ok(connection_result) => {
+                match connection_result {
+                    Ok(h) => h,
+                    Err(e) => {
+                        return Err(RegentError::FailedTcpBinding(format!("{:?}", e)));
                     }
                 }
             }
-            Err(e) => {
-                return Err(RegentError::FailedTcpBinding(format!("{:?}", e)));
+            Err(_details) => {
+                return Err(RegentError::FailureToEstablishConnection(format!("Connection timeout elapsed ({} ms)", connection_timeout.as_millis())));
+            }
+        };
+
+        // Authenticate based on the auth method
+        if let Ssh2HostHandler::NotConnected(auth_method) = self {
+            match auth_method {
+                Ssh2AuthMethod::UsernamePassword(credentials) => {
+                    match handle
+                        .authenticate_password(credentials.username(), credentials.password())
+                        .await
+                    {
+                        Ok(auth_result) => match auth_result {
+                            AuthResult::Success => {
+                                *self = Ssh2HostHandler::Connected(auth_method.clone(), handle);
+                                return Ok(());
+                            }
+                            AuthResult::Failure {
+                                remaining_methods,
+                                partial_success,
+                            } => {
+                                return Err(RegentError::FailedInitialization(
+                                    "Password authentication failed".to_string(),
+                                ));
+                            }
+                        },
+                        Err(e) => {
+                            return Err(RegentError::FailedInitialization(format!(
+                                "Password authentication error: {:?}",
+                                e
+                            )));
+                        }
+                    }
+                }
+                Ssh2AuthMethod::Key(login_key) => {
+                    // Load the private key from the string
+                    match load_secret_key(login_key.key(), None) {
+                        Ok(key_pair) => {
+                            let best_hash = match handle.best_supported_rsa_hash().await {
+                                Ok(h) => h.flatten(),
+                                Err(e) => {
+                                    return Err(RegentError::FailedInitialization(format!(
+                                        "Failed to get supported hash: {:?}",
+                                        e
+                                    )));
+                                }
+                            };
+                            let key_with_alg =
+                                PrivateKeyWithHashAlg::new(Arc::new(key_pair), best_hash);
+                            match handle
+                                .authenticate_publickey(login_key.username(), key_with_alg)
+                                .await
+                            {
+                                Ok(auth_result) => match auth_result {
+                                    AuthResult::Success => {
+                                        *self = Ssh2HostHandler::Connected(auth_method.clone(), handle);
+                                        return Ok(());
+                                    }
+                                    AuthResult::Failure {
+                                        remaining_methods,
+                                        partial_success,
+                                    } => {
+                                        return Err(RegentError::FailedInitialization(
+                                            "Public key authentication failed".to_string(),
+                                        ));
+                                    }
+                                },
+                                Err(e) => {
+                                    return Err(RegentError::FailedInitialization(format!(
+                                        "Public key authentication error: {:?}",
+                                        e
+                                    )));
+                                }
+                            }
+                        }
+                        Err(error_details) => {
+                            return Err(RegentError::FailedInitialization(format!(
+                                "Failed to load key: {:?}",
+                                error_details
+                            )));
+                        }
+                    }
+                }
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn is_connected(&mut self) -> bool {
+        match self {
+            Ssh2HostHandler::NotConnected(_) => false,
+            Ssh2HostHandler::Connected(auth_method, session) => match session.send_ping().await {
+                Ok(()) => true,
+                Err(_error_details) => {
+                    *self = Ssh2HostHandler::NotConnected(auth_method.clone());
+                    false
+                }
+            },
+        }
+    }
+
+    async fn disconnect(&mut self) -> Result<(), RegentError> {
+        match self {
+            Ssh2HostHandler::NotConnected(_) => Ok(()),
+            Ssh2HostHandler::Connected(auth_method, session) => {
+                match session
+                    .disconnect(Disconnect::ByApplication, "regent", "English")
+                    .await
+                {
+                    Ok(()) => {
+                        *self = Ssh2HostHandler::NotConnected(auth_method.clone());
+                        Ok(())
+                    }
+                    Err(error_details) => Err(RegentError::ProblemWithHostConnection(format!(
+                        "{:?}",
+                        error_details
+                    ))),
+                }
             }
         }
     }
 
-    fn is_connected(&mut self) -> bool {
-        self.session.authenticated()
-    }
-
-    fn disconnect(&mut self) -> Result<(), RegentError> {
-        if let Err(ssh2_details) = self.session.disconnect(
-            Some(ssh2::DisconnectCode::ByApplication),
-            "disconnection called",
-            None,
-        ) {
-            return Err(RegentError::AnyOtherError(format!(
-                "failed to close SSH2 session : {}",
-                ssh2_details
-            )));
-        }
-        Ok(())
-    }
-
-    fn is_this_command_available(
+    async fn is_this_command_available(
         &mut self,
         command: &str,
         privilege: &Privilege,
     ) -> Result<bool, RegentError> {
         let check_cmd_content = format!("command -v {}", command);
-        let check_cmd_result = self.run_command(check_cmd_content.as_str(), privilege);
+        let check_cmd_result = self
+            .run_command(check_cmd_content.as_str(), privilege)
+            .await;
 
         match check_cmd_result {
             Ok(cmd_result) => {
@@ -175,215 +284,297 @@ impl HostHandler for Ssh2HostHandler {
         }
     }
 
-    fn run_command(
+    async fn run_command(
         &mut self,
         command: &str,
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError> {
-        match self.session.channel_session() {
-            Ok(mut channel) => {
-                let final_command = final_command(command, privilege, &WhichUser::CurrentUser);
-
-                if let Err(details) = channel.exec(&final_command) {
-                    return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
-                }
-
-                let mut stdout = String::new();
-                let mut stderr = String::new();
-
-                let mut ssh_stdout = channel.stream(0);
-                let mut ssh_stderr = channel.stderr();
-
-                if let Err(details) = ssh_stdout.read_to_string(&mut stdout) {
-                    return Err(RegentError::FailureToRunCommand(format!(
-                        "Unable to read from SSH STDOUT : {:?}",
-                        details
-                    )));
-                }
-                if let Err(details) = ssh_stderr.read_to_string(&mut stderr) {
-                    return Err(RegentError::FailureToRunCommand(format!(
-                        "Unable to read from SSH STDERR : {:?}",
-                        details
-                    )));
-                }
-
-                if let Err(details) = channel.close() {
-                    return Err(RegentError::ProblemWithHostConnection(format!(
-                        "Unable to close connection properly : {:?}",
-                        details
-                    )));
-                }
-
-                let return_code = match channel.exit_status() {
-                    Ok(code) => code,
-                    Err(e) => {
-                        return Err(RegentError::ProblemWithHostConnection(format!(
-                            "RegentError getting exit status: {}",
-                            e
-                        )));
-                    }
-                };
-
-                Ok(CommandResult {
-                    return_code,
-                    stdout,
-                    stderr,
-                })
+        match self {
+            Ssh2HostHandler::NotConnected(_auth_method) => {
+                return Err(RegentError::NotConnectedToHost);
             }
+            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+                match session_handle.channel_open_session().await {
+                    Ok(mut channel) => {
+                        let final_command =
+                            final_command(command, privilege, &WhichUser::CurrentUser);
 
-            Err(e) => Err(RegentError::FailureToEstablishConnection(e.to_string())),
-        }
-    }
+                        if let Err(details) = channel.exec(true, final_command).await {
+                            return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
+                        }
 
-    fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
-        match self.session.channel_session() {
-            Ok(mut channel) => {
-                let final_command = format!("cmd /C {}", command);
+                        let mut return_code = 1;
+                        let mut command_output = String::new();
 
-                if let Err(details) = channel.exec(&final_command) {
-                    return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
-                }
-                let mut stdout = String::new();
-                let mut stderr = String::new();
+                        loop {
+                            // There's an event available on the session channel
+                            let Some(msg) = channel.wait().await else {
+                                break;
+                            };
+                            match msg {
+                                // Write data to the buffer
+                                ChannelMsg::Data { ref data } => {
+                                    command_output.push_str(&String::from_utf8_lossy(data));
+                                }
+                                ChannelMsg::ExitStatus { exit_status } => {
+                                    return_code = exit_status;
+                                    // cannot leave the loop immediately, there might still be more data to receive
+                                }
+                                _ => {}
+                            }
+                        }
 
-                let mut ssh_stdout = channel.stream(0);
-                let mut ssh_stderr = channel.stderr();
-
-                if let Err(details) = ssh_stdout.read_to_string(&mut stdout) {
-                    return Err(RegentError::FailureToRunCommand(format!(
-                        "Unable to read from SSH STDOUT : {:?}",
-                        details
-                    )));
-                }
-                if let Err(details) = ssh_stderr.read_to_string(&mut stderr) {
-                    return Err(RegentError::FailureToRunCommand(format!(
-                        "Unable to read from SSH STDERR : {:?}",
-                        details
-                    )));
-                }
-
-                if let Err(details) = channel.wait_close() {
-                    warn!("Failed ton wait on SSH channel closing : {:?}", details);
-                }
-
-                let return_code = match channel.exit_status() {
-                    Ok(code) => code,
-                    Err(e) => {
-                        return Err(RegentError::ProblemWithHostConnection(format!(
-                            "RegentError getting exit status: {}",
-                            e
-                        )));
+                        Ok(CommandResult {
+                            return_code: return_code.into(),
+                            stdout: command_output,
+                            stderr: String::new(),
+                        })
                     }
-                };
-
-                return Ok(CommandResult {
-                    return_code,
-                    stdout,
-                    stderr,
-                });
-            }
-            Err(e) => {
-                return Err(RegentError::FailureToEstablishConnection(format!("{e}")));
+                    Err(e) => Err(RegentError::FailureToEstablishConnection(e.to_string())),
+                }
             }
         }
     }
 
-    fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError> {
-        if !self.is_connected() {
-            return Err(RegentError::FailedInitialization(
-                "Not connected to host".to_string(),
-            ));
-        }
-
-        let (mut file_channel, stat) = match self.session.scp_recv(&path) {
-            Ok((channel, filestats)) => (channel, filestats),
-            Err(details) => {
-                return Err(RegentError::ProblemWithHostConnection(format!(
-                    "Failed to establish SSH2 channel to retrieve file : {:?}",
-                    details
-                )));
+    async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
+        match self {
+            Ssh2HostHandler::NotConnected(_auth_method) => {
+                return Err(RegentError::NotConnectedToHost);
             }
-        };
+            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+                match session_handle.channel_open_session().await {
+                    Ok(mut channel) => {
+                        let final_command = format!("cmd /C {}", command);
 
-        let mut buffer: Vec<u8> = match stat.size().try_into() {
-            Ok(size) => Vec::with_capacity(size),
-            Err(_) => Vec::new(),
-        };
-        if let Err(details) = file_channel.read_to_end(&mut buffer) {
-            error!("Failed to read SSH2 buffer : {:?}", details);
-            return Err(RegentError::ProblemWithHostConnection(format!(
-                "Failed to read SSH2 buffer : {:?}",
-                details
-            )));
-        }
+                        if let Err(details) = channel.exec(true, final_command).await {
+                            return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
+                        }
 
-        // Close the channel and wait for the whole content to be tranferred
-        if let Err(details) = file_channel.send_eof() {
-            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
-        }
-        if let Err(details) = file_channel.wait_eof() {
-            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
-        }
-        if let Err(details) = file_channel.close() {
-            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
-        }
-        if let Err(details) = file_channel.wait_close() {
-            return Err(RegentError::ProblemWithHostConnection(format!("{:?}", details)));
-        }
+                        let mut return_code = 1;
+                        let mut command_output = String::new();
 
-        Ok(buffer)
+                        loop {
+                            // There's an event available on the session channel
+                            let Some(msg) = channel.wait().await else {
+                                break;
+                            };
+                            match msg {
+                                // Write data to the buffer
+                                ChannelMsg::Data { ref data } => {
+                                    command_output.push_str(&String::from_utf8_lossy(data));
+                                }
+                                ChannelMsg::ExitStatus { exit_status } => {
+                                    return_code = exit_status;
+                                    // cannot leave the loop immediately, there might still be more data to receive
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        Ok(CommandResult {
+                            return_code: return_code.into(),
+                            stdout: command_output,
+                            stderr: String::new(),
+                        })
+                    }
+
+                    Err(e) => Err(RegentError::FailureToEstablishConnection(e.to_string())),
+                }
+            }
+        }
+    }
+
+    async fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError> {
+        match self {
+            Ssh2HostHandler::NotConnected(_auth_method) => {
+                return Err(RegentError::NotConnectedToHost);
+            }
+            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+                match session_handle.channel_open_session().await {
+                    Ok(mut channel) => {
+                        // 1. Demande d'exécution SCP en mode "source" (-f)
+                        let cmd = format!("scp -f \"{}\"", path.display());
+                        if let Err(e) = channel.exec(true, cmd).await {
+                            return Err(RegentError::FailedToGetFile(format!(
+                                "Russh exec error: {:?}",
+                                e
+                            )));
+                        }
+
+                        // Tampon de flux pour isoler l'en-tête textuel du contenu binaire
+                        let mut stream_buffer = Vec::new();
+
+                        // 2. Initialisation : Envoi d'un octet NULL pour indiquer que le client est prêt
+                        if let Err(e) = channel.data(Cursor::new(&[0x00][..])).await {
+                            return Err(RegentError::FailedToGetFile(format!(
+                                "Russh data transfer error: {:?}",
+                                e
+                            )));
+                        }
+
+                        // 3. Lecture et parsing de l'en-tête (jusqu'au \n)
+                        let mut header_line = String::new();
+                        loop {
+                            if stream_buffer.is_empty() {
+                                match fetch_next_chunk(&mut channel).await {
+                                    Ok(chunk) => stream_buffer.extend_from_slice(chunk.as_ref()),
+                                    Err(e) => return Err(e),
+                                }
+                            }
+
+                            let chunk = stream_buffer.remove(0);
+                            if chunk == b'\n' {
+                                break;
+                            }
+                            header_line.push(chunk as char);
+                        }
+
+                        // 4. Validation du type d'en-tête reçu (\x01 = Warning, \x02 = Fatal Error)
+                        if header_line.starts_with('\x01') || header_line.starts_with('\x02') {
+                            return Err(RegentError::FailedToGetFile(
+                                header_line[1..].to_string(),
+                            ));
+                        }
+                        if !header_line.starts_with('C') {
+                            return Err(RegentError::FailedToGetFile(format!(
+                                "Invalid SCP file header: {}",
+                                header_line
+                            )));
+                        }
+
+                        // 5. Extraction de la taille et du nom du fichier original
+                        let parts: Vec<&str> = header_line[1..].splitn(3, ' ').collect();
+                        if parts.len() < 3 {
+                            return Err(RegentError::FailedToGetFile(
+                                "Malformed SCP header format".to_string(),
+                            ));
+                        }
+
+                        let file_size: usize;
+                        if let Ok(size) = parts[0].parse() {
+                            file_size = size;
+                        } else {
+                            return Err(RegentError::FailedToGetFile(
+                                "Invalid file size integer in header".to_string(),
+                            ));
+                        }
+                        let filename = parts[1].to_string();
+
+                        // 6. Envoi du ACK pour valider l'en-tête et lancer le flux binaire
+                        if let Err(e) = channel.data(Cursor::new(&[0x00][..])).await {
+                            return Err(RegentError::FailedToGetFile(format!(
+                                "Russh data transfer error: {:?}",
+                                e
+                            )));
+                        }
+
+                        // 7. Allocation du vecteur de mémoire finale
+                        let mut file_payload = Vec::with_capacity(file_size);
+
+                        // Si des octets du fichier se trouvaient déjà dans le tampon lors du parsing de l'en-tête
+                        if !stream_buffer.is_empty() {
+                            let buffered_take = std::cmp::min(stream_buffer.len(), file_size);
+                            file_payload.extend(stream_buffer.drain(..buffered_take));
+                        }
+
+                        // Boucle réseau principale : on remplit le Vec jusqu'à atteindre `file_size`
+                        while file_payload.len() < file_size {
+                            let remaining_needed = file_size - file_payload.len();
+
+                            let mut chunk;
+                            match fetch_next_chunk(&mut channel).await {
+                                Ok(c) => chunk = c,
+                                Err(e) => return Err(e),
+                            }
+
+                            if chunk.len() <= remaining_needed {
+                                file_payload.extend_from_slice(&chunk);
+                            } else {
+                                // Le bloc réseau dépasse la taille du fichier (il contient le token ACK final)
+                                let excess = chunk.split_off(remaining_needed);
+                                file_payload.extend_from_slice(&chunk);
+                                stream_buffer.extend_from_slice(&excess); // Conserve l'excès pour la vérification finale
+                            }
+                        }
+
+                        // 8. Vérification de l'octet de statut final envoyé par le serveur (\x00 attendu)
+                        if stream_buffer.is_empty() {
+                            match fetch_next_chunk(&mut channel).await {
+                                Ok(chunk) => stream_buffer.extend_from_slice(chunk.as_ref()),
+                                Err(e) => return Err(e),
+                            }
+                        }
+
+                        let end_ack = stream_buffer.remove(0);
+                        if end_ack != 0x00 {
+                            return Err(RegentError::FailedToGetFile(format!(
+                                "Unexpected end transfer token status byte: {}",
+                                end_ack
+                            )));
+                        }
+
+                        // 9. Envoi du dernier ACK de fermeture du protocole
+                        if let Err(e) = channel.data(Cursor::new(&[0x00][..])).await {
+                            return Err(RegentError::FailedToGetFile(format!(
+                                "Russh data transfer error: {:?}",
+                                e
+                            )));
+                        }
+                        if let Err(e) = channel.eof().await {
+                            return Err(RegentError::FailedToGetFile(format!(
+                                "Russh channel EOF error: {:?}",
+                                e
+                            )));
+                        }
+
+                        Ok(file_payload)
+                    }
+                    Err(e) => Err(RegentError::FailureToEstablishConnection(e.to_string())),
+                }
+            }
+        }
     }
 }
 
-impl Ssh2HostHandler {
-    pub fn from(auth: Ssh2AuthMethod) -> Result<Ssh2HostHandler, RegentError> {
-        match Session::new() {
-            Ok(session) => Ok(Ssh2HostHandler { auth, session }),
-            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
-                "Failed to create new SSH2 session : {:?}",
-                details
-            ))),
-        }
-    }
+// impl Ssh2HostHandler {
+//     pub fn from(auth: Ssh2AuthMethod) -> Result<Ssh2HostHandler, RegentError> {
+//         match Session::new() {
+//             Ok(session) => Ok(Ssh2HostHandler { auth, session }),
+//             Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
+//                 "Failed to create new SSH2 session : {:?}",
+//                 details
+//             ))),
+//         }
+//     }
 
-    pub fn username_password(
-        username: &str,
-        password: &str,
-    ) -> Result<Ssh2HostHandler, RegentError> {
-        match Ssh2HostHandler::from(Ssh2AuthMethod::UsernamePassword(Credentials::from(
-            username, password,
-        ))) {
-            Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
-            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
-                "Failed to create new Ssh2HostHandler : {:?}",
-                details
-            ))),
-        }
-    }
+//     pub fn username_password(
+//         username: &str,
+//         password: &str,
+//     ) -> Result<Ssh2HostHandler, RegentError> {
+//         match Ssh2HostHandler::from(Ssh2AuthMethod::UsernamePassword(Credentials::from(
+//             username, password,
+//         ))) {
+//             Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
+//             Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
+//                 "Failed to create new Ssh2HostHandler : {:?}",
+//                 details
+//             ))),
+//         }
+//     }
 
-    pub fn key(username: &str, key: String) -> Result<Ssh2HostHandler, RegentError> {
-        match Ssh2HostHandler::from(Ssh2AuthMethod::Key(LoginKey::from(
-            username.to_string(),
-            key,
-        ))) {
-            Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
-            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
-                "Failed to create new Ssh2HostHandler : {:?}",
-                details
-            ))),
-        }
-    }
-
-    pub fn agent(agent_name: &str) -> Result<Ssh2HostHandler, RegentError> {
-        match Ssh2HostHandler::from(Ssh2AuthMethod::Agent(agent_name.to_string())) {
-            Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
-            Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
-                "Failed to create new Ssh2HostHandler : {:?}",
-                details
-            ))),
-        }
-    }
-}
+//     pub fn key(username: &str, key: String) -> Result<Ssh2HostHandler, RegentError> {
+//         match Ssh2HostHandler::from(Ssh2AuthMethod::Key(LoginKey::from(
+//             username.to_string(),
+//             key,
+//         ))) {
+//             Ok(ssh2_host_handler) => Ok(ssh2_host_handler),
+//             Err(details) => Err(RegentError::ProblemWithHostConnection(format!(
+//                 "Failed to create new Ssh2HostHandler : {:?}",
+//                 details
+//             ))),
+//         }
+//     }
+// }
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -391,7 +582,6 @@ pub enum Ssh2AuthMethod {
     UsernamePassword(Credentials),
 
     Key(LoginKey),
-    Agent(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -399,7 +589,6 @@ pub enum Ssh2AuthMethod {
 pub enum Ssh2AuthReference {
     UsernamePassword(SecretReference),
     Key(LoginKeyRef),
-    Agent(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -435,12 +624,6 @@ impl Ssh2Auth {
             )),
         }
     }
-
-    pub fn agent(agent_name: &str) -> Self {
-        Self {
-            auth_method: Ssh2AuthReference::Agent(agent_name.to_string()),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -468,16 +651,6 @@ mod tests {
         let auth_method = yaml_serde::from_str::<Ssh2AuthMethod>(yaml);
         matches!(auth_method, Ok(Ssh2AuthMethod::Key(_)));
     }
-
-    #[test]
-    fn test_deserialize_agent() {
-        let yaml = r#"
-            !Agent
-                "default"
-        "#;
-        let auth_method = yaml_serde::from_str::<Ssh2AuthMethod>(yaml);
-        matches!(auth_method, Ok(Ssh2AuthMethod::Agent(_)));
-    }
 }
 
 impl std::fmt::Debug for Ssh2AuthMethod {
@@ -486,16 +659,28 @@ impl std::fmt::Debug for Ssh2AuthMethod {
             Ssh2AuthMethod::UsernamePassword(creds) => {
                 write!(
                     f,
-                    "UsernamePassword(Credentials {{ username: {:?}, password: \"********\" }})",
+                    "UsernamePassword(Credentials {{ username: {:?}, password: \"*REDACTED*\" }})",
                     creds.username()
                 )
             }
             Ssh2AuthMethod::Key(login_key_path) => {
-                write!(f, "Key(({:?}, ********))", login_key_path.username())
-            }
-            Ssh2AuthMethod::Agent(agent_name) => {
-                write!(f, "Agent({:?})", agent_name)
+                write!(f, "Key(({:?}, *REDACTED*))", login_key_path.username())
             }
         }
     }
+}
+
+async fn fetch_next_chunk(
+    channel: &mut Channel<russh::client::Msg>,
+) -> Result<Bytes, RegentError> {
+    while let Some(msg) = channel.wait().await {
+        if let ChannelMsg::Data { data } = msg {
+            if !data.is_empty() {
+                return Ok(data);
+            }
+        }
+    }
+    Err(RegentError::FailedToGetFile(
+        "Unexpected end of SSH channel stream".to_string(),
+    ))
 }
