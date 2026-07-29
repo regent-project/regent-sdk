@@ -9,7 +9,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tera::Context;
-use tokio::time::sleep;
+use tokio::time::Instant;
+use tokio::time::{sleep, timeout as tokio_timeout};
+use tracing::{debug, error, info};
 
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
@@ -62,16 +64,20 @@ pub struct Attribute {
     pub name: Option<String>,
     pub privilege: Privilege,
     detail: AttributeDetail,
-    timeout: Option<Duration>
+    timeout: Option<Duration>,
+    timeout_sec: Option<u64>,
+    timeout_ms: Option<u64>,
 }
 
 impl Attribute {
-    pub fn from(detail: AttributeDetail, privilege: Privilege, name: Option<String>, timeout: Option<Duration>) -> Attribute {
+    pub fn from(detail: AttributeDetail, privilege: Privilege, name: Option<String>) -> Attribute {
         Attribute {
             privilege,
             detail,
             name,
-            timeout
+            timeout: None,
+            timeout_sec: None,
+            timeout_ms: None,
         }
     }
 
@@ -144,6 +150,7 @@ impl Attribute {
                 host_properties,
                 &self.privilege,
                 optional_secret_provider,
+                self.timeout()?,
             )
             .await
     }
@@ -160,6 +167,7 @@ impl Attribute {
                 host_properties,
                 &self.privilege,
                 optional_secret_provider,
+                self.timeout()?,
             )
             .await
     }
@@ -168,150 +176,156 @@ impl Attribute {
         self.detail.check()
     }
 
+    pub fn timeout(&self) -> Result<Duration, RegentError> {
+        let duration = match self.timeout {
+            Some(duration) => duration,
+            None => match (self.timeout_sec, self.timeout_ms) {
+                (None, None) => self.detail.default_timeout(),
+                (Some(seconds), None) => Duration::from_secs(seconds),
+                (None, Some(milliseconds)) => Duration::from_millis(milliseconds),
+                (Some(_seconds), Some(_milliseconds)) => {
+                    return Err(RegentError::FailureToParseContent(format!(
+                        "TimeoutSec and TimeoutMs are mutually exclusive"
+                    )));
+                }
+            },
+        };
+        Ok(duration)
+    }
+
     // Convenience methods for attributes building
+
+    pub fn with_timeout(mut self, user_defined_timeout: Duration) -> Self {
+        self.timeout = Some(user_defined_timeout);
+        self
+    }
 
     pub fn apt(
         details: AptBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Apt(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Apt(details), privilege, name)
     }
 
     pub fn pacman(
         details: PacmanBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Pacman(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Pacman(details), privilege, name)
     }
 
     pub fn yumdnf(
         details: YumDnfBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::YumDnf(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::YumDnf(details), privilege, name)
     }
 
     pub fn command(
         details: CommandBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Command(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Command(details), privilege, name)
     }
 
     pub fn service(
         details: ServiceBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Service(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Service(details), privilege, name)
     }
 
     pub fn debug(
         details: DebugBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Debug(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Debug(details), privilege, name)
     }
 
     pub fn lineinfile(
         details: LineInFileBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::LineInFile(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::LineInFile(details), privilege, name)
     }
 
     pub fn ping(
         details: PingBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Ping(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Ping(details), privilege, name)
     }
 
     pub fn user(
         details: UserBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::User(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::User(details), privilege, name)
     }
 
     pub fn group(
         details: GroupBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Group(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Group(details), privilege, name)
     }
 
     pub fn cron(
         details: CronBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Cron(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Cron(details), privilege, name)
     }
 
     pub fn hostname(
         details: HostnameBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Hostname(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Hostname(details), privilege, name)
     }
 
     pub fn apt_repo(
         details: AptRepoBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::AptRepo(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::AptRepo(details), privilege, name)
     }
 
     pub fn dnf_repo(
         details: DnfRepoBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::DnfRepo(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::DnfRepo(details), privilege, name)
     }
 
     pub fn iptables(
         details: IptablesBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration>
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Iptables(details), privilege, name, timeout)
+        Attribute::from(AttributeDetail::Iptables(details), privilege, name)
     }
 
     pub fn ollama(
         details: OllamaBlockExpectedState,
         privilege: Privilege,
         name: Option<String>,
-        timeout: Option<Duration> // Added 'timeout' argument
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Ollama(details), privilege, name, timeout) // Used 'timeout' in 'from' method
+        Attribute::from(AttributeDetail::Ollama(details), privilege, name) // Used 'timeout' in 'from' method
     }
 }
 
@@ -335,7 +349,6 @@ pub enum AttributeDetail {
     Iptables(IptablesBlockExpectedState),
     Ollama(OllamaBlockExpectedState),
 }
-
 
 impl AttributeDetail {
     pub fn default_timeout(&self) -> Duration {
@@ -365,13 +378,26 @@ impl AttributeDetail {
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvidersPool>,
+        timeout_duration: Duration,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        tokio::select! {
-            raw_assesment_result = self.raw_assess(host_handler, host_properties, privilege, optional_secret_provider) => {
-                raw_assesment_result
-            }
-            _ = sleep(self.default_timeout()) => {
-                Err(RegentError::TimeOutReached(format!("Timeout reached ({} s)", self.default_timeout().as_secs())))
+        match tokio_timeout(
+            timeout_duration,
+            self.raw_assess(
+                host_handler,
+                host_properties,
+                privilege,
+                optional_secret_provider,
+            ),
+        )
+        .await
+        {
+            Ok(raw_assesment_result) => raw_assesment_result,
+            Err(_details) => {
+                error!(timeout = ?timeout_duration, "Timeout elapsed");
+                return Err(RegentError::TimeOutReached(format!(
+                    "Timeout elapsed ({} ms) trying to assess compliance",
+                    timeout_duration.as_millis()
+                )));
             }
         }
     }
@@ -383,7 +409,6 @@ impl AttributeDetail {
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-
         match self {
             AttributeDetail::Apt(expected_state_criteria) => {
                 expected_state_criteria
@@ -554,258 +579,304 @@ impl AttributeDetail {
         host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvidersPool>,
+        timeout_duration: Duration,
     ) -> Result<AttributeComplianceResult, RegentError> {
-        match self
-            .assess(
+        let raw_assesment_result = match tokio_timeout(
+            timeout_duration,
+            self.raw_assess(
                 host_handler,
                 host_properties,
                 privilege,
                 optional_secret_provider,
-            )
-            .await
+            ),
+        )
+        .await
         {
-            Ok(attribute_compliance) => match attribute_compliance {
-                AttributeComplianceAssessment::Compliant => Ok(AttributeComplianceResult::from(
-                    AttributeComplianceStatus::AlreadyCompliant,
-                    None,
-                )),
-                AttributeComplianceAssessment::NonCompliant(remediations) => {
-                    if remediations.len() == 0 {
-                        return Err(RegentError::InternalLogicError(format!(
-                            "This should not have been called as the ManagedHost is already compliant"
+            Ok(raw_assesment_result) => raw_assesment_result,
+            Err(_details) => {
+                error!(timeout = ?timeout_duration, "Timeout elapsed");
+                return Err(RegentError::TimeOutReached(format!(
+                    "Timeout elapsed ({} ms) trying to assess compliance",
+                    timeout_duration.as_millis()
+                )));
+            }
+        };
+        match raw_assesment_result {
+            Ok(attribute_compliance) => {
+                info!(timeout = ?timeout_duration, "Start of reach compliance try");
+                match tokio_timeout(
+                    timeout_duration,
+                    self.raw_reach_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                        attribute_compliance,
+                    ),
+                )
+                .await
+                {
+                    Ok(raw_compliance_reaching_result) => raw_compliance_reaching_result,
+                    Err(_details) => {
+                        error!(timeout = ?timeout_duration, "Timeout elapsed");
+                        return Err(RegentError::TimeOutReached(format!(
+                            "Timeout elapsed ({} ms) trying to assess compliance",
+                            timeout_duration.as_millis()
                         )));
                     }
-
-                    let mut actions_taken: Vec<(Remediation, InternalApiCallOutcome)> = Vec::new();
-
-                    for remediation in remediations {
-                        let (remediation, internal_api_call_outcome) = match &remediation {
-                            Remediation::None(message) => {
-                                return Err(RegentError::InternalLogicError(format!(
-                                    "Remediation::None({}) : get rid of this",
-                                    message
-                                )));
-                            }
-                            Remediation::Pacman(attribute_api_call) => match attribute_api_call
-                                .call(host_handler, host_properties, optional_secret_provider)
-                                .await
-                            {
-                                Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
-                                }
-                                Err(details) => {
-                                    return Err(details);
-                                }
-                            },
-                            Remediation::Apt(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::AptRepo(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::YumDnf(attribute_api_call) => match attribute_api_call
-                                .call(host_handler, host_properties, optional_secret_provider)
-                                .await
-                            {
-                                Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
-                                }
-                                Err(details) => {
-                                    return Err(details);
-                                }
-                            },
-                            Remediation::DnfRepo(attribute_api_call) => match attribute_api_call
-                                .call(host_handler, host_properties, optional_secret_provider)
-                                .await
-                            {
-                                Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
-                                }
-                                Err(details) => {
-                                    return Err(details);
-                                }
-                            },
-                            Remediation::LineInFile(attribute_api_call) => match attribute_api_call
-                                .call(host_handler, host_properties, optional_secret_provider)
-                                .await
-                            {
-                                Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
-                                }
-                                Err(details) => {
-                                    return Err(details);
-                                }
-                            },
-                            Remediation::Debug(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Ping(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Service(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Command(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::User(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Group(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Cron(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Hostname(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Iptables(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                            Remediation::Ollama(attribute_api_call) => {
-                                match attribute_api_call
-                                    .call(host_handler, host_properties, optional_secret_provider)
-                                    .await
-                                {
-                                    Ok(internal_api_call_outcome) => {
-                                        (remediation, internal_api_call_outcome)
-                                    }
-                                    Err(details) => {
-                                        return Err(details);
-                                    }
-                                }
-                            }
-                        };
-
-                        actions_taken.push((remediation, internal_api_call_outcome.clone()));
-
-                        if let InternalApiCallOutcome::Failure(_detail) = &internal_api_call_outcome
-                        {
-                            return Ok(AttributeComplianceResult::from(
-                                AttributeComplianceStatus::FailedReachedCompliance,
-                                Some(actions_taken),
-                            ));
-                        }
-                    }
-
-                    Ok(AttributeComplianceResult::from(
-                        AttributeComplianceStatus::ReachedCompliance,
-                        Some(actions_taken),
-                    ))
                 }
-            },
+            }
             Err(details) => Err(details),
+        }
+    }
+
+    pub async fn raw_reach_compliance<Handler: HostHandler>(
+        &self,
+        host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
+        privilege: &Privilege,
+        optional_secret_provider: &Option<SecretProvidersPool>,
+        attribute_compliance: AttributeComplianceAssessment,
+    ) -> Result<AttributeComplianceResult, RegentError> {
+        match attribute_compliance {
+            AttributeComplianceAssessment::Compliant => Ok(AttributeComplianceResult::from(
+                AttributeComplianceStatus::AlreadyCompliant,
+                None,
+            )),
+            AttributeComplianceAssessment::NonCompliant(remediations) => {
+                if remediations.len() == 0 {
+                    return Err(RegentError::InternalLogicError(format!(
+                        "This should not have been called as the ManagedHost is already compliant"
+                    )));
+                }
+
+                let mut actions_taken: Vec<(Remediation, InternalApiCallOutcome)> = Vec::new();
+
+                for remediation in remediations {
+                    let (remediation, internal_api_call_outcome) = match &remediation {
+                        Remediation::None(message) => {
+                            return Err(RegentError::InternalLogicError(format!(
+                                "Remediation::None({}) : get rid of this",
+                                message
+                            )));
+                        }
+                        Remediation::Pacman(attribute_api_call) => match attribute_api_call
+                            .call(host_handler, host_properties, optional_secret_provider)
+                            .await
+                        {
+                            Ok(internal_api_call_outcome) => {
+                                (remediation, internal_api_call_outcome)
+                            }
+                            Err(details) => {
+                                return Err(details);
+                            }
+                        },
+                        Remediation::Apt(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::AptRepo(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::YumDnf(attribute_api_call) => match attribute_api_call
+                            .call(host_handler, host_properties, optional_secret_provider)
+                            .await
+                        {
+                            Ok(internal_api_call_outcome) => {
+                                (remediation, internal_api_call_outcome)
+                            }
+                            Err(details) => {
+                                return Err(details);
+                            }
+                        },
+                        Remediation::DnfRepo(attribute_api_call) => match attribute_api_call
+                            .call(host_handler, host_properties, optional_secret_provider)
+                            .await
+                        {
+                            Ok(internal_api_call_outcome) => {
+                                (remediation, internal_api_call_outcome)
+                            }
+                            Err(details) => {
+                                return Err(details);
+                            }
+                        },
+                        Remediation::LineInFile(attribute_api_call) => match attribute_api_call
+                            .call(host_handler, host_properties, optional_secret_provider)
+                            .await
+                        {
+                            Ok(internal_api_call_outcome) => {
+                                (remediation, internal_api_call_outcome)
+                            }
+                            Err(details) => {
+                                return Err(details);
+                            }
+                        },
+                        Remediation::Debug(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Ping(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Service(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Command(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::User(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Group(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Cron(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Hostname(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Iptables(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Ollama(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation, internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                    };
+
+                    actions_taken.push((remediation, internal_api_call_outcome.clone()));
+
+                    if let InternalApiCallOutcome::Failure(_detail) = &internal_api_call_outcome {
+                        return Ok(AttributeComplianceResult::from(
+                            AttributeComplianceStatus::FailedReachedCompliance,
+                            Some(actions_taken),
+                        ));
+                    }
+                }
+
+                Ok(AttributeComplianceResult::from(
+                    AttributeComplianceStatus::ReachedCompliance,
+                    Some(actions_taken),
+                ))
+            }
         }
     }
 
@@ -878,6 +949,30 @@ impl std::fmt::Debug for Remediation {
 
 impl Remediation {
     pub async fn reach_compliance<Handler: HostHandler>(
+        &self,
+        host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
+        optional_secret_provider: &Option<SecretProvidersPool>,
+        timeout_duration: Duration,
+    ) -> Result<InternalApiCallOutcome, RegentError> {
+        match tokio_timeout(
+            timeout_duration,
+            self.raw_reach_compliance(host_handler, host_properties, optional_secret_provider),
+        )
+        .await
+        {
+            Ok(raw_assesment_result) => raw_assesment_result,
+            Err(_details) => {
+                error!(timeout = ?timeout_duration, "Timeout elapsed");
+                return Err(RegentError::TimeOutReached(format!(
+                    "Timeout elapsed ({} ms) trying to run internal API call",
+                    timeout_duration.as_millis()
+                )));
+            }
+        }
+    }
+
+    pub async fn raw_reach_compliance<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
