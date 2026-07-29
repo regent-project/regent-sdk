@@ -1,3 +1,41 @@
+//! Line in file management attribute
+//!
+//! This module provides the `LineInFileBlockExpectedState` type for ensuring specific lines
+//! are present or absent in files. Useful for configuration files, environment files, etc.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::utilities::lineinfile::{LineInFileBlockExpectedState, LineExpectedState};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Ensure a line exists in /etc/environment
+//! let env_line = LineInFileBlockExpectedState::builder("/etc/environment")
+//!     .with_state(LineExpectedState::Present)
+//!     .with_line("KEY=value")
+//!     .with_create(true)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::lineinfile(env_line, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !LineInFile
+//!       FilePath: /etc/environment
+//!       State: !Present
+//!       Line: "KEY=value"
+//!       Create: true
+//!       Privilege: !WithSudo
+//! ```
+
 use std::time::Duration;
 
 use crate::error::RegentError;
@@ -13,13 +51,17 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
 
+/// Desired state of a line in a file
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum LineExpectedState {
+    /// Line should exist in the file
     Present,
+    /// Line should not exist in the file
     Absent,
 }
 
+/// Configuration for managing a line in a file
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]

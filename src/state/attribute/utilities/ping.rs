@@ -1,3 +1,34 @@
+//! Host connectivity check (ping) attribute
+//!
+//! This module provides the `PingBlockExpectedState` type for checking basic connectivity
+//! to a managed host. This is essentially a no-op attribute that verifies the host is reachable.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::utilities::ping::PingBlockExpectedState;
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Check host connectivity
+//! let ping = PingBlockExpectedState::builder()
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::ping(ping, Privilege::None, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Ping
+//!       Privilege: !None
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -10,6 +41,10 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Configuration for a host connectivity check
+///
+/// This attribute checks if the host is reachable by running a simple `id` command.
+/// It does not require any additional parameters.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]

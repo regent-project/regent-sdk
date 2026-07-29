@@ -1,3 +1,53 @@
+//! Ollama AI management attribute
+//!
+//! This module provides the `OllamaBlockExpectedState` type for managing the Ollama
+//! AI inference engine, including installation, service management, model pulling,
+//! and API configuration.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::ai::ollama::{OllamaBlockExpectedState, OllamaExpectedState, OllamaServiceState, OllamaModel, OllamaModelState, OllamaApiConfig};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Install Ollama, start the service, and pull a model
+//! let ollama = OllamaBlockExpectedState::builder()
+//!     .with_state(OllamaExpectedState::Present)
+//!     .with_service(OllamaServiceState::Started)
+//!     .with_models(vec![
+//!         OllamaModel {
+//!             name: "llama3".to_string(),
+//!             state: Some(OllamaModelState::Present),
+//!         }
+//!     ])
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::ollama(ollama, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Ollama
+//!       State: !Present
+//!       Service: !Started
+//!       ServiceEnabled: true
+//!       Models:
+//!         - Name: llama3
+//!           State: !Present
+//!       Api:
+//!         Host: '0.0.0.0:11434'
+//!         Origins:
+//!           - '*'
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -13,73 +63,98 @@ use std::time::Duration;
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
+/// Desired installation state of Ollama
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OllamaExpectedState {
+    /// Ollama should be installed
     Present,
+    /// Ollama should be uninstalled
     Absent,
 }
 
+/// Desired service state of Ollama
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OllamaServiceState {
+    /// Service should be started
     Started,
+    /// Service should be stopped
     Stopped,
+    /// Service should be restarted
     Restarted,
+    /// Service should be reloaded
     Reloaded,
 }
 
+/// Desired state of an Ollama model
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OllamaModelState {
+    /// Model should be pulled and available locally
     Present,
+    /// Model should be removed from the local system
     Absent,
 }
 
 // ── Sub-structs ───────────────────────────────────────────────────────────────
 
+/// Configuration for an Ollama model
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct OllamaModel {
+    /// Name of the model (e.g., "llama3", "mistral:7b")
     name: String,
+    /// Desired state of the model (defaults to Present if not specified)
     state: Option<OllamaModelState>,
 }
 
+/// REST API and environment configuration for Ollama
+///
+/// These settings are written to `/etc/systemd/system/ollama.service.d/override.conf`
+/// and control the Ollama service behavior.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct OllamaApiConfig {
-    /// OLLAMA_HOST env var, e.g. "0.0.0.0:11434"
+    /// OLLAMA_HOST env var - the address the server listens on, e.g. "0.0.0.0:11434"
     host: Option<String>,
-    /// OLLAMA_ORIGINS, e.g. ["*"] or specific URLs
+    /// OLLAMA_ORIGINS - allowed origins for CORS, e.g. ["*"] or specific URLs
     origins: Option<Vec<String>>,
-    /// OLLAMA_MODELS — custom model storage path
+    /// OLLAMA_MODELS - custom model storage path
     models_path: Option<String>,
-    /// OLLAMA_KEEP_ALIVE, e.g. "5m", "0", "24h"
+    /// OLLAMA_KEEP_ALIVE - how long to keep models in memory, e.g. "5m", "0", "24h"
     keep_alive: Option<String>,
-    /// OLLAMA_NUM_PARALLEL
+    /// OLLAMA_NUM_PARALLEL - number of parallel requests to process
     num_parallel: Option<u32>,
-    /// OLLAMA_MAX_LOADED_MODELS
+    /// OLLAMA_MAX_LOADED_MODELS - maximum number of models to keep loaded in memory
     max_loaded_models: Option<u32>,
-    /// OLLAMA_GPU_LAYERS (-1 for all)
+    /// OLLAMA_GPU_LAYERS - number of GPU layers to load (-1 for all available)
     gpu_layers: Option<i32>,
 }
 
 // ── BlockExpectedState ────────────────────────────────────────────────────────
 
+/// Configuration for Ollama AI inference engine
+///
+/// Use the builder pattern to configure Ollama installation, service state,
+/// model management, and API settings.
+///
+/// At least one field must be set. When state is None, only the specified
+/// fields (service, models, api) will be managed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct OllamaBlockExpectedState {
     /// Present (install) / Absent (uninstall). When None: manage only what is
-    /// specified by other fields.
+    /// specified by other fields (service, models, api).
     state: Option<OllamaExpectedState>,
     /// Desired run-state of the ollama service.
     service: Option<OllamaServiceState>,
     /// Whether the service should be enabled on boot.
     service_enabled: Option<bool>,
-    /// LLM models to manage.
+    /// LLM models to manage (pull or remove).
     models: Option<Vec<OllamaModel>>,
     /// REST API / environment configuration.
     api: Option<OllamaApiConfig>,
@@ -463,20 +538,33 @@ fn escape_for_printf(s: &str) -> String {
 
 // ── ApiCall variants ──────────────────────────────────────────────────────────
 
+/// Internal API calls for Ollama management
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OllamaModuleInternalApiCall {
+    /// Install Ollama using the official install script
     Install,
+    /// Uninstall Ollama and clean up all files
     Uninstall,
+    /// Start the Ollama service
     StartService,
+    /// Stop the Ollama service
     StopService,
+    /// Restart the Ollama service
     RestartService,
+    /// Reload the Ollama service
     ReloadService,
+    /// Enable Ollama service to start on boot
     EnableService,
+    /// Disable Ollama service from starting on boot
     DisableService,
+    /// Pull a model from the Ollama registry
     PullModel { name: String },
+    /// Remove a model from the local system
     RemoveModel { name: String },
+    /// Write API configuration to systemd override file
     WriteApiConfig { content: String },
+    /// Reload systemd daemon after configuration changes
     DaemonReload,
 }
 
@@ -505,9 +593,12 @@ impl std::fmt::Display for OllamaModuleInternalApiCall {
     }
 }
 
+/// An Ollama API call with its associated privilege level
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OllamaApiCall {
+    /// The internal API call to execute
     pub api_call: OllamaModuleInternalApiCall,
+    /// Privilege level required for this call
     privilege: Privilege,
 }
 

@@ -1,3 +1,35 @@
+//! Debug message attribute
+//!
+//! This module provides the `DebugBlockExpectedState` type for outputting debug messages
+//! during compliance assessment. Useful for troubleshooting and logging.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::utilities::debug::DebugBlockExpectedState;
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Output a debug message
+//! let debug_msg = DebugBlockExpectedState::builder("Checking system configuration")
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::debug(debug_msg, Privilege::None, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Debug
+//!       Msg: "Checking system configuration"
+//!       Privilege: !None
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -11,10 +43,12 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Configuration for a debug message
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct DebugBlockExpectedState {
+    /// Debug message to output during compliance assessment
     msg: String,
     // var: Option<String>, // TODO
 }

@@ -1,3 +1,42 @@
+//! APT repository management attribute
+//!
+//! This module provides the `AptRepoBlockExpectedState` type for managing APT repository
+//! sources in `/etc/apt/sources.list.d/`. Supports both legacy `.list` format and modern
+//! `.sources` (deb822) format.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::package::apt_repo::{AptRepoBlockExpectedState, AptRepoExpectedState, AptRepoType};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Add a repository using legacy format
+//! let repo = AptRepoBlockExpectedState::builder("docker")
+//!     .with_state(AptRepoExpectedState::Present)
+//!     .with_repo("deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable")
+//!     .with_update_cache(true)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::apt_repo(repo, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !AptRepo
+//!       Filename: docker
+//!       State: !Present
+//!       Repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"
+//!       UpdateCache: true
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -11,18 +50,23 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Desired state of a repository
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum AptRepoExpectedState {
+    /// Repository should exist
     Present,
+    /// Repository should be removed
     Absent,
 }
 
-/// Repository type field for deb822 format.
+/// Repository type for deb822 format
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum AptRepoType {
+    /// Binary packages
     Deb,
+    /// Source packages
     DebSrc,
 }
 
@@ -35,8 +79,9 @@ impl AptRepoType {
     }
 }
 
-/// Manages an APT repository source file in /etc/apt/sources.list.d/.
+/// Configuration for an APT repository
 ///
+/// Manages an APT repository source file in `/etc/apt/sources.list.d/`.
 /// Supports two formats:
 ///
 /// **Legacy** (.list): set `repo` to the full one-liner string
@@ -50,18 +95,27 @@ impl AptRepoType {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct AptRepoBlockExpectedState {
+    /// Filename (without extension) for the repository file in /etc/apt/sources.list.d/
     filename: String,
+    /// Desired state of the repository
     state: Option<AptRepoExpectedState>,
+    /// Whether to run apt-get update after adding/removing repositories
     update_cache: Option<bool>,
-    // Legacy one-liner format → writes to <filename>.list
+    /// Legacy one-liner format → writes to <filename>.list
     repo: Option<String>,
-    // Deb822 fields → writes to <filename>.sources
+    /// Repository types for deb822 format → writes to <filename>.sources
     types: Option<Vec<AptRepoType>>,
+    /// URIs for deb822 format
     uris: Option<Vec<String>>,
+    /// Suites for deb822 format
     suites: Option<Vec<String>>,
+    /// Components for deb822 format
     components: Option<Vec<String>>,
+    /// Signed-by fingerprint for deb822 format
     signed_by: Option<String>,
+    /// Whether the repository is enabled for deb822 format
     enabled: Option<bool>,
+    /// Architectures for deb822 format
     architectures: Option<Vec<String>>,
 }
 

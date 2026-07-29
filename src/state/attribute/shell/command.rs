@@ -1,3 +1,35 @@
+//! Shell command execution attribute
+//!
+//! This module provides the `CommandBlockExpectedState` type for executing arbitrary
+//! shell commands on managed hosts.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::shell::command::CommandBlockExpectedState;
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Execute a simple command
+//! let echo = CommandBlockExpectedState::builder("echo 'Hello, World!'")
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::command(echo, Privilege::None, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Command
+//!       Cmd: "echo 'Hello, World!'"
+//!       Privilege: !None
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -12,10 +44,15 @@ use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Configuration for a shell command to execute
+///
+/// The command will be executed each time compliance is assessed. Use this for
+/// idempotent commands or one-time setup tasks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct CommandBlockExpectedState {
+    /// Command to execute. Can be a clear text string or a secret reference.
     cmd: Parameter<String>,
 }
 

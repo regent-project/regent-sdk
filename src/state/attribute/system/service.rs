@@ -1,3 +1,39 @@
+//! Service management attribute
+//!
+//! This module provides the `ServiceBlockExpectedState` type for managing system services
+//! using systemctl.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Ensure httpd service is running and enabled
+//! let httpd = ServiceBlockExpectedState::builder("httpd")
+//!     .with_state(ServiceExpectedState::Started)
+//!     .with_enabled(true)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::service(httpd, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Service
+//!       Name: httpd
+//!       State: !Started
+//!       Enabled: true
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -11,23 +47,29 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Desired run-state of the service, matching ansible.builtin.service `state` values.
+/// Desired run-state of the service
 ///
 /// - `Started`  / `Stopped`  — idempotent: only act if the service is not already in the target state.
 /// - `Restarted`/ `Reloaded` — unconditional: always emit the corresponding systemctl command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ServiceExpectedState {
+    /// Service should be running
     Started,
+    /// Service should be stopped
     Stopped,
+    /// Service should be restarted (unconditional action)
     Restarted,
+    /// Service should be reloaded (unconditional action)
     Reloaded,
 }
 
+/// Configuration for a system service
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct ServiceBlockExpectedState {
+    /// Service name
     name: String,
     /// Desired run-state. At least one of State or Enabled must be set.
     state: Option<ServiceExpectedState>,

@@ -1,3 +1,47 @@
+//! DNF/YUM repository management attribute
+//!
+//! This module provides the `DnfRepoBlockExpectedState` type for managing DNF/YUM
+//! repository `.repo` files in `/etc/yum.repos.d/`.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::package::dnf_repo::{DnfRepoBlockExpectedState, DnfRepoExpectedState};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Add a repository with baseurl
+//! let repo = DnfRepoBlockExpectedState::builder("docker-ce")
+//!     .with_state(DnfRepoExpectedState::Present)
+//!     .with_baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()])
+//!     .with_enabled(true)
+//!     .with_gpgcheck(true)
+//!     .with_gpgkey(vec!["https://download.docker.com/linux/centos/gpg".to_string()])
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::dnf_repo(repo, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !DnfRepo
+//!       Name: docker-ce
+//!       State: !Present
+//!       Baseurl:
+//!         - "https://download.docker.com/linux/centos/7/x86_64/stable"
+//!       Enabled: true
+//!       Gpgcheck: true
+//!       Gpgkey:
+//!         - "https://download.docker.com/linux/centos/gpg"
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -11,15 +55,19 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Desired state of a DNF/YUM repository
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum DnfRepoExpectedState {
+    /// Repository should exist
     Present,
+    /// Repository should be removed
     Absent,
 }
 
-/// Manages a DNF/YUM repository section inside a `.repo` file in /etc/yum.repos.d/.
+/// Configuration for a DNF/YUM repository
 ///
+/// Manages a repository section inside a `.repo` file in `/etc/yum.repos.d/`.
 /// `name` is both the INI section header `[name]` and the default filename
 /// (override with `file`). Exactly one of `baseurl`, `mirrorlist`, or `metalink`
 /// must be set when state is Present.
@@ -27,18 +75,31 @@ pub enum DnfRepoExpectedState {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct DnfRepoBlockExpectedState {
+    /// Repository name (used as INI section header and default filename)
     name: String,
+    /// Desired state of the repository
     state: Option<DnfRepoExpectedState>,
+    /// Human-readable description of the repository
     description: Option<String>,
+    /// Base URLs for the repository
     baseurl: Option<Vec<String>>,
+    /// URL to a file containing mirror URLs
     mirrorlist: Option<String>,
+    /// URL to a metalink file
     metalink: Option<String>,
+    /// Whether the repository is enabled
     enabled: Option<bool>,
+    /// Whether to verify packages with GPG signatures
     gpgcheck: Option<bool>,
+    /// URLs to GPG keys for package verification
     gpgkey: Option<Vec<String>>,
+    /// Custom filename for the .repo file (overrides using `name`)
     file: Option<String>,
+    /// Repository priority (lower = higher priority)
     priority: Option<u32>,
+    /// Whether to verify SSL certificates
     sslverify: Option<bool>,
+    /// Packages to exclude from this repository
     exclude: Option<Vec<String>>,
 }
 

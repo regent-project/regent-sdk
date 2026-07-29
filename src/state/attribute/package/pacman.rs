@@ -1,3 +1,37 @@
+//! Pacman package management attribute
+//!
+//! This module provides the `PacmanBlockExpectedState` type for managing Arch Linux packages
+//! using the pacman package manager.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::package::pacman::{PacmanBlockExpectedState, PackageExpectedState};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Install a package
+//! let pkg = PacmanBlockExpectedState::builder()
+//!     .with_package_state("nginx", PackageExpectedState::Present)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::pacman(pkg, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Pacman
+//!       Package: nginx
+//!       State: !Present
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -29,19 +63,26 @@ impl std::fmt::Display for PacmanModuleInternalApiCall {
     }
 }
 
+/// Desired state of a package
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
+    /// Package should be installed
     Present,
+    /// Package should be removed
     Absent,
 }
 
+/// Configuration for Pacman package management
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct PacmanBlockExpectedState {
+    /// Desired state of the package(s)
     state: Option<PackageExpectedState>,
+    /// Package name to manage
     package: Option<String>,
+    /// Whether to perform a full system upgrade
     upgrade: Option<bool>,
 }
 

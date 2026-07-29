@@ -1,3 +1,37 @@
+//! Hostname management attribute
+//!
+//! This module provides the `HostnameBlockExpectedState` type for setting and managing
+//! the system hostname.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::system::hostname::{HostnameBlockExpectedState, HostnameMethod};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Set hostname using systemd method
+//! let hostname = HostnameBlockExpectedState::builder("myserver.example.com")
+//!     .with_method(HostnameMethod::Systemd)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::hostname(hostname, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Hostname
+//!       Name: myserver.example.com
+//!       Method: !Systemd
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -11,6 +45,7 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Method for setting the hostname
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum HostnameMethod {
@@ -20,11 +55,14 @@ pub enum HostnameMethod {
     Generic,
 }
 
+/// Configuration for managing the system hostname
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct HostnameBlockExpectedState {
+    /// The desired hostname
     name: String,
+    /// Method to use for setting the hostname (defaults to auto-detection)
     method: Option<HostnameMethod>,
 }
 

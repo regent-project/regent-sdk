@@ -1,3 +1,37 @@
+//! APT package management attribute
+//!
+//! This module provides the `AptBlockExpectedState` type for managing Debian/Ubuntu packages
+//! using the APT package manager.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::package::apt::{AptBlockExpectedState, PackageExpectedState};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Install a package
+//! let apache = AptBlockExpectedState::builder()
+//!     .with_package_state("apache2", PackageExpectedState::Present)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::apt(apache, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Apt
+//!       Package: apache2
+//!       State: !Present
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -29,19 +63,29 @@ impl std::fmt::Display for AptModuleInternalApiCall {
     }
 }
 
+/// Desired state of a package
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
+    /// Package should be installed
     Present,
+    /// Package should be removed
     Absent,
 }
 
+/// Configuration for APT package management
+/// 
+/// Use the builder to specify package state (Present/Absent) and optionally trigger
+/// a system upgrade.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct AptBlockExpectedState {
+    /// Desired state of the package(s)
     state: Option<PackageExpectedState>,
+    /// Package name to manage
     package: Option<String>,
+    /// Whether to perform a full system upgrade
     upgrade: Option<bool>,
 }
 

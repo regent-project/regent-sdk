@@ -1,3 +1,39 @@
+//! Group management attribute
+//!
+//! This module provides the `GroupBlockExpectedState` type for managing Unix system groups
+//! using the groupadd, groupmod, and groupdel commands (or lgroupadd, lgroupdel for local groups).
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::system::group::{GroupBlockExpectedState, GroupExpectedState};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Create a group with a specific GID
+//! let developers = GroupBlockExpectedState::builder("developers")
+//!     .with_state(GroupExpectedState::Present)
+//!     .with_gid(1500)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::group(developers, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Group
+//!       Name: developers
+//!       State: !Present
+//!       Gid: 1500
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -11,21 +47,39 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Desired state of a group
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum GroupExpectedState {
+    /// Group should exist
     Present,
+    /// Group should not exist
     Absent,
 }
 
+/// Configuration for a system group
+///
+/// Use the builder pattern to create group configurations. Each group must have a name.
+/// You can specify the desired state (Present/Absent), GID, and whether it's a system or local group.
+///
+/// When state is Absent, gid and system fields are not allowed.
+/// When state is Present (or None, which defaults to Present), you can optionally specify:
+/// - gid: The numeric group ID
+/// - system: Whether to create a system group (uses -r flag)
+/// - local: Whether to use local commands (lgroupadd/lgroupdel instead of groupadd/groupdel)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct GroupBlockExpectedState {
+    /// Unique name of the group
     name: String,
+    /// Desired state of the group (defaults to Present if not specified)
     state: Option<GroupExpectedState>,
+    /// Group ID to assign (optional)
     gid: Option<u32>,
+    /// Whether this is a system group (uses -r flag with groupadd)
     system: Option<bool>,
+    /// Whether to use local commands (lgroupadd/lgroupdel) instead of system commands
     local: Option<bool>,
 }
 
@@ -156,20 +210,24 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
     }
 }
 
+/// Internal API calls for group management
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum GroupModuleInternalApiCall {
+    /// Create a new group
     Add {
         groupname: String,
         gid: Option<u32>,
         system: bool,
-        // Uses lgroupadd/lgroupdel instead of groupadd/groupdel (shadow-utils local commands)
+        /// Uses lgroupadd instead of groupadd (shadow-utils local command)
         local: bool,
     },
+    /// Modify an existing group's GID
     ModifyGid {
         groupname: String,
         gid: u32,
     },
+    /// Remove a group
     Delete {
         groupname: String,
         local: bool,
@@ -192,9 +250,12 @@ impl std::fmt::Display for GroupModuleInternalApiCall {
     }
 }
 
+/// A group API call with its associated privilege level
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GroupApiCall {
+    /// The internal API call to execute
     pub api_call: GroupModuleInternalApiCall,
+    /// Privilege level required for this call
     privilege: Privilege,
 }
 

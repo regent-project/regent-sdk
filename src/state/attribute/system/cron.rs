@@ -1,3 +1,39 @@
+//! Cron job management attribute
+//!
+//! This module provides the `CronBlockExpectedState` type for managing cron jobs
+//! on Unix-like systems, supporting both user crontabs and system cron.d files.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::system::cron::{CronBlockExpectedState, CronExpectedState, CronSpecialTime};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Schedule a daily backup job
+//! let backup = CronBlockExpectedState::builder("backup")
+//!     .with_job("/usr/local/bin/backup.sh")
+//!     .with_special_time(CronSpecialTime::Daily)
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::cron(backup, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Cron
+//!       Name: backup
+//!       Job: /usr/local/bin/backup.sh
+//!       SpecialTime: !Daily
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -13,22 +49,35 @@ use std::time::Duration;
 
 const REGENT_MARKER_PREFIX: &str = "# regent: ";
 
+/// Desired state of a cron job
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum CronExpectedState {
+    /// Cron job should exist
     Present,
+    /// Cron job should not exist
     Absent,
 }
 
+/// Special time strings for cron schedules
+///
+/// These are shortcuts for common scheduling patterns like @daily, @weekly, etc.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum CronSpecialTime {
+    /// Run at boot time
     Reboot,
+    /// Run once a year at midnight on Jan 1
     Yearly,
+    /// Run once a year at midnight on Jan 1 (alias for Yearly)
     Annually,
+    /// Run once a month at midnight on the first day
     Monthly,
+    /// Run once a week at midnight on Sunday
     Weekly,
+    /// Run once a day at midnight
     Daily,
+    /// Run once an hour at the beginning of the hour
     Hourly,
 }
 
@@ -47,21 +96,42 @@ impl std::fmt::Display for CronSpecialTime {
     }
 }
 
+/// Configuration for a cron job
+///
+/// Use the builder pattern to create cron jobs with various scheduling options.
+/// Each cron job must have a unique name and a job command when state is Present.
+/// You can specify timing using either individual time fields (minute, hour, day, month, weekday)
+/// or special_time shortcuts like Daily, Weekly, etc.
+///
+/// For system-wide cron jobs, use cron_file to specify a file in /etc/cron.d/.
+/// For user-specific jobs, use user to specify the username.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct CronBlockExpectedState {
+    /// Unique identifier for this cron job (used in marker comment)
     name: String,
+    /// Desired state of the cron job (defaults to Present if not specified)
     state: Option<CronExpectedState>,
+    /// Command to execute
     job: Option<String>,
+    /// Minute field (0-59, or * for any)
     minute: Option<String>,
+    /// Hour field (0-23, or * for any)
     hour: Option<String>,
+    /// Day of month field (1-31, or * for any)
     day: Option<String>,
+    /// Month field (1-12, or * for any)
     month: Option<String>,
+    /// Weekday field (0-6, where 0 is Sunday, or * for any)
     weekday: Option<String>,
+    /// User to run the cron job as (for user crontabs)
     user: Option<String>,
+    /// Specific cron.d file to use (for system cron jobs)
     cron_file: Option<String>,
+    /// Special time shortcut (replaces minute, hour, day, month, weekday)
     special_time: Option<CronSpecialTime>,
+    /// Whether this cron job is disabled (commented out)
     disabled: Option<bool>,
 }
 

@@ -1,3 +1,41 @@
+//! Iptables attribute for firewall rule management
+//!
+//! This module provides the `IptablesBlockExpectedState` type for managing iptables/ip6tables
+//! firewall rules and chains. It supports creating, modifying, and deleting rules, chains,
+//! and policies across different tables (filter, nat, mangle, raw, security).
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::network::iptables::{IptablesBlockExpectedState, IptablesPolicy, IptablesTable};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! let rule = IptablesBlockExpectedState::builder("INPUT")
+//!     .with_protocol("tcp")
+//!     .with_destination_port("22")
+//!     .with_jump("ACCEPT")
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::iptables(rule, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !Iptables
+//!       Chain: INPUT
+//!       Protocol: tcp
+//!       DestinationPort: "22"
+//!       Jump: ACCEPT
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -13,20 +51,29 @@ use std::time::Duration;
 
 // ── Supporting enums ──────────────────────────────────────────────────────────
 
+/// Desired state of an iptables rule or chain
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesExpectedState {
+    /// The rule or chain should exist
     Present,
+    /// The rule or chain should not exist
     Absent,
 }
 
+/// iptables table to operate on
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesTable {
+    /// Default table for packet filtering
     Filter,
+    /// Table for network address translation
     Nat,
+    /// Table for packet marking and manipulation
     Mangle,
+    /// Table for packet marking before connection tracking
     Raw,
+    /// Table for mandatory access control (Linux 2.6.29+)
     Security,
 }
 
@@ -43,25 +90,35 @@ impl IptablesTable {
     }
 }
 
+/// IP version for iptables commands
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IpVersion {
+    /// IPv4 protocol
     Ipv4,
+    /// IPv6 protocol
     Ipv6,
 }
 
+/// Action to perform on a rule (append or insert)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesAction {
+    /// Add rule at the end of the chain
     Append,
+    /// Insert rule at a specific position
     Insert,
 }
 
+/// Default policy for a chain
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesPolicy {
+    /// Accept packets
     Accept,
+    /// Drop packets silently
     Drop,
+    /// Reject packets with an error response
     Reject,
 }
 
@@ -75,60 +132,174 @@ impl std::fmt::Display for IptablesPolicy {
     }
 }
 
+/// SYN flag matching behavior
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesSyn {
+    /// Match packets with SYN flag set
     Match,
+    /// Match packets with SYN flag NOT set (negated)
     Negate,
+    /// Ignore SYN flag matching
     Ignore,
 }
 
-/// Represents the `--tcp-flags` match option: a list of flags to examine (`flags`) and the
-/// subset of those flags that must be set (`flags_set`).
+/// TCP flags for matching packets with specific TCP flag combinations
+/// 
+/// Used with the `--tcp-flags` iptables option to match packets based on TCP flags.
+/// `flags` specifies which flags to examine, and `flags_set` specifies which of those
+/// must be set for the packet to match.
+/// 
+/// # Example
+/// 
+/// To match SYN packets (SYN set, ACK not set):
+/// ```yaml
+/// TcpFlags:
+///   flags: [SYN, ACK]
+///   flags_set: [SYN]
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct TcpFlags {
+    /// List of TCP flags to examine (e.g., SYN, ACK, FIN, RST, PSH, URG)
     pub flags: Vec<String>,
+    /// Subset of flags from `flags` that must be set for the packet to match
     pub flags_set: Vec<String>,
 }
 
 // ── Block expected state ──────────────────────────────────────────────────────
 
+/// Configuration for an iptables/ip6tables rule or chain
+/// 
+/// Use the builder pattern to create firewall rules with various matching criteria
+/// and actions. Each rule must specify at least one of: `jump`, `goto`, `policy`, or `chain_management`.
+/// 
+/// # Examples
+/// 
+/// ## Rust API
+/// 
+/// ```no_run
+/// use regent_sdk::state::attribute::network::iptables::{
+///     IptablesBlockExpectedState, IptablesExpectedState, IptablesPolicy, IptablesTable
+/// };
+/// use regent_sdk::{Attribute, ExpectedState, Privilege};
+/// 
+/// // Allow SSH on port 22
+/// let ssh_rule = IptablesBlockExpectedState::builder("INPUT")
+///     .with_protocol("tcp")
+///     .with_destination_port("22")
+///     .with_jump("ACCEPT")
+///     .build()
+///     .unwrap();
+/// 
+/// // Set default DROP policy on INPUT chain
+/// let policy_rule = IptablesBlockExpectedState::builder("INPUT")
+///     .with_policy(IptablesPolicy::Drop)
+///     .build()
+///     .unwrap();
+/// 
+/// // NAT masquerade for outbound traffic
+/// let nat_rule = IptablesBlockExpectedState::builder("POSTROUTING")
+///     .with_table(IptablesTable::Nat)
+///     .with_out_interface("eth0")
+///     .with_jump("MASQUERADE")
+///     .build()
+///     .unwrap();
+/// ```
+/// 
+/// ## YAML API
+/// 
+/// ```yaml
+/// Attributes:
+///   # Allow SSH
+///   - Detail: !Iptables
+///       Chain: INPUT
+///       Protocol: tcp
+///       DestinationPort: "22"
+///       Jump: ACCEPT
+///       Privilege: !WithSudo
+/// 
+///   # Set default policy
+///   - Detail: !Iptables
+///       Chain: INPUT
+///       Policy: !Drop
+///       Privilege: !WithSudo
+/// 
+///   # NAT masquerade
+///   - Detail: !Iptables
+///       Chain: POSTROUTING
+///       Table: !Nat
+///       OutInterface: eth0
+///       Jump: MASQUERADE
+///       Privilege: !WithSudo
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct IptablesBlockExpectedState {
+    /// Chain name to operate on (e.g., INPUT, OUTPUT, FORWARD, or custom chain)
     chain: String,
+    /// Desired state: Present (rule/chain should exist) or Absent (should not exist)
     state: Option<IptablesExpectedState>,
+    /// Table to operate on (defaults to Filter)
     table: Option<IptablesTable>,
+    /// IP version: Ipv4 (iptables) or Ipv6 (ip6tables)
     ip_version: Option<IpVersion>,
+    /// Action: Append (default) or Insert
     action: Option<IptablesAction>,
+    /// Rule number for Insert action
     rule_num: Option<u32>,
+    /// Whether to create/flush/delete the chain itself
     chain_management: Option<bool>,
+    /// Default policy for the chain (ACCEPT, DROP, REJECT)
     policy: Option<IptablesPolicy>,
+    /// Protocol to match (tcp, udp, icmp, etc.)
     protocol: Option<String>,
+    /// Source IP address or range to match
     source: Option<String>,
+    /// Destination IP address or range to match
     destination: Option<String>,
+    /// Input interface to match
     in_interface: Option<String>,
+    /// Output interface to match
     out_interface: Option<String>,
+    /// Source port to match
     source_port: Option<String>,
+    /// Destination port to match
     destination_port: Option<String>,
+    /// Connection tracking states to match (ESTABLISHED, RELATED, NEW, INVALID, etc.)
     ctstate: Option<Vec<String>>,
+    /// ICMP type to match
     icmp_type: Option<String>,
+    /// TCP flags configuration for matching
     tcp_flags: Option<TcpFlags>,
+    /// SYN flag matching
     syn: Option<IptablesSyn>,
+    /// Match fragmented packets
     fragment: Option<bool>,
+    /// Target to jump to (ACCEPT, DROP, REJECT, LOG, custom chain, etc.)
     jump: Option<String>,
+    /// Target to goto (similar to jump but continues in the same table)
     goto: Option<String>,
+    /// Destination address for NAT (used with DNAT)
     to_destination: Option<String>,
+    /// Source address for NAT (used with SNAT)
     to_source: Option<String>,
+    /// Ports for NAT redirect
     to_ports: Option<String>,
+    /// Prefix for log messages (used with LOG target)
     log_prefix: Option<String>,
+    /// Log level (used with LOG target)
     log_level: Option<String>,
+    /// Comment to add to the rule
     comment: Option<String>,
+    /// Rate limit for matching (e.g., "3/minute")
     limit: Option<String>,
+    /// Rate limit burst size
     limit_burst: Option<String>,
+    /// User ID owner to match
     uid_owner: Option<String>,
+    /// Group ID owner to match
     gid_owner: Option<String>,
 }
 

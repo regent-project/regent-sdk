@@ -1,3 +1,45 @@
+//! User account management attribute
+//!
+//! This module provides the `UserBlockExpectedState` type for managing user accounts
+//! on Unix-like systems.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::system::user::{UserBlockExpectedState, UserExpectedState};
+//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//!
+//! // Create a user with specific properties
+//! let alice = UserBlockExpectedState::builder("alice")
+//!     .with_state(UserExpectedState::Present)
+//!     .with_uid(1001)
+//!     .with_shell("/bin/bash")
+//!     .with_home("/home/alice")
+//!     .with_comment("Alice Smith")
+//!     .build()
+//!     .unwrap();
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::user(alice, Privilege::WithSudo, None))
+//!     .build();
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Detail: !User
+//!       Name: alice
+//!       State: !Present
+//!       Uid: 1001
+//!       Shell: /bin/bash
+//!       Home: /home/alice
+//!       Comment: Alice Smith
+//!       Privilege: !WithSudo
+//! ```
+
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
@@ -11,29 +53,53 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+/// Desired state of a user account
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum UserExpectedState {
+    /// User should exist
     Present,
+    /// User should not exist
     Absent,
 }
 
+/// Configuration for a user account
+///
+/// Use the builder pattern to create and manage user accounts with various properties.
+/// When state is Present, you can specify user properties like UID, shell, home directory, etc.
+/// When state is Absent, the user will be removed (and optionally their home directory).
+///
+/// The `append` field controls whether supplementary groups are appended to existing groups
+/// or replaced entirely.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct UserBlockExpectedState {
+    /// Username
     name: String,
+    /// Desired state of the user (defaults to Present if not specified)
     state: Option<UserExpectedState>,
+    /// User ID
     uid: Option<u32>,
+    /// Primary group name
     group: Option<String>,
+    /// Supplementary groups the user should belong to
     groups: Option<Vec<String>>,
+    /// Whether to append to existing supplementary groups instead of replacing them
     append: Option<bool>,
+    /// Login shell
     shell: Option<String>,
+    /// Home directory path
     home: Option<String>,
+    /// GECOS comment field
     comment: Option<String>,
+    /// Hashed password
     password: Option<String>,
+    /// Whether this is a system user (no login shell, no home directory by default)
     system: Option<bool>,
+    /// Whether to create home directory when creating user
     create_home: Option<bool>,
+    /// Whether to remove home directory when deleting user
     remove_home: Option<bool>,
 }
 
