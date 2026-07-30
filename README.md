@@ -18,7 +18,7 @@ Available attributes :
 | Category | Attribute | Description |
 |---|---|---|
 | **Package Management** | [Apt](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/apt/index.html) | Debian/Ubuntu package management |
-| | [YumDnf](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/yum_dnf/index.html) | RHEL/CentOS package management |
+| | [YumDnf](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/yumdnf/index.html) | RHEL/CentOS package management |
 | | [Pacman](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/pacman/index.html) | Arch Linux package management |
 | | [AptRepo](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/apt_repo/index.html) | APT repository configuration |
 | | [DnfRepo](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/dnf_repo/index.html) | DNF repository configuration |
