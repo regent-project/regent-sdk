@@ -17,22 +17,22 @@ At its core, Regent is built around a very straightforward approach: **expected 
 Available attributes :
 | Category | Attribute | Description |
 |---|---|---|
-| **Package Management** | [Apt](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Apt.html) | Debian/Ubuntu package management |
-| | [YumDnf](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.YumDnf.html) | RHEL/CentOS package management |
-| | [Pacman](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Pacman.html) | Arch Linux package management |
-| | [AptRepo](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.AptRepo.html) | APT repository configuration |
-| | [DnfRepo](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.DnfRepo.html) | DNF repository configuration |
-| **System** | [Service](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Service.html) | System service management (start/stop/enable/disable) |
-| | [User](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.User.html) | User account management |
-| | [Group](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Group.html) | Group management |
-| | [Cron](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Cron.html) | Cron job management |
-| | [Hostname](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Hostname.html) | Hostname configuration |
-| **Network** | [Iptables](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Iptables.html) | Firewall rule management |
-| **Shell** | [Command](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Command.html) | Arbitrary command execution |
-| **Utilities** | [LineInFile](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.LineInFile.html) | Line insertion/removal in files |
-| | [Ping](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Ping.html) | Connectivity checks between Regent and hosts (network, authentication) |
-| | [Debug](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Debug.html) | Debug message output |
-| **AI** | [Ollama](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Ollama.html) | Ollama API integration for AI model management |
+| **Package Management** | [Apt](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/apt/index.html) | Debian/Ubuntu package management |
+| | [YumDnf](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/yum_dnf/index.html) | RHEL/CentOS package management |
+| | [Pacman](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/pacman/index.html) | Arch Linux package management |
+| | [AptRepo](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/apt_repo/index.html) | APT repository configuration |
+| | [DnfRepo](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/dnf_repo/index.html) | DNF repository configuration |
+| **System** | [Service](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/service/index.html) | System service management (start/stop/enable/disable) |
+| | [User](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/user/index.html) | User account management |
+| | [Group](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/group/index.html) | Group management |
+| | [Cron](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/cron/index.html) | Cron job management |
+| | [Hostname](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/hostname/index.html) | Hostname configuration |
+| **Network** | [Iptables](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/network/iptables/index.html) | Firewall rule management |
+| **Shell** | [Command](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/shell/command/index.html) | Arbitrary command execution |
+| **Utilities** | [LineInFile](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/lineinfile/index.html) | Line insertion/removal in files |
+| | [Ping](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/ping/index.html) | Connectivity checks between Regent and hosts (network, authentication) |
+| | [Debug](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/debug/index.html) | Debug message output |
+| **AI** | [Ollama](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/ai/ollama/index.html) | Ollama API integration for AI model management |
 
 ## Why Regent?
 
