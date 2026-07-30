@@ -5,28 +5,39 @@
 //! Regent SDK provides an Ansible-like engine for declarative infrastructure management,
 //! allowing you to define expected system states and automatically assess/remedy compliance.
 //!
+//! *Note: While inspired by Ansible, Regent does not aim to reproduce its API or behaviors.
+//! Also, as a multi-paradigm library, you're free to implement agent/agent-less,
+//! autonomous/centralized, push/pull models — whatever fits your use case.*
+//!
+//! ## Core Concepts
+//!
+//! Regent is built around three key concepts:
+//!
+//! - **Expected State**: The desired configuration of your system, defined via [`ExpectedState`]
+//! - **Attributes**: Building blocks that describe that state (see [`attribute`] module)
+//! - **Compliance**: Whether a host matches its expected state, with methods to **assess** or **enforce** it
+//!
 //! ## Features
 //!
-//! - **Declarative State Management**: Define infrastructure as code using `ExpectedState` and `Attribute`
-//! - **Multi-Protocol Host Management**: Connect to hosts via SSH (`Ssh2HostHandler`) or local execution (`LocalHostHandler`)
+//! Enable the following Cargo features for additional capabilities:
+//!
+//! - `aws-secretsmanager`: Enable AWS Secrets Manager support via [`SecretProvider::aws_secretsmanager`]
+//! - `gcp-secretmanager`: Enable Google Cloud Secret Manager support via [`SecretProvider::gcp_secretmanager`]
+//!
+//! ## Capabilities
+//!
+//! - **Declarative State Management**: Define infrastructure as code using [`ExpectedState`] and [`Attribute`]
+//! - **Multi-Protocol Host Management**: Connect to hosts via [`Ssh2HostHandler`] or [`LocalHostHandler`]
 //! - **Comprehensive Resource Modules**: Manage packages, services, users, groups, cron jobs, files, iptables, and more
-//! - **Secret Management**: Secure secret retrieval from multiple providers (AWS Secrets Manager, GCP Secret Manager, Hashicorp Vault, Infisical, files, environment variables)
-//! - **Task Distribution**: Serializable tasks for distributed workload execution
-//! - **Compliance Engine**: Automatic assessment and remediation of system state
+//! - **Secret Management**: Secure secret retrieval from multiple providers using [`SecretProvidersPoolBuilder`]
+//! - **Task Distribution**: Serializable tasks for distributed workload execution using [`RegentTask`]
+//! - **Compliance Engine**: Automatic assessment and remediation via [`assess_compliance`] and [`reach_compliance`]
 //! - **Idempotent Operations**: All operations are designed to be idempotent
 //! - **Templating Support**: Variable substitution using Tera templates
 //!
-//! ## Quick Start
+//! ## Usage
 //!
-//! Add Regent SDK to your `Cargo.toml`:
-//!
-//! ```toml
-//! [dependencies]
-//! regent-sdk = "0.6"
-//! tokio = { version = "1", features = ["full"] }
-//! ```
-//!
-//! ### Basic Usage
+//! The primary workflow with Regent's Rust API:
 //!
 //! ```no_run
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
@@ -37,13 +48,13 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     // Create a secret providers pool
+//!     // 1. Create a secret providers pool
 //!     let secrets_pool = SecretProvidersPoolBuilder::new()
 //!         .add_default_provider("files", SecretProvider::files())
 //!         .build()
 //!         .unwrap();
 //!
-//!     // Define the target host
+//!     // 2. Define and connect to the target host
 //!     let mut managed_host = ManagedHostBuilder::new(
 //!         "web-server-01",
 //!         "192.168.1.100:22",
@@ -53,10 +64,9 @@
 //!     .await
 //!     .unwrap();
 //!
-//!     // Connect to the host
 //!     managed_host.connect().unwrap();
 //!
-//!     // Define the expected state: nginx should be installed and running
+//!     // 3. Define the expected state using attributes
 //!     let nginx_service = ServiceBlockExpectedState::builder("nginx")
 //!         .with_state(ServiceExpectedState::Started)
 //!         .with_enabled(true)
@@ -71,161 +81,60 @@
 //!         ))
 //!         .build();
 //!
-//!     // Assess compliance
+//!     // 4. Assess compliance
 //!     let status = managed_host
 //!         .assess_compliance(&expected_state)
 //!         .await
 //!         .unwrap();
 //!
-//!     if status.is_already_compliant() {
-//!         println!("Host is already compliant!");
-//!     } else {
-//!         println!("Host needs remediation:");
-//!         for remediation in status.all_remediations() {
-//!             println!("  - {:?}", remediation);
-//!         }
-//!     }
-//!
-//!     // Or automatically reach compliance
-//!     let result = managed_host
-//!         .reach_compliance(&expected_state)
-//!         .await
-//!         .unwrap();
-//!
-//!     if result.is_reach_compliance_success() {
-//!         println!("Compliance successfully reached!");
+//!     if !status.is_already_compliant() {
+//!         // 5. Or enforce it directly
+//!         managed_host.reach_compliance(&expected_state).await.unwrap();
 //!     }
 //! }
 //! ```
 //!
-//! ## Architecture Overview
+//! For YAML-based configuration, see [`ExpectedState::from_raw_yaml`] and [`Inventory`].
 //!
-//! The library is organized around several key concepts:
+//! ## Attribute Categories
 //!
-//! - **[`ExpectedState`]**: The root container for your infrastructure definition
-//! - **[`Attribute`]**: Individual resource definitions (packages, services, files, etc.)
-//! - **[`ManagedHost`]**: Represents a target host with connection capabilities
-//! - **[`RegentTask`]**: A serializable unit of work for distributed execution
-//! - **[`SecretProvidersPool`]**: Manages access to various secret backends
+//! Available attribute modules for defining expected state:
 //!
-//! ## Available Attribute Types
-//!
-//! Regent SDK provides a rich set of resource types through the [`attribute`] module:
-//!
-//! ### System Resources
-//! - [`attribute::system::Service`] - Manage system services
-//! - [`attribute::system::User`] - Manage user accounts
-//! - [`attribute::system::Group`] - Manage user groups
-//! - [`attribute::system::Cron`] - Manage cron jobs
-//! - [`attribute::system::Hostname`] - Manage hostname
-//!
-//! ### Package Management
-//! - [`attribute::package::Apt`] - Debian/Ubuntu package management
-//! - [`attribute::package::YumDnf`] - RHEL/CentOS package management
-//! - [`attribute::package::Pacman`] - Arch Linux package management
-//! - [`attribute::package::AptRepo`] - APT repository management
-//! - [`attribute::package::DnfRepo`] - DNF repository management
-//!
-//! ### Network Configuration
-//! - [`attribute::network::Iptables`] - Firewall rule management
-//!
-//! ### Shell & Commands
-//! - [`attribute::shell::Command`] - Execute arbitrary commands
-//!
-//! ### File Operations
-//! - [`attribute::utilities::LineInFile`] - Manage lines in files
-//! - [`attribute::utilities::Debug`] - Debugging utilities
-//! - [`attribute::utilities::Ping`] - Connectivity testing
-//!
-//! ### AI Integration
-//! - [`attribute::ai::Ollama`] - Ollama API integration
+//! - **[`attribute::system`]**: System resources (services, users, groups, cron, hostname)
+//! - **[`attribute::package`]**: Package management (apt, yum/dnf, pacman, repositories)
+//! - **[`attribute::network`]**: Network configuration (iptables)
+//! - **[`attribute::shell`]**: Shell commands
+//! - **[`attribute::utilities`]**: Utilities (line in file, debug, ping)
+//! - **[`attribute::ai`]**: AI integration (Ollama)
 //!
 //! ## Connection Methods
 //!
-//! Connect to hosts using different methods:
+//! Connect to hosts using:
 //!
-//! - **Localhost**: Execute on the local machine
-//!   - [`hosts::handlers::localhost::LocalHostHandler`]
-//!   - [`hosts::handlers::TargetUser`] for specifying user context
+//! - **[`hosts::handlers::localhost::LocalHostHandler`]**: Execute on the local machine
+//! - **[`hosts::handlers::ssh2::Ssh2HostHandler`]**: Connect to remote hosts via SSH2
+//! - **[`hosts::handlers::ssh2::Ssh2AuthMethod`]**: Authentication methods (password, key, agent)
 //!
-//! - **SSH**: Connect to remote hosts via SSH2
-//!   - [`hosts::handlers::ssh2::Ssh2HostHandler`]
-//!   - [`hosts::handlers::ssh2::Ssh2AuthMethod`] for authentication (password, key, agent)
+//! ## Secret Management
 //!
-//! ## Secret Providers
-//!
-//! Securely manage secrets from various sources:
+//! Securely retrieve secrets from:
 //!
 //! - **Local**: Files and environment variables
-//! - **Cloud**: AWS Secrets Manager, Google Cloud Secret Manager
-//! - **Vault**: Hashicorp Vault (planned)
-//! - **Other**: Delinea Secret Server (planned), Infisical (planned)
+//! - **Cloud**: AWS Secrets Manager, Google Cloud Secret Manager (enable via features)
 //!
-//! Enable cloud providers with features:
-//!
-//! ```toml
-//! [dependencies]
-//! regent-sdk = { version = "0.6", features = ["aws-secretsmanager"] }
-//! regent-sdk = { version = "0.6", features = ["gcp-secretmanager"] }
-//! ```
+//! See [`SecretProvidersPoolBuilder`] for configuration.
 //!
 //! ## Task Distribution
 //!
-//! Regent SDK supports distributed workload execution through serializable tasks:
+//! Create serializable tasks for distributed execution:
 //!
 //! ```no_run
 //! use regent_sdk::task::{RegentTask, Job};
-//! use regent_sdk::hosts::handlers::ConnectionMethod;
 //!
-//! // Create a task
-//! let task = RegentTask::from(
-//!     managed_host_builder,
-//!     expected_state,
-//!     Job::Assess, // or Job::Reach for remediation
-//! );
-//!
-//! // Serialize for network transport
+//! let task = RegentTask::from(managed_host_builder, expected_state, Job::Assess);
 //! let serialized = serde_json::to_string(&task).unwrap();
-//!
-//! // Deserialize and execute on worker
 //! let mut task: RegentTask = serde_json::from_str(&serialized).unwrap();
 //! let result = task.run(Some(secrets_pool)).await.unwrap();
-//! ```
-//!
-//! ## Error Handling
-//!
-//! All operations return [`RegentError`] for consistent error handling:
-//!
-//! ```no_run
-//! use regent_sdk::RegentError;
-//!
-//! match some_operation().await {
-//!     Ok(result) => { /* success */ }
-//!     Err(RegentError::NotConnectedToHost) => { /* handle connection error */ }
-//!     Err(RegentError::TimeOutReached(msg)) => { /* handle timeout */ }
-//!     Err(e) => { /* handle other errors */ }
-//! }
-//! ```
-//!
-//! ## Logging
-//!
-//! Regent SDK uses the `tracing` crate for logging. Enable it in your application:
-//!
-//! ```toml
-//! [dependencies]
-//! tracing = "0.1"
-//! tracing-subscriber = "0.3"
-//! ```
-//!
-//! ```no_run
-//! use tracing_subscriber;
-//!
-//! fn main() {
-//!     tracing_subscriber::fmt()
-//!         .with_max_level(tracing::Level::INFO)
-//!         .init();
-//!     // Your code here
-//! }
 //! ```
 
 pub mod command;
@@ -238,6 +147,7 @@ pub mod task;
 pub use error::RegentError;
 pub use hosts::handlers::localhost::{LocalHostHandler, WhichUser};
 pub use hosts::handlers::ssh2::{Ssh2AuthMethod, Ssh2HostHandler};
+pub use hosts::inventory::Inventory;
 pub use hosts::managed_host::ManagedHost;
 pub use hosts::privilege::Privilege;
 pub use state::ExpectedState;
