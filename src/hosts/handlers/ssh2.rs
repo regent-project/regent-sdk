@@ -116,8 +116,8 @@ impl HostHandler for Ssh2HostHandler {
             keepalive_interval : Some(Duration::from_secs(5)),
             keepalive_max : 3,
             nodelay: true,
-            window_size: 2097152, // 2 Mo
-            maximum_packet_size: 32768, // 32 Ko
+            window_size: 2097152, // 2 MB
+            maximum_packet_size: 32768, // 32 KB
             channel_buffer_size: 128,
             inactivity_timeout: None,
             preferred: Preferred::default(),
@@ -392,7 +392,7 @@ impl HostHandler for Ssh2HostHandler {
             Ssh2HostHandler::Connected(_auth_method, session_handle) => {
                 match session_handle.channel_open_session().await {
                     Ok(mut channel) => {
-                        // 1. Demande d'exécution SCP en mode "source" (-f)
+                        // 1. SCP request in "source" mode (-f)
                         let cmd = format!("scp -f \"{}\"", path.display());
                         if let Err(e) = channel.exec(true, cmd).await {
                             return Err(RegentError::FailedToGetFile(format!(
@@ -401,10 +401,10 @@ impl HostHandler for Ssh2HostHandler {
                             )));
                         }
 
-                        // Tampon de flux pour isoler l'en-tête textuel du contenu binaire
+                        // Stream buffer to isolate the text header from the binary content
                         let mut stream_buffer = Vec::new();
 
-                        // 2. Initialisation : Envoi d'un octet NULL pour indiquer que le client est prêt
+                        // 2. Initialization: Send a NULL byte to indicate that the client is ready
                         if let Err(e) = channel.data(Cursor::new(&[0x00][..])).await {
                             return Err(RegentError::FailedToGetFile(format!(
                                 "Russh data transfer error: {:?}",
@@ -412,7 +412,7 @@ impl HostHandler for Ssh2HostHandler {
                             )));
                         }
 
-                        // 3. Lecture et parsing de l'en-tête (jusqu'au \n)
+                        // 3. Read and parse the header (until \n)
                         let mut header_line = String::new();
                         loop {
                             if stream_buffer.is_empty() {
@@ -429,7 +429,7 @@ impl HostHandler for Ssh2HostHandler {
                             header_line.push(chunk as char);
                         }
 
-                        // 4. Validation du type d'en-tête reçu (\x01 = Warning, \x02 = Fatal Error)
+                        // 4. Validate the received header type (\x01 = Warning, \x02 = Fatal Error)
                         if header_line.starts_with('\x01') || header_line.starts_with('\x02') {
                             return Err(RegentError::FailedToGetFile(
                                 header_line[1..].to_string(),
@@ -442,7 +442,7 @@ impl HostHandler for Ssh2HostHandler {
                             )));
                         }
 
-                        // 5. Extraction de la taille et du nom du fichier original
+                        // 5. Extract the size and name of the original file
                         let parts: Vec<&str> = header_line[1..].splitn(3, ' ').collect();
                         if parts.len() < 3 {
                             return Err(RegentError::FailedToGetFile(
@@ -460,7 +460,7 @@ impl HostHandler for Ssh2HostHandler {
                         }
                         let filename = parts[1].to_string();
 
-                        // 6. Envoi du ACK pour valider l'en-tête et lancer le flux binaire
+                        // 6. Send ACK to validate the header and start the binary stream
                         if let Err(e) = channel.data(Cursor::new(&[0x00][..])).await {
                             return Err(RegentError::FailedToGetFile(format!(
                                 "Russh data transfer error: {:?}",
@@ -468,16 +468,16 @@ impl HostHandler for Ssh2HostHandler {
                             )));
                         }
 
-                        // 7. Allocation du vecteur de mémoire finale
+                        // 7. Allocate the final memory vector
                         let mut file_payload = Vec::with_capacity(file_size);
 
-                        // Si des octets du fichier se trouvaient déjà dans le tampon lors du parsing de l'en-tête
+                        // If file bytes were already in the buffer during header parsing
                         if !stream_buffer.is_empty() {
                             let buffered_take = std::cmp::min(stream_buffer.len(), file_size);
                             file_payload.extend(stream_buffer.drain(..buffered_take));
                         }
 
-                        // Boucle réseau principale : on remplit le Vec jusqu'à atteindre `file_size`
+                        // Main network loop: fill the Vec until reaching `file_size`
                         while file_payload.len() < file_size {
                             let remaining_needed = file_size - file_payload.len();
 
@@ -490,14 +490,14 @@ impl HostHandler for Ssh2HostHandler {
                             if chunk.len() <= remaining_needed {
                                 file_payload.extend_from_slice(&chunk);
                             } else {
-                                // Le bloc réseau dépasse la taille du fichier (il contient le token ACK final)
+                                // The network block exceeds the file size (it contains the final ACK token)
                                 let excess = chunk.split_off(remaining_needed);
                                 file_payload.extend_from_slice(&chunk);
-                                stream_buffer.extend_from_slice(&excess); // Conserve l'excès pour la vérification finale
+                                stream_buffer.extend_from_slice(&excess); // Keep the excess for final verification
                             }
                         }
 
-                        // 8. Vérification de l'octet de statut final envoyé par le serveur (\x00 attendu)
+                        // 8. Verify the final status byte sent by the server (\x00 expected)
                         if stream_buffer.is_empty() {
                             match fetch_next_chunk(&mut channel).await {
                                 Ok(chunk) => stream_buffer.extend_from_slice(chunk.as_ref()),
@@ -513,7 +513,7 @@ impl HostHandler for Ssh2HostHandler {
                             )));
                         }
 
-                        // 9. Envoi du dernier ACK de fermeture du protocole
+                        // 9. Send the final ACK to close the protocol
                         if let Err(e) = channel.data(Cursor::new(&[0x00][..])).await {
                             return Err(RegentError::FailedToGetFile(format!(
                                 "Russh data transfer error: {:?}",
