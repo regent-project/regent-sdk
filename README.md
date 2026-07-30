@@ -1,19 +1,57 @@
-# Regent
-*Adapt the tool to the job*
+<div style="display: flex; align-items: center; gap: 30px;">
+  <img src="regent-logo.png" alt="Regent" width="200" style="margin-bottom: 10px;" />
+  <div>
+    <h1>Regent</h1>
+    <p><em>Shape the tool for the job</em></p>
+  </div>
+</div>
 
-***Regent*** is a multi-paradigm configuration management system released as a library. It lets you embed a generic automation engine in any codebase that fits your use case. By leveraging Rust's powerful type system, fearless concurrency and rich ecosystem, ***regent*** allows you to industrialize automation, configuration management, and self-remediation systems at scale.
+***Regent*** is a multi-paradigm configuration management library for Rust. By embedding a generic automation engine in your codebase, you leverage Rust's type system, fearless concurrency, and rich ecosystem to industrialize automation, configuration management, and self-remediation at scale.
 
-## A few use cases
+*Note: While inspired by Ansible, Regent does not aim to reproduce its API or behaviors. Also, as a multi-paradigm library, you're free to implement agent/agent-less, autonomous/centralized, push/pull models — whatever fits your use case.*
 
-***Regent*** integrates nicely with the rest of the ecosystem and with crates you already know.
+## Key Regent Principles
 
-- *Need a small CLI tool to run some configuration changes on a group of hosts?* Wrap **regent** with [clap](https://docs.rs/clap/latest/clap/).
-- *Thousands of hosts to handle ?* Leverage [tokio](https://docs.rs/tokio/latest/tokio/) and work concurrently or in parallel.
-- *You want to distribute work?* [Serialize](https://docs.rs/serde/latest/serde/index.html) your **RegentTasks**, send them across a wire (http, gRPC, RabbitMQ...), and have them run by some worker node.
-- *Make any host observable?* Have some [axum](https://docs.rs/axum/latest/axum/) handler behind a `/health` route run a ***regent*** compliance assessment on localhost and respond accordingly. Then have this host regularly checked by your external monitoring service (Centreon, Nagios, Zabbix...).
+At its core, Regent is built around a very straightforward approach: **expected state** (the desired configuration of your system), **attributes** (the building blocks that describe that state), and **compliance** (whether a host matches its expected state or not). When you use Regent, you can **assess** if a host is compliant or you can **enforce** it.
 
+Available attributes :
+| Category | Attribute | Description |
+|---|---|---|
+| **Package Management** | [Apt](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Apt.html) | Debian/Ubuntu package management |
+| | [YumDnf](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.YumDnf.html) | RHEL/CentOS package management |
+| | [Pacman](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Pacman.html) | Arch Linux package management |
+| | [AptRepo](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.AptRepo.html) | APT repository configuration |
+| | [DnfRepo](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.DnfRepo.html) | DNF repository configuration |
+| **System** | [Service](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Service.html) | System service management (start/stop/enable/disable) |
+| | [User](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.User.html) | User account management |
+| | [Group](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Group.html) | Group management |
+| | [Cron](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Cron.html) | Cron job management |
+| | [Hostname](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Hostname.html) | Hostname configuration |
+| **Network** | [Iptables](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Iptables.html) | Firewall rule management |
+| **Shell** | [Command](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Command.html) | Arbitrary command execution |
+| **Utilities** | [LineInFile](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.LineInFile.html) | Line insertion/removal in files |
+| | [Ping](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Ping.html) | Connectivity checks between Regent and hosts (network, authentication) |
+| | [Debug](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Debug.html) | Debug message output |
+| **AI** | [Ollama](https://docs.rs/regent-sdk/latest/regent_sdk/attributes/struct.Ollama.html) | Ollama API integration for AI model management |
 
-## 2 ways to use regent
+## Why Regent?
+
+**Type Safety Meets System Management**
+Regent puts Rust's powerful type system to work in infrastructure automation. Define your expected state with compile-time guarantees, eliminating entire classes of configuration errors before they reach production.
+
+**Async by Default**
+Built on tokio, Regent executes operations in parallel when possible. Handle thousands of hosts concurrently without fighting with threads or callbacks.
+
+**Observable by Design**
+Full tracing instrumentation means every operation, every connection, and every state change is observable. Integrate seamlessly with your existing monitoring and logging infrastructure.
+
+**Secure Secret Management**
+Never hardcode secrets. Regent's SecretProvider abstraction dynamically retrieves credentials at runtime from environment variables, files, AWS Secrets Manager, GCP Secret Manager, with more providers coming soon.
+
+**Flexible as Your Use Case**
+As a library, not a framework, Regent adapts to you. Need a CLI tool? Wrap it with clap. Distributing work? Serialize your tasks and ship them anywhere. Making hosts observable? Put a compliance check behind an axum endpoint.
+
+## Two Ways to Use Regent
 ### The YAML API
 
 ```rust
@@ -21,21 +59,19 @@
 async fn main() {
     tracing_subscriber::fmt().init();
 
-    // Inventory as a raw YAML content
-    let yaml_inventory_builder = r#"---
+    // Define your inventory
+    let yaml_inventory = r#"---
 DefaultConnectionMethod: !Localhost
     UserKind: !CurrentUser
-
 Hosts:
   - Id: my_managed_host
     Endpoint: localhost
 "#;
 
-    // Deserialize and check inventory coherence
-    let mut inventory = Inventory::from_raw_yaml(yaml_inventory_builder).unwrap();
+    let mut inventory = Inventory::from_raw_yaml(yaml_inventory).unwrap();
 
-    // Expected state of the hosts
-    let expected_state_description = r#"---
+    // Define expected state
+    let expected_state = r#"---
 Attributes:
   - Name: token value set in conf file
     Privilege: !None
@@ -47,29 +83,25 @@ Attributes:
       Position: !Top
 "#;
 
-    // Deserialize and check expected state coherence
-    let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
+    let expected_state = ExpectedState::from_raw_yaml(expected_state).unwrap();
 
-    // In many cases, we need a SecretProvider to retrieve secrets from (secrets to connect to managed hosts and secrets as part of the expected state). Here we are connecting to AWS Secretsmanager.
+    // Build your secret providers pool
     let config_aws = aws_config::load_from_env().await;
-    let secret_provider = SecretProvider::aws_secretsmanager(config_aws);
-
-    // Now, out of the inventory (which is serializable), we actually do something. A "LivingInventory" is sensitive. It holds secrets, connections and progression. This is why it is distinct from the Inventory which is a static object.
-    // First we initialize connections to hosts...
-    let mut living_inventory = inventory.init(Some(secret_provider)).await.unwrap();
-
-    // ... then we make hosts reach the expected state described earlier.
-    living_inventory
-        .reach_compliance(&expected_state)
-        .await
+    let secrets_providers_pool = SecretProvidersPoolBuilder::new()
+        .add_default_provider("aws", SecretProvider::aws_secretsmanager(config_aws))
+        .build()
         .unwrap();
+
+    // Initialize and reach compliance
+    let mut living_inventory = inventory.init(Some(secrets_providers_pool)).await.unwrap();
+    living_inventory.reach_compliance(&expected_state).await.unwrap();
 }
 ```
 ### The Rusty API
 ```rust
 #[tokio::main]
 async fn main() {
-    // Describe the ManagedHost
+    // Build your managed host
     let mut managed_host = ManagedHostBuilder::new(
         "<host-id>",
         "<host-endpoint>:<port>",
@@ -79,10 +111,9 @@ async fn main() {
     .await
     .unwrap();
 
-    // Open connection with this ManageHost
-    assert!(managed_host.connect().is_ok());
+    managed_host.connect().await.unwrap();
 
-    // Describe the expected state
+    // Define expected state programmatically
     let apache_expected_state = AptBlockExpectedState::builder()
         .with_package_state("apache2", PackageExpectedState::Present)
         .build()
@@ -96,50 +127,45 @@ async fn main() {
         ))
         .build();
 
-    // Assess whether the host is compliant or not
-    match managed_host.assess_compliance(&expected_state).await {
-        Ok(compliance_status) => {
-            if compliance_status.is_already_compliant() {
-                println!("Congratulations, host is already compliant !");
-            } else {
-                // If not, try once to reach compliance
-                match managed_host.reach_compliance(&expected_state).await {
-                    Ok(outcome) => {
-                        println!(
-                            "Try reach compliance outcome : {:#?}",
-                            outcome.actions_taken()
-                        );
-                    }
-                    Err(error_detail) => {
-                        println!("Unable to try to reach compliance : {:#?}", error_detail);
-                    }
-                }
-            }
-        }
-        Err(error_detail) => {
-            println!("Failed to assess compliance : {:?}", error_detail);
+    // Assess and reach compliance
+    if let Ok(compliance_status) = managed_host.assess_compliance(&expected_state).await {
+        if !compliance_status.is_already_compliant() {
+            managed_host.reach_compliance(&expected_state).await.unwrap();
         }
     }
 }
 ```
 
-## Why
-Very often, automation frameworks will impose their architecture on you and thus limit their scope. You will end up accepting blind spots and manual interventions at scale, adapting your infrastructure to meet the tool's requirements or finding "workarounds" which will become the norm over time (a cron job which runs a bash script which runs an ansible playbook which connects to...). And very often, you have to assemble a solution to your specific use case with a mixture of official tooling, custom scripting, creativity and a little bit of trickery. With ***regent***, we are not even trying to build another unicorn. Instead, we acknowledge that your use case is unique to you, so must be your solution. No more mixture and trickery - you build what you need, nothing more, nothing less.
+## Use Cases
 
-## Secrets management
-As any other automation framework, regent will have to handle secrets. We don't try to store and manage secrets ourselves. We prefer to rely on the concept of *SecretProvider*. Regent will dynamically bind to an external source and retrieve secrets at runtime whenever needed. For the sake of abstraction, files and environment variables are considered external sources.
+Regent integrates with the Rust ecosystem you already know:
 
-Secrets can be retrieved from :
+- **CLI Tools**: Wrap with [clap](https://docs.rs/clap) for configuration management commands
+- **Massive Scale**: Use tokio to handle thousands of hosts concurrently
+- **Distributed Systems**: Serialize tasks, send via HTTP/gRPC/RabbitMQ, execute on worker nodes
+- **Observability**: Run compliance checks in [axum](https://docs.rs/axum) health endpoints
+- **Monitoring Integration**: Plug into Centreon, Nagios, Zabbix for regular health checks
+
+## Secret Providers
+
+Regent never hardcodes secrets. The SecretProvider abstraction dynamically retrieves credentials at runtime from:
 - [x] Environment variables
 - [x] Files
-- [x] AWS Secretsmanager
+- [x] AWS Secrets Manager
 - [x] GCP Secret Manager
 - [ ] Hashicorp Vault
 - [ ] Delinea SecretServer (Thycotic)
 
-
 ## Contributing
 
-We welcome contributions from the community! Whether it's bug fixes, new features, or documentation improvements, feel free to submit a pull request.
+We welcome contributions! The project needs help with:
+- **New secret providers**: Hashicorp Vault, Delinea SecretServer, Azure Key Vault, or any other secure backend
+- **New attributes**: Expand coverage for network management (nftables, firewalld), additional package managers, container orchestration, or cloud resource management
+- **Documentation**: Tutorials, real-world examples, and deeper API documentation
+- **Testing**: More comprehensive test coverage, especially for edge cases and multi-host scenarios
+- **Performance**: Benchmarks, optimizations for large-scale deployments
 
-Join our Discord server to chat with other contributors: [Regent project](https://discord.gg/2gxAW7uzsx)
+
+
+Join our Discord: [Regent project](https://discord.gg/2gxAW7uzsx)
+
