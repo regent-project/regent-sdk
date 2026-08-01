@@ -3,6 +3,8 @@
 //! This module provides the `DebugBlockExpectedState` type for outputting debug messages
 //! during compliance assessment. Useful for troubleshooting and logging.
 //!
+//! **Compatible OS:** All (cross-platform)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -63,16 +65,25 @@ impl Check for DebugBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Debug messages are cross-platform compatible
+        Ok(())
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState {
     async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify host compatibility (always passes for debug)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
         return Ok(AttributeComplianceAssessment::NonCompliant(Vec::from([
             Remediation::None(self.msg.clone()),
         ])));
@@ -94,13 +105,29 @@ impl Timeout for DebugApiCall {
     }
 }
 
+impl Check for DebugApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Debug messages are cross-platform compatible
+        Ok(())
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
     async fn call(
         &self,
         _host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify host compatibility (always passes for debug)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         Ok(InternalApiCallOutcome::Success(None))
     }
 }

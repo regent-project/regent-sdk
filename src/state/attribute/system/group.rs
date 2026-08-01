@@ -3,6 +3,8 @@
 //! This module provides the `GroupBlockExpectedState` type for managing Unix system groups
 //! using the groupadd, groupmod, and groupdel commands (or lgroupadd, lgroupdel for local groups).
 //!
+//! **Compatible OS:** Linux (all distributions)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -37,7 +39,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -137,16 +139,29 @@ impl Check for GroupBlockExpectedState {
         }
         Ok(())
     }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but group management is only supported on Linux", incompatible_os_kind)
+            )),
+        }
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host (Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
         let expected_state = self.state.as_ref().unwrap_or(&GroupExpectedState::Present);
         let local = self.local.unwrap_or(false);
 
@@ -282,13 +297,33 @@ impl GroupApiCall {
     }
 }
 
+impl Check for GroupApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but group management is only supported on Linux", incompatible_os_kind)
+            )),
+        }
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host (Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let (cmd, privilege) = match &self.api_call {
             GroupModuleInternalApiCall::Add {
                 groupname,

@@ -3,6 +3,8 @@
 //! This module provides the `CronBlockExpectedState` type for managing cron jobs
 //! on Unix-like systems, supporting both user crontabs and system cron.d files.
 //!
+//! **Compatible OS:** Linux (all distributions)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -37,7 +39,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -245,16 +247,30 @@ impl Check for CronBlockExpectedState {
         }
         Ok(())
     }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but cron management is only supported on Linux", incompatible_os_kind)
+            )),
+        }
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host (Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let expected_state = self.state.as_ref().unwrap_or(&CronExpectedState::Present);
         let is_cron_d = self.cron_file.is_some();
 
@@ -375,13 +391,33 @@ impl CronApiCall {
     }
 }
 
+impl Check for CronApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but cron management is only supported on Linux", incompatible_os_kind)
+            )),
+        }
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for CronApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host (Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let (cmd, privilege) = match &self.api_call {
             CronModuleInternalApiCall::Upsert {
                 name,

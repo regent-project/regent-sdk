@@ -3,6 +3,8 @@
 //! This module provides the `HostnameBlockExpectedState` type for setting and managing
 //! the system hostname.
 //!
+//! **Compatible OS:** Linux, macOS, FreeBSD
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -103,6 +105,15 @@ impl Check for HostnameBlockExpectedState {
 
         Ok(())
     }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) | OsKind::MacOs | OsKind::FreeBsd => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but hostname management is only supported on Unix-like systems", incompatible_os_kind)
+            )),
+        }
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedState {
@@ -113,12 +124,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        if let Some(host_properties) = host_properties {
-            if matches!(host_properties.os_kind(), OsKind::Windows) {
-                return Err(RegentError::AttributeError(
-                    "OS not supported by the module".to_string(),
-                ));
-            }
+        // Early check: verify we're on a compatible host (Unix-like systems)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
         }
 
         let current_hostname = match host_handler
@@ -200,13 +208,33 @@ impl HostnameApiCall {
     }
 }
 
+impl Check for HostnameApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) | OsKind::MacOs | OsKind::FreeBsd => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but hostname management is only supported on Unix-like systems", incompatible_os_kind)
+            )),
+        }
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host (Unix-like systems)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let (cmd, privilege) = match &self.api_call {
             HostnameModuleInternalApiCall::SetHostname { name, method } => {
                 let cmd = match method {

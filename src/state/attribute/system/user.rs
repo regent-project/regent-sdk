@@ -3,6 +3,8 @@
 //! This module provides the `UserBlockExpectedState` type for managing user accounts
 //! on Unix-like systems.
 //!
+//! **Compatible OS:** Linux (all distributions)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -43,7 +45,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -215,16 +217,30 @@ impl Check for UserBlockExpectedState {
         }
         Ok(())
     }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but user management is only supported on Linux", incompatible_os_kind)
+            )),
+        }
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host (Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let expected_state = self.state.as_ref().unwrap_or(&UserExpectedState::Present);
 
         let user_exists = match user_exists(host_handler, &self.name).await {
@@ -452,13 +468,33 @@ impl UserApiCall {
     }
 }
 
+impl Check for UserApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but user management is only supported on Linux", incompatible_os_kind)
+            )),
+        }
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host (Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let (cmd, privilege) = match &self.api_call {
             UserModuleInternalApiCall::Add {
                 username,

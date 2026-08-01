@@ -3,6 +3,8 @@
 //! This module provides the `PingBlockExpectedState` type for checking basic connectivity
 //! to a managed host. This is essentially a no-op attribute that verifies the host is reachable.
 //!
+//! **Compatible OS:** All (cross-platform)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -54,6 +56,11 @@ impl Check for PingBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Ping is cross-platform compatible
+        Ok(())
+    }
 }
 
 impl Timeout for PingBlockExpectedState {
@@ -66,10 +73,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify host compatibility (always passes for ping)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
         let cmd = String::from("id");
         let cmd_result = host_handler.run_command(cmd.as_str(), &privilege).await?;
 
@@ -94,13 +105,29 @@ impl PingApiCall {
     }
 }
 
+impl Check for PingApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Ping is cross-platform compatible
+        Ok(())
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
     async fn call(
         &self,
         _host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify host compatibility (always passes for ping)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         Ok(InternalApiCallOutcome::Success(None))
     }
 }

@@ -3,6 +3,8 @@
 //! This module provides the `YumDnfBlockExpectedState` type for managing RHEL/CentOS/Fedora
 //! packages using the YUM or DNF package manager.
 //!
+//! **Compatible OS:** Linux (Fedora, CentOS, RHEL-based distributions)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -35,7 +37,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, LinuxFlavor, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -147,6 +149,15 @@ impl Check for YumDnfBlockExpectedState {
             )));
         }
         Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(LinuxFlavor::Fedora) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but YUM/DNF is only supported on Fedora/CentOS/RHEL Linux", incompatible_os_kind)
+            )),
+        }
     }
 }
 

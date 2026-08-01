@@ -3,6 +3,8 @@
 //! This module provides the `AptBlockExpectedState` type for managing Debian/Ubuntu packages
 //! using the APT package manager.
 //!
+//! **Compatible OS:** Linux (Debian-based distributions: Debian, Ubuntu, etc.)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -35,7 +37,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, LinuxFlavor, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -148,16 +150,30 @@ impl Check for AptBlockExpectedState {
         }
         Ok(())
     }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(LinuxFlavor::Debian) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but APT is only supported on Debian-based Linux distributions", incompatible_os_kind)
+            )),
+        }
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host (Linux with Debian flavor)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let apt_available = match host_handler
             .is_this_command_available("apt-get", &Privilege::None)
             .await
@@ -261,6 +277,21 @@ pub struct AptApiCall {
     privilege: Privilege,
 }
 
+impl Check for AptApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(LinuxFlavor::Debian) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but APT is only supported on Debian-based Linux distributions", incompatible_os_kind)
+            )),
+        }
+    }
+}
+
 impl AptApiCall {
     pub fn display(&self) -> String {
         match &self.api_call {
@@ -281,9 +312,14 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host (Linux with Debian flavor)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let (cmd, privilege) = match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => (
                 format!(

@@ -113,7 +113,6 @@
 //!
 //! - **[`hosts::handlers::localhost::LocalHostHandler`]**: Execute on the local machine
 //! - **[`hosts::handlers::ssh2::Ssh2HostHandler`]**: Connect to remote hosts via SSH2
-//! - **[`hosts::handlers::ssh2::Ssh2AuthMethod`]**: Authentication methods (password, key, agent)
 //!
 //! ## Secret Management
 //!

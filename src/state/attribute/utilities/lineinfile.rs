@@ -3,6 +3,8 @@
 //! This module provides the `LineInFileBlockExpectedState` type for ensuring specific lines
 //! are present or absent in files. Useful for configuration files, environment files, etc.
 //!
+//! **Compatible OS:** All (cross-platform)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -184,6 +186,11 @@ impl Check for LineInFileBlockExpectedState {
         }
         Ok(())
     }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Line in file operations are cross-platform compatible
+        Ok(())
+    }
 }
 
 impl Timeout for LineInFileBlockExpectedState {
@@ -196,10 +203,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify host compatibility (always passes for lineinfile)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
         if !host_handler
             .is_this_command_available("sed", privilege)
             .await
@@ -651,13 +662,29 @@ impl Timeout for LineInFileApiCall {
     }
 }
 
+impl Check for LineInFileApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Line in file operations are cross-platform compatible
+        Ok(())
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify host compatibility (always passes for lineinfile)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let line: Option<String> = match &self.line_content {
             Some(p) => Some(p.clone().inner_raw(optional_secret_provider).await.unwrap()),
             None => None,
@@ -780,12 +807,12 @@ mod tests {
 - FilePath: /etc/hosts
   Line: '192.168.1.10 myhost'
   State: !Present
-  Insertafter: '^127\\.0\\.0\\.1'
+  InsertAfter: '^127\\.0\\.0\\.1'
 
 - FilePath: /etc/hosts
   Line: '# managed block'
   State: !Present
-  Insertbefore: BOF
+  InsertBefore: BOF
 
 - FilePath: /etc/sysctl.conf
   Regexp: '^net\\.ipv4\\.ip_forward'

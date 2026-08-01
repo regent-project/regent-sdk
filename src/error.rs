@@ -134,4 +134,7 @@ pub enum RegentError {
 
     #[error("Failed to get file: '{0}'")]
     FailedToGetFile(String),
+
+    #[error("Incompatible host: '{0}'")]
+    IncompatibleHost(String),
 }

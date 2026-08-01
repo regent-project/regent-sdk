@@ -3,6 +3,8 @@
 //! This module provides the `CommandBlockExpectedState` type for executing arbitrary
 //! shell commands on managed hosts.
 //!
+//! **Compatible OS:** All (cross-platform)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -87,16 +89,26 @@ impl Check for CommandBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Shell commands are cross-platform compatible
+        Ok(())
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedState {
     async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify host compatibility (always passes for commands)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let mut remediations: Vec<Remediation> = Vec::new();
 
         let privilege = privilege.clone();
@@ -122,13 +134,29 @@ impl CommandApiCall {
     }
 }
 
+impl Check for CommandApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+        // Shell commands are cross-platform compatible
+        Ok(())
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify host compatibility (always passes for commands)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let cmd_result = host_handler
             .run_command(
                 &self

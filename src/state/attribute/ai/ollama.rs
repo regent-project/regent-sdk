@@ -4,6 +4,8 @@
 //! AI inference engine, including installation, service management, model pulling,
 //! and API configuration.
 //!
+//! **Compatible OS:** Linux, macOS
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -51,7 +53,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -234,6 +236,15 @@ impl Check for OllamaBlockExpectedState {
 
         Ok(())
     }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) | OsKind::MacOs => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but Ollama is only supported on Linux and macOS", incompatible_os_kind)
+            )),
+        }
+    }
 }
 
 // ── assess_compliance ─────────────────────────────────────────────────────────
@@ -242,10 +253,15 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host (Linux or macOS)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let mut remediations: Vec<Remediation> = Vec::new();
 
         // ── Step 1: check whether ollama is installed ─────────────────────────
@@ -638,13 +654,33 @@ impl OllamaApiCall {
     }
 }
 
+impl Check for OllamaApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(_) | OsKind::MacOs => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but Ollama is only supported on Linux and macOS", incompatible_os_kind)
+            )),
+        }
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host (Linux or macOS)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let cmd: String = match &self.api_call {
             OllamaModuleInternalApiCall::Install => {
                 "curl -fsSL https://ollama.com/install.sh | sh".to_string()

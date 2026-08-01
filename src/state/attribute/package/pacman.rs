@@ -3,6 +3,8 @@
 //! This module provides the `PacmanBlockExpectedState` type for managing Arch Linux packages
 //! using the pacman package manager.
 //!
+//! **Compatible OS:** Linux (Arch-based distributions)
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -35,7 +37,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, LinuxFlavor, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -145,16 +147,30 @@ impl Check for PacmanBlockExpectedState {
         }
         Ok(())
     }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(LinuxFlavor::Arch) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but Pacman is only supported on Arch Linux", incompatible_os_kind)
+            )),
+        }
+    }
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host (Arch Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         if !host_handler
             .is_this_command_available("pacman", &Privilege::None)
             .await
@@ -233,6 +249,21 @@ pub struct PacmanApiCall {
     privilege: Privilege,
 }
 
+impl Check for PacmanApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+        match host_properties.os_kind() {
+            OsKind::Linux(LinuxFlavor::Arch) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(
+                format!("Host is {:?} but Pacman is only supported on Arch Linux", incompatible_os_kind)
+            )),
+        }
+    }
+}
+
 impl PacmanApiCall {
     pub fn display(&self) -> String {
         match &self.api_call {
@@ -253,9 +284,14 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
     async fn call(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host (Arch Linux)
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let (cmd, privilege) = match &self.api_call {
             PacmanModuleInternalApiCall::Install(package_name) => (
                 format!("pacman --noconfirm -S {}", package_name),
