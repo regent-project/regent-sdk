@@ -5,11 +5,27 @@
 //! that can be serialized and sent across a network (via gRPC, AMQP, REST, etc.) to be
 //! processed by a worker node.
 //!
+//! ## Idempotency: Attribute-level vs Task-level
+//!
+//! Regent SDK implements idempotency at two distinct levels:
+//!
+//! - **Attribute-level idempotency**: Each [`crate::state::attribute::Attribute`] is designed to be
+//!   idempotent when applied to a host. For example, a service attribute that ensures nginx is
+//!   running will only start the service if it's not already running, and will not cause errors
+//!   if applied multiple times. This is the core idempotency of the configuration management system.
+//!
+//! - **Task-level idempotency**: The idempotency key in [`RegentTask`] is a helper that allows
+//!   external middleware to implement task-level idempotency. If the same task is delivered
+//!   multiple times (due to network retries, message queue redelivery, etc.), external systems
+//!   can use this key to deduplicate the task execution. Note: **The regent-sdk crate itself does
+//!   not handle task idempotency** — it only provides the key. You must implement deduplication
+//!   logic in your message queue, API gateway, or other middleware.
+//!
 //! ## Features
 //!
 //! - **Serializable**: Tasks can be serialized as JSON or YAML for network transport
 //! - **Self-contained**: Each task includes all information needed for execution
-//! - **Correlation IDs**: Unique identifiers for tracking tasks across distributed systems
+//! - **Task-level idempotency keys**: Unique identifiers that allow external systems to deduplicate task execution
 //! - **Result reporting**: Structured results with compliance status and actions taken
 //!
 //! ## Quick Start
@@ -58,8 +74,10 @@ use serde::{Deserialize, Serialize};
 /// to connect to a host, assess or remediate its compliance with an expected state,
 /// and return the results.
 ///
-/// Each task has a unique correlation ID that can be used to track the task
-/// across a distributed architecture.
+/// Each task has a unique idempotency key that enables task-level idempotency.
+/// If the same task is delivered multiple times (e.g., due to message queue redelivery),
+/// external systems can use this key to deduplicate the task execution. This is separate from
+/// attribute-level idempotency, which is inherent to each attribute's design.
 ///
 /// # Serialization
 ///
@@ -91,14 +109,14 @@ use serde::{Deserialize, Serialize};
 /// let expected_state = ExpectedState::new();
 /// let task = RegentTask::from(host_builder, expected_state, Job::Assess);
 ///
-/// println!("Task correlation ID: {}", task.correlation_id());
+/// println!("Task idempotency key: {}", task.idempotency_key());
 /// ```
 #[derive(Serialize, Deserialize)]
 pub struct RegentTask {
     managed_host_builder: ManagedHostBuilder,
     expected_state: ExpectedState,
     job: Job,
-    correlation_id: String,
+    idempotency_key: String,
 }
 
 impl RegentTask {
@@ -112,7 +130,8 @@ impl RegentTask {
     ///
     /// # Returns
     ///
-    /// A new `RegentTask` with a randomly generated correlation ID.
+    /// A new `RegentTask` with a randomly generated idempotency key for task-level idempotency.
+/// This allows external systems to detect and skip duplicate task deliveries.
     ///
     /// # Example
     ///
@@ -140,7 +159,7 @@ impl RegentTask {
             managed_host_builder,
             expected_state,
             job,
-            correlation_id: nanoid!(
+            idempotency_key: nanoid!(
                 16,
                 &[
                     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
@@ -149,14 +168,16 @@ impl RegentTask {
         }
     }
 
-    /// Get the correlation ID for this task.
+    /// Get the task-level idempotency key for this task.
     ///
-    /// The correlation ID is a unique identifier that can be used to track
-    /// this task across a distributed architecture.
+    /// This key is a unique identifier that enables task-level idempotency. When the same
+    /// task is delivered multiple times to a worker, external systems can use this key to
+    /// deduplicate the execution. Note: this is separate from attribute-level idempotency,
+    /// which ensures each configuration change is safely repeatable.
     ///
     /// # Returns
     ///
-    /// A reference to the correlation ID string.
+    /// A reference to the idempotency key string.
     ///
     /// # Example
     ///
@@ -164,10 +185,10 @@ impl RegentTask {
     /// use regent_sdk::task::RegentTask;
     ///
     /// let task = /* create task */;
-    /// println!("Tracking ID: {}", task.correlation_id());
+    /// println!("Idempotency key: {}", task.idempotency_key());
     /// ```
-    pub fn correlation_id(&self) -> &str {
-        &self.correlation_id
+    pub fn idempotency_key(&self) -> &str {
+        &self.idempotency_key
     }
 
     /// Execute the task.
@@ -181,7 +202,7 @@ impl RegentTask {
     ///
     /// # Returns
     ///
-    /// A [`RegentTaskResult`] containing the correlation ID and host status,
+    /// A [`RegentTaskResult`] containing the idempotency key and host status,
     /// or a [`RegentError`] if execution failed.
     ///
     /// # Example
@@ -217,7 +238,7 @@ impl RegentTask {
         };
 
         Ok(RegentTaskResult::from(
-            self.correlation_id.clone(),
+            self.idempotency_key.clone(),
             host_status,
         ))
     }
@@ -257,7 +278,9 @@ pub enum Job {
 
 /// Result of executing a [`RegentTask`].
 ///
-/// Contains the correlation ID for tracking and the host's compliance status.
+/// Contains the task-level idempotency key for deduplication purposes, along with the
+/// host's compliance status. This key allows external systems to identify duplicate
+/// task deliveries, which is separate from attribute-level idempotency.
 ///
 /// # Example
 ///
@@ -270,13 +293,13 @@ pub enum Job {
 ///     ManagedHostStatus::already_compliant(),
 /// );
 ///
-/// assert_eq!(result.correlation_id(), "abc123");
+/// assert_eq!(result.idempotency_key(), "abc123");
 /// assert!(result.host_status().is_already_compliant());
 /// ```
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RegentTaskResult {
-    /// The correlation ID of the task that produced this result.
-    correlation_id: String,
+    /// The idempotency key of the task that produced this result.
+    idempotency_key: String,
     /// The compliance status of the host after task execution.
     host_status: ManagedHostStatus,
 }
@@ -286,7 +309,7 @@ impl RegentTaskResult {
     ///
     /// # Arguments
     ///
-    /// * `correlation_id` - The correlation ID of the task
+    /// * `idempotency_key` - The task-level idempotency key for deduplication of task deliveries
     /// * `host_status` - The host's compliance status
     ///
     /// # Returns
@@ -304,9 +327,9 @@ impl RegentTaskResult {
     ///     ManagedHostStatus::already_compliant(),
     /// );
     /// ```
-    pub fn from(correlation_id: String, host_status: ManagedHostStatus) -> Self {
+    pub fn from(idempotency_key: String, host_status: ManagedHostStatus) -> Self {
         Self {
-            correlation_id,
+            idempotency_key,
             host_status,
         }
     }
