@@ -1,5 +1,4 @@
 use nanoid::nanoid;
-use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tokio::task::JoinSet;
@@ -199,7 +198,7 @@ impl LivingInventory {
 
         debug!(key, value, "Adding variable");
 
-        let _ = self.hosts.par_iter_mut().map(|(host_id, managed_host)| {
+        let _ = self.hosts.iter_mut().map(|(host_id, managed_host)| {
             trace!(host_id, key, value, "Adding variable to host");
             managed_host.add_var(key.clone(), value.clone())
         });
