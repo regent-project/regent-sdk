@@ -132,7 +132,12 @@ impl Attribute {
                 }
             };
         match serde_json::from_str::<Attribute>(&context_wise_serialized_self) {
-            Ok(context_aware_attribute) => Ok(context_aware_attribute),
+            Ok(context_aware_attribute) => {
+                // Validate the configuration after template rendering to ensure
+                // that template variables produced valid configuration
+                context_aware_attribute.check()?;
+                Ok(context_aware_attribute)
+            }
             Err(detail) => Err(RegentError::FailureToConsiderContext(format!("{}", detail))),
         }
     }
