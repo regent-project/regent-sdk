@@ -33,6 +33,27 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
 
+/// Represents the connection state of a managed host.
+///
+/// This enum tracks whether a host is currently connected, disconnected, or in an error state,
+/// enabling proper state management and preventing issues like double-connection or
+/// reconnection failures due to stale state.
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
+pub enum ConnectionState {
+    /// The host is currently disconnected.
+    Disconnected,
+    /// The host is currently connected and ready for operations.
+    Connected,
+    /// The host connection state is unknown (e.g., after a failed connection attempt).
+    Unknown,
+}
+
+impl Default for ConnectionState {
+    fn default() -> Self {
+        ConnectionState::Disconnected
+    }
+}
+
 /// Builder for creating [`ManagedHost`] instances.
 ///
 /// This struct is used to configure a managed host before it's built and connected.
@@ -407,6 +428,11 @@ pub struct ManagedHost {
     /// Secret providers pool for retrieving secrets.
     // TODO : how to avoid cloning the whole Pool for each Host ? Is it worth introducting Arc<Mutex<T>> ?
     secret_providers: Option<SecretProvidersPool>,
+    /// The current connection state of this host.
+    ///
+    /// This tracks whether the host is connected, disconnected, or in an unknown state,
+    /// enabling proper idempotency for connection/disconnection operations.
+    connection_state: ConnectionState,
 }
 
 impl Clone for ManagedHost {
@@ -418,6 +444,7 @@ impl Clone for ManagedHost {
             context: self.context.clone(),
             host_properties: self.host_properties.clone(),
             secret_providers: self.secret_providers.clone(),
+            connection_state: self.connection_state.clone(),
         }
     }
 }
@@ -463,6 +490,7 @@ impl ManagedHost {
             context,
             host_properties,
             secret_providers: secret_providers.clone(),
+            connection_state: ConnectionState::Disconnected,
         }
     }
 
@@ -510,6 +538,7 @@ impl ManagedHost {
             context: tera::Context::from_serialize(&final_vars).unwrap(),
             host_properties,
             secret_providers: secret_providers.clone(),
+            connection_state: ConnectionState::Disconnected,
         }
     }
 
@@ -531,6 +560,9 @@ impl ManagedHost {
     /// * `key` - The variable name
     /// * `value` - The variable value
     pub fn add_var(&mut self, key: String, value: String) {
+        if self.context.contains_key(&key) {
+            warn!(key, "Writing an already-existing variable to context. Is this expected ?");
+        }
         self.context.insert(key, &value);
     }
 
@@ -590,7 +622,13 @@ impl ManagedHost {
     /// assert!(host.is_connected());
     /// ```
     pub async fn connect(&mut self) -> Result<(), RegentError> {
-        self.handler.connect(&self.endpoint).await
+        let result = self.handler.connect(&self.endpoint).await;
+        if result.is_ok() {
+            self.connection_state = ConnectionState::Connected;
+        } else {
+            self.connection_state = ConnectionState::Unknown;
+        }
+        result
     }
 
     /// Check if the host is currently connected.
@@ -602,13 +640,55 @@ impl ManagedHost {
         self.handler.is_connected().await
     }
 
+    /// Check the tracked connection state of this host.
+    ///
+    /// Unlike `is_connected()`, which queries the underlying handler,
+    /// this returns the tracked state that was last set by `connect()` or `disconnect()`.
+    ///
+    /// # Returns
+    ///
+    /// The current `ConnectionState` of this host.
+    pub fn connection_state(&self) -> &ConnectionState {
+        &self.connection_state
+    }
+
+    /// Check if the host is in a tracked connected state.
+    ///
+    /// This returns `true` if the tracked state is `Connected`, regardless of
+    /// the actual underlying handler state. Use `is_connected()` to check
+    /// the actual connection status.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the tracked state is `Connected`.
+    pub fn is_tracked_connected(&self) -> bool {
+        matches!(self.connection_state, ConnectionState::Connected)
+    }
+
+    /// Check if the host is in a tracked disconnected state.
+    ///
+    /// This returns `true` if the tracked state is `Disconnected`.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the tracked state is `Disconnected`.
+    pub fn is_tracked_disconnected(&self) -> bool {
+        matches!(self.connection_state, ConnectionState::Disconnected)
+    }
+
     /// Disconnect from the host.
     ///
     /// # Returns
     ///
     /// `Ok(())` if disconnection succeeded, or a [`RegentError`] if it failed.
     pub async fn disconnect(&mut self) -> Result<(), RegentError> {
-        self.handler.disconnect().await
+        let result = self.handler.disconnect().await;
+        if result.is_ok() {
+            self.connection_state = ConnectionState::Disconnected;
+        } else {
+            self.connection_state = ConnectionState::Unknown;
+        }
+        result
     }
 
     /// Assess compliance of the host with the expected state.

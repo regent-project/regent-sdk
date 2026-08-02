@@ -10,6 +10,7 @@ use crate::{Privilege, RegentError};
 #[serde(deny_unknown_fields)]
 pub struct HostProperties {
     os_kind: OsKind,
+    hostname: Option<String>
 }
 
 impl HostProperties {
@@ -39,66 +40,159 @@ impl HostProperties {
                         os_name_part
                     };
 
-                    os_kind = if os_name.contains("Arch") {
-                        OsKind::Linux(LinuxFlavor::Arch)
-                    } else if os_name.contains("CentOS") {
-                        OsKind::Linux(LinuxFlavor::Fedora)
-                    } else if os_name.contains("Debian") {
-                        OsKind::Linux(LinuxFlavor::Debian)
-                    } else if os_name.contains("Ubuntu") {
-                        OsKind::Linux(LinuxFlavor::Debian)
-                    } else if os_name.contains("Arch") {
-                        OsKind::Linux(LinuxFlavor::Arch)
-                    } else if os_name.contains("openSUSE") {
-                        OsKind::Linux(LinuxFlavor::Suse)
-                    } else if os_name.contains("FreeBSD") {
-                        OsKind::FreeBsd
+                    if os_name.contains("FreeBSD") {
+                        os_kind = OsKind::FreeBsd(FreeBsdSpecifics);
                     } else {
-                        OsKind::Unknown
-                    };
+                        let linux_flavor = if os_name.contains("Arch") {
+                            LinuxFlavor::Arch
+                        } else if os_name.contains("CentOS") {
+                            LinuxFlavor::Fedora
+                        } else if os_name.contains("Debian") {
+                            LinuxFlavor::Debian
+                        } else if os_name.contains("Ubuntu") {
+                            LinuxFlavor::Debian
+                        } else if os_name.contains("Arch") {
+                            LinuxFlavor::Arch
+                        } else if os_name.contains("openSUSE") {
+                            LinuxFlavor::Suse
+                        } else {
+                            // Unknown Linux flavor, but still Linux
+                            LinuxFlavor::Debian
+                        };
+
+                        let init_system = Self::detect_init_system(host_handler).await;
+                        os_kind = OsKind::Linux(LinuxSpecifics { linux_flavor, init_system });
+                    }
 
                     break;
                 }
             }
         }
 
-        // OsKind stille unknown, trying to detect Windows -> run "systeminfo"
+        // OsKind still unknown, trying to detect Windows -> run "systeminfo"
         if let OsKind::Unknown = os_kind {
             if let Ok(cmd_result) = host_handler.run_windows_command("systeminfo").await {
                 if cmd_result.stdout.contains("Microsoft Windows") {
-                    os_kind = OsKind::Windows;
+                    os_kind = OsKind::Windows(WindowsSpecifics);
                 }
             }
         }
 
-        // OsKind stille unknown, trying to detect MacOS -> run "sw_vers -productName"
+        // OsKind still unknown, trying to detect MacOS -> run "sw_vers -productName"
         if let OsKind::Unknown = os_kind {
             if let Ok(cmd_result) = host_handler
                 .run_command("sw_vers -productName", &Privilege::None)
                 .await
             {
                 if cmd_result.stdout.contains("macOS") {
-                    os_kind = OsKind::MacOs;
+                    os_kind = OsKind::MacOs(MacOsSpecifics);
                 }
             }
         }
 
-        Ok(HostProperties { os_kind })
+        let hostname = Self::collect_hostname(host_handler, os_kind.clone()).await;
+
+        Ok(HostProperties { os_kind, hostname })
     }
 
     pub fn os_kind(&self) -> &OsKind {
         &self.os_kind
+    }
+
+    pub fn hostname(&self) -> &Option<String> {
+        &self.hostname
+    }
+
+    async fn collect_hostname<Handler: HostHandler>(
+        host_handler: &mut Handler,
+        os_kind: OsKind,
+    ) -> Option<String> {
+        match os_kind {
+            OsKind::Unknown => None,
+            OsKind::Windows(_) => {
+                let cmd_result = host_handler
+                    .run_windows_command("hostname")
+                    .await
+                    .ok()?;
+                if cmd_result.return_code == 0 {
+                    Some(cmd_result.stdout.trim().to_string())
+                } else {
+                    None
+                }
+            }
+            OsKind::Linux(_) | OsKind::FreeBsd(_) | OsKind::MacOs(_) => {
+                if let Ok(hostname_file_content) = host_handler
+                    .get_file(PathBuf::from("/etc/hostname"))
+                    .await
+                {
+                    Some(String::from_utf8_lossy(&hostname_file_content).trim().to_string())
+                } else {
+                    let cmd_result = host_handler
+                        .run_command("hostname", &Privilege::None)
+                        .await
+                        .ok()?;
+                    if cmd_result.return_code == 0 {
+                        Some(cmd_result.stdout.trim().to_string())
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    async fn detect_init_system<Handler: HostHandler>(
+        host_handler: &mut Handler,
+    ) -> InitSystem {
+        // Check for systemd by looking for the /run/systemd/system directory
+        if host_handler
+            .get_file(PathBuf::from("/run/systemd/system"))
+            .await
+            .is_ok()
+        {
+            return InitSystem::Systemd;
+        }
+        
+        // Alternative check: see if systemd is PID 1
+        if let Ok(cmd_result) = host_handler
+            .run_command("ps -p 1 -o comm=", &Privilege::None)
+            .await
+        {
+            if cmd_result.return_code == 0 {
+                let process_name = cmd_result.stdout.trim();
+                if process_name == "systemd" || process_name.contains("systemd") {
+                    return InitSystem::Systemd;
+                }
+            }
+        }
+        
+        InitSystem::Unknown
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum OsKind {
     Unknown,
-    Windows,
-    FreeBsd,
-    MacOs,
-    Linux(LinuxFlavor),
+    Windows(WindowsSpecifics),
+    FreeBsd(FreeBsdSpecifics),
+    MacOs(MacOsSpecifics),
+    Linux(LinuxSpecifics),
 }
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct LinuxSpecifics {
+    pub linux_flavor: LinuxFlavor,
+    pub init_system: InitSystem,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct MacOsSpecifics;
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct FreeBsdSpecifics;
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct WindowsSpecifics;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum LinuxFlavor {
@@ -107,4 +201,10 @@ pub enum LinuxFlavor {
     Arch,
     Suse,
     Gentoo,
+}
+    
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub enum InitSystem {
+    Unknown,
+    Systemd,
 }

@@ -685,14 +685,14 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
             self.check_host_compatibility(props)?;
         }
 
-        let line: Option<String> = match &self.line_content {
+        let line_content_raw = match &self.line_content {
             Some(p) => Some(p.clone().inner_raw(optional_secret_provider).await.unwrap()),
             None => None,
         };
 
         let cmd: String = match &self.api_call {
             LineInFileModuleInternalApiCall::InsertBottom => {
-                let l = line.unwrap_or_default();
+                let l = line_content_raw.clone().unwrap_or_default();
                 format!(
                     "printf '%s\\n' '{}' >> {}",
                     escape_sed_text(&l),
@@ -700,7 +700,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 )
             }
             LineInFileModuleInternalApiCall::InsertTop => {
-                let l = line.unwrap_or_default();
+                let l = line_content_raw.clone().unwrap_or_default();
                 let count = get_line_count(host_handler, &self.file_path, &self.privilege).await;
                 if count == 0 {
                     format!(
@@ -713,7 +713,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 }
             }
             LineInFileModuleInternalApiCall::InsertAfterLine(n) => {
-                let l = line.unwrap_or_default();
+                let l = line_content_raw.clone().unwrap_or_default();
                 format!(
                     "sed -i '{}a\\{}' {}",
                     n,
@@ -722,7 +722,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 )
             }
             LineInFileModuleInternalApiCall::InsertBeforeLine(n) => {
-                let l = line.unwrap_or_default();
+                let l = line_content_raw.clone().unwrap_or_default();
                 format!(
                     "sed -i '{}i\\{}' {}",
                     n,
@@ -731,7 +731,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 )
             }
             LineInFileModuleInternalApiCall::ReplaceLine(n) => {
-                let l = line.unwrap_or_default();
+                let l = line_content_raw.clone().unwrap_or_default();
                 format!(
                     "sed -i '{}c\\{}' {}",
                     n,
@@ -743,7 +743,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 line_number,
                 regexp,
             } => {
-                let replacement = line.unwrap_or_default();
+                let replacement = line_content_raw.clone().unwrap_or_default();
                 format!(
                     "sed -i '{} s/{}/{}/' {}",
                     line_number,
@@ -764,7 +764,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 )
             }
             LineInFileModuleInternalApiCall::CreateFile => {
-                let l = line.unwrap_or_default();
+                let l = line_content_raw.clone().unwrap_or_default();
                 if l.is_empty() {
                     format!("touch {}", self.file_path)
                 } else {
@@ -783,13 +783,165 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
             .unwrap();
 
         if result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success(None))
+            // Post-application verification: verify the change was actually applied
+            let verification_result = verify_file_state(
+                host_handler,
+                &self.file_path,
+                &self.api_call,
+                &line_content_raw.clone(),
+                &self.privilege,
+            )
+            .await;
+
+            if verification_result {
+                Ok(InternalApiCallOutcome::Success(None))
+            } else {
+                Ok(InternalApiCallOutcome::Failure(
+                    "Command succeeded but post-verification failed: file state does not match expected".to_string(),
+                ))
+            }
         } else {
             Ok(InternalApiCallOutcome::Failure(format!(
                 "RC: {}, STDOUT: {}, STDERR: {}",
                 result.return_code, result.stdout, result.stderr
             )))
         }
+    }
+}
+
+/// Verify that the file state matches the expected state after a modification.
+/// This implements post-application verification for idempotency.
+async fn verify_file_state<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    file_path: &str,
+    api_call: &LineInFileModuleInternalApiCall,
+    line_content: &Option<String>,
+    privilege: &Privilege,
+) -> bool {
+    let line = line_content.as_deref().unwrap_or("");
+
+    match api_call {
+        LineInFileModuleInternalApiCall::InsertBottom => {
+            // Verify the line exists at the end of the file
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                content.lines().last().map_or(false, |last_line| last_line.trim() == line.trim())
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::InsertTop => {
+            // Verify the line exists at the beginning of the file
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                content.lines().next().map_or(false, |first_line| first_line.trim() == line.trim())
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::InsertAfterLine(n) => {
+            // Verify the line exists after the specified line number
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                let lines: Vec<&str> = content.lines().collect();
+                let insert_pos = *n as usize;
+                if insert_pos < lines.len() {
+                    let next_pos = insert_pos + 1;
+                    if next_pos < lines.len() {
+                        return lines[next_pos].trim() == line.trim();
+                    }
+                }
+                false
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::InsertBeforeLine(n) => {
+            // Verify the line exists before the specified line number
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                let lines: Vec<&str> = content.lines().collect();
+                let insert_pos = *n as usize;
+                if insert_pos > 0 && insert_pos <= lines.len() {
+                    return lines[insert_pos - 1].trim() == line.trim();
+                }
+                false
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::ReplaceLine(n) => {
+            // Verify the line at position n matches the expected line
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                let lines: Vec<&str> = content.lines().collect();
+                let pos = *n as usize;
+                if pos > 0 && pos <= lines.len() {
+                    return lines[pos - 1].trim() == line.trim();
+                }
+                false
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::ReplaceWithBackrefs { line_number, regexp } => {
+            // For backrefs, we need to check that the line matches the expected pattern
+            // This is complex to verify exactly, so we'll check the line exists
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                let lines: Vec<&str> = content.lines().collect();
+                let pos = *line_number as usize;
+                if pos > 0 && pos <= lines.len() {
+                    // Line exists at the expected position
+                    return true;
+                }
+                false
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::DeleteLines(numbers) => {
+            // Verify the lines were actually deleted
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                let lines: Vec<&str> = content.lines().collect();
+                // Check that none of the deleted line numbers exist
+                for &n in numbers {
+                    let pos = n as usize;
+                    if pos > 0 && pos <= lines.len() {
+                        return false; // Line still exists
+                    }
+                }
+                true
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::DeleteByRegexp(pattern) => {
+            // Verify no lines matching the pattern exist
+            if let Some(content) = read_file_content(host_handler, file_path).await {
+                !content.lines().any(|line| line.contains(pattern.as_str()))
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::CreateFile => {
+            // Verify the file exists
+            let test_result = host_handler
+                .run_command(&format!("test -f {}", file_path), &Privilege::None)
+                .await
+                .unwrap();
+            test_result.return_code == 0
+        }
+    }
+}
+
+/// Read the content of a file from the remote host.
+async fn read_file_content<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    file_path: &str,
+) -> Option<String> {
+    let result = host_handler
+        .run_command(&format!("cat {}", file_path), &Privilege::None)
+        .await
+        .unwrap();
+    if result.return_code == 0 {
+        Some(result.stdout)
+    } else {
+        None
     }
 }
 

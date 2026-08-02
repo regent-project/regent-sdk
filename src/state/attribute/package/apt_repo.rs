@@ -42,7 +42,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, LinuxFlavor, OsKind};
+use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -250,7 +250,7 @@ impl Check for AptRepoBlockExpectedState {
 
     fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxFlavor::Debian) => Ok(()),
+            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Debian, .. }) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(
                 format!("Host is {:?} but APT repositories are only supported on Debian-based Linux distributions", incompatible_os_kind)
             )),
@@ -311,6 +311,34 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
 
+                // Enhanced verification: explicitly check critical properties like URLs
+                // This provides better error messages and ensures source verification
+                if !is_legacy {
+                    // For deb822 format, verify that critical properties match
+                    if let Some(ref current) = current_content {
+                        let current_trimmed = current.trim();
+                        let expected_trimmed = expected_content.trim();
+                        
+                        // Check if URIs (source URLs) are different
+                        if let (Some(current_uris), Some(expected_uris)) = (
+                            extract_uris_from_deb822(current_trimmed),
+                            extract_uris_from_deb822(expected_trimmed),
+                        ) {
+                            if current_uris != expected_uris {
+                                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
+                                    Remediation::AptRepo(AptRepoApiCall::from(
+                                        AptRepoModuleInternalApiCall::WriteFile {
+                                            path: file_path,
+                                            content: expected_content,
+                                        },
+                                        privilege.clone(),
+                                    )),
+                                ]));
+                            }
+                        }
+                    }
+                }
+
                 let mut remediations = vec![Remediation::AptRepo(AptRepoApiCall::from(
                     AptRepoModuleInternalApiCall::WriteFile {
                         path: file_path,
@@ -367,7 +395,7 @@ impl Check for AptRepoApiCall {
 
     fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxFlavor::Debian) => Ok(()),
+            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Debian, .. }) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(
                 format!("Host is {:?} but APT repositories are only supported on Debian-based Linux distributions", incompatible_os_kind)
             )),
@@ -480,6 +508,25 @@ fn escape_for_printf(content: &str) -> String {
         .replace('\\', "\\\\")
         .replace('%', "%%")
         .replace('\n', "\\n")
+}
+
+/// Extract URIs from deb822 format content for source verification.
+/// This ensures that repository URLs are explicitly checked during assessment.
+fn extract_uris_from_deb822(content: &str) -> Option<Vec<String>> {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("URIs:") || trimmed.starts_with("URI:") {
+            let uris_part = trimmed.split(':').nth(1).map(|s| s.trim());
+            if let Some(uris_str) = uris_part {
+                let uris: Vec<String> = uris_str
+                    .split_whitespace()
+                    .map(|s| s.to_string())
+                    .collect();
+                return Some(uris);
+            }
+        }
+    }
+    None
 }
 
 async fn read_file<Handler: HostHandler>(

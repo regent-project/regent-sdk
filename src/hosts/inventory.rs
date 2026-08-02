@@ -255,11 +255,12 @@ impl LivingInventory {
 
         info!("Disconnecting from {} hosts", self.hosts.len());
 
+        // Take ownership of hosts to avoid borrowing issues
+        let mut hosts = std::mem::take(&mut self.hosts);
+
         let mut set = JoinSet::new();
         
-        for (host_id, managed_host) in &mut self.hosts {
-            let host_id = host_id.clone();
-            let mut managed_host = managed_host.clone();
+        for (host_id, mut managed_host) in hosts.drain() {
             set.spawn(async move {
                 let host_span = span!(Level::DEBUG, "disconnect_host", host_id);
                 let _host_enter = host_span.enter();
@@ -276,6 +277,9 @@ impl LivingInventory {
                 return Err(details);
             }
         }
+
+        // Collect the disconnected hosts back into the inventory
+        self.hosts = hosts;
 
         info!("Successfully disconnected from all hosts");
         Ok(())

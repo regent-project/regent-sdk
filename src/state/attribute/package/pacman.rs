@@ -37,7 +37,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, LinuxFlavor, OsKind};
+use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -150,7 +150,7 @@ impl Check for PacmanBlockExpectedState {
 
     fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxFlavor::Arch) => Ok(()),
+            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Arch, .. }) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(
                 format!("Host is {:?} but Pacman is only supported on Arch Linux", incompatible_os_kind)
             )),
@@ -256,7 +256,7 @@ impl Check for PacmanApiCall {
 
     fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxFlavor::Arch) => Ok(()),
+            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Arch, .. }) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(
                 format!("Host is {:?} but Pacman is only supported on Arch Linux", incompatible_os_kind)
             )),
@@ -292,16 +292,18 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
             self.check_host_compatibility(props)?;
         }
 
-        let (cmd, privilege) = match &self.api_call {
+        let (cmd, privilege, package_name) = match &self.api_call {
             PacmanModuleInternalApiCall::Install(package_name) => (
                 format!("pacman --noconfirm -S {}", package_name),
                 &self.privilege,
+                Some(package_name.clone()),
             ),
             PacmanModuleInternalApiCall::Remove(package_name) => (
                 format!("pacman --noconfirm -R {}", package_name),
                 &self.privilege,
+                Some(package_name.clone()),
             ),
-            PacmanModuleInternalApiCall::Upgrade => ("pacman -Syu".to_string(), &self.privilege),
+            PacmanModuleInternalApiCall::Upgrade => ("pacman -Syu".to_string(), &self.privilege, None),
         };
 
         let cmd_result = host_handler
@@ -310,7 +312,34 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
             .unwrap();
 
         if cmd_result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success(None))
+            // Post-install verification: verify the package state matches the expected operation
+            if let Some(pkg_name) = &package_name {
+                let verification_result = match &self.api_call {
+                    PacmanModuleInternalApiCall::Install(_) => {
+                        // Verify the package is now installed
+                        is_package_installed(host_handler, pkg_name.clone()).await
+                    }
+                    PacmanModuleInternalApiCall::Remove(_) => {
+                        // Verify the package is now removed
+                        !is_package_installed(host_handler, pkg_name.clone()).await
+                    }
+                    PacmanModuleInternalApiCall::Upgrade => {
+                        // Upgrade is a system-wide operation, can't easily verify individual packages
+                        true
+                    }
+                };
+
+                if verification_result {
+                    Ok(InternalApiCallOutcome::Success(None))
+                } else {
+                    Ok(InternalApiCallOutcome::Failure(
+                        format!("Command succeeded but post-verification failed: package {} state does not match expected", pkg_name),
+                    ))
+                }
+            } else {
+                // For upgrade operations without specific package verification
+                Ok(InternalApiCallOutcome::Success(None))
+            }
         } else {
             Ok(InternalApiCallOutcome::Failure(format!(
                 "RC : {}, STDOUT : {}, STDERR : {}",

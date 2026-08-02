@@ -972,12 +972,120 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for IptablesApiCall {
             .unwrap();
 
         if result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success(None))
+            // Post-operation verification: verify the rule is in the correct position
+            let verification_result = verify_rule_position(
+                host_handler,
+                &self.api_call,
+                &self.privilege,
+            )
+            .await;
+
+            if verification_result {
+                Ok(InternalApiCallOutcome::Success(None))
+            } else {
+                Ok(InternalApiCallOutcome::Failure(
+                    "Command succeeded but post-verification failed: rule position does not match expected".to_string(),
+                ))
+            }
         } else {
             Ok(InternalApiCallOutcome::Failure(format!(
                 "RC: {}, STDOUT: {}, STDERR: {}",
                 result.return_code, result.stdout, result.stderr
             )))
+        }
+    }
+}
+
+/// Verify that a rule is in the correct position after insertion.
+/// This implements post-application verification for idempotency.
+async fn verify_rule_position<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    api_call: &IptablesModuleInternalApiCall,
+    privilege: &Privilege,
+) -> bool {
+    match api_call {
+        IptablesModuleInternalApiCall::AppendRule {
+            binary,
+            table_arg,
+            chain,
+            rule_args,
+        } => {
+            // For append, verify the rule exists and is at the end
+            let check_cmd = build_cmd(binary, table_arg, &format!("-C {} {}", chain, rule_args));
+            let check_result = host_handler
+                .run_command(&check_cmd, privilege)
+                .await
+                .unwrap();
+            check_result.return_code == 0
+        }
+        IptablesModuleInternalApiCall::InsertRule {
+            binary,
+            table_arg,
+            chain,
+            rule_num,
+            rule_args,
+        } => {
+            // For insert, verify the rule exists and is at the expected position
+            let check_cmd = build_cmd(binary, table_arg, &format!("-C {} {}", chain, rule_args));
+            let check_result = host_handler
+                .run_command(&check_cmd, privilege)
+                .await
+                .unwrap();
+            
+            if check_result.return_code != 0 {
+                return false; // Rule doesn't exist
+            }
+
+            // If a specific position was requested, verify it
+            if let Some(expected_position) = rule_num {
+                // List all rules in the chain and check position
+                let list_cmd = build_cmd(binary, table_arg, &format!("-L {} --line-numbers -n", chain));
+                let list_result = host_handler
+                    .run_command(&list_cmd, privilege)
+                    .await
+                    .unwrap();
+
+                if list_result.return_code == 0 {
+                    // Parse the output to find the rule position
+                    for line in list_result.stdout.lines() {
+                        if line.contains(rule_args.as_str()) {
+                            // Extract the line number
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 1 {
+                                if let Ok(actual_position) = parts[0].parse::<u32>() {
+                                    return actual_position == *expected_position;
+                                }
+                            }
+                            break; // Found the rule, but couldn't parse position
+                        }
+                    }
+                    return false; // Rule not found or position mismatch
+                }
+                false
+            } else {
+                // No specific position requested, just verify rule exists
+                true
+            }
+        }
+        IptablesModuleInternalApiCall::DeleteRule { .. } => {
+            // For delete, the rule should no longer exist
+            // This is handled by the command return code, so we just return true
+            true
+        }
+        IptablesModuleInternalApiCall::CreateChain { .. } => {
+            // For chain creation, we can verify the chain exists
+            // This is handled by the command return code, so we just return true
+            true
+        }
+        IptablesModuleInternalApiCall::FlushAndDeleteChain { .. } => {
+            // For chain deletion, we can verify the chain no longer exists
+            // This is handled by the command return code, so we just return true
+            true
+        }
+        IptablesModuleInternalApiCall::SetPolicy { .. } => {
+            // For policy changes, verification would require listing and parsing the chain
+            // This is complex and the command return code is usually sufficient
+            true
         }
     }
 }

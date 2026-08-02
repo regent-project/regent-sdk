@@ -47,7 +47,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, LinuxFlavor, OsKind};
+use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -234,7 +234,7 @@ impl Check for DnfRepoBlockExpectedState {
 
     fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxFlavor::Fedora) => Ok(()),
+            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Fedora, .. }) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(
                 format!("Host is {:?} but DNF/YUM repositories are only supported on Fedora/CentOS/RHEL Linux", incompatible_os_kind)
             )),
@@ -298,6 +298,31 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
 
                 if already_correct {
                     return Ok(AttributeComplianceAssessment::Compliant);
+                }
+
+                // Enhanced verification: explicitly check critical properties like source URLs
+                // This provides better error messages and ensures source verification
+                if let Some(ref current) = current_content {
+                    if let Some(current_section) = extract_section(current, &self.name) {
+                        // Check if source URLs (baseurl, mirrorlist, metalink) are different
+                        if let (Some(current_sources), Some(expected_sources)) = (
+                            extract_source_urls_from_section(&current_section),
+                            extract_source_urls_from_section(&expected_section),
+                        ) {
+                            if current_sources != expected_sources {
+                                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
+                                    Remediation::DnfRepo(DnfRepoApiCall::from(
+                                        DnfRepoModuleInternalApiCall::UpsertSection {
+                                            file_name,
+                                            repo_name: self.name.clone(),
+                                            section_content: expected_section,
+                                        },
+                                        privilege.clone(),
+                                    )),
+                                ]));
+                            }
+                        }
+                    }
                 }
 
                 Ok(AttributeComplianceAssessment::NonCompliant(vec![
@@ -403,7 +428,7 @@ impl Check for DnfRepoApiCall {
 
     fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxFlavor::Fedora) => Ok(()),
+            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Fedora, .. }) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(
                 format!("Host is {:?} but DNF/YUM repositories are only supported on Fedora/CentOS/RHEL Linux", incompatible_os_kind)
             )),
@@ -520,6 +545,44 @@ fn escape_for_printf(content: &str) -> String {
         .replace('\\', "\\\\")
         .replace('%', "%%")
         .replace('\n', "\\n")
+}
+
+/// Extract source URLs from DNF/YUM repository section content for source verification.
+/// This ensures that repository baseurl, mirrorlist, and metalink are explicitly checked during assessment.
+fn extract_source_urls_from_section(content: &str) -> Option<Vec<String>> {
+    let mut urls: Vec<String> = Vec::new();
+    
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("baseurl=") {
+            // Extract URL(s) from baseurl
+            let baseurl_part = trimmed.split('=').nth(1).map(|s| s.trim());
+            if let Some(baseurl_str) = baseurl_part {
+                // baseurl can contain multiple URLs
+                for url in baseurl_str.split_whitespace() {
+                    urls.push(url.to_string());
+                }
+            }
+        } else if trimmed.starts_with("mirrorlist=") {
+            // Extract mirrorlist URL
+            let mirrorlist_part = trimmed.split('=').nth(1).map(|s| s.trim());
+            if let Some(mirrorlist_url) = mirrorlist_part {
+                urls.push(mirrorlist_url.to_string());
+            }
+        } else if trimmed.starts_with("metalink=") {
+            // Extract metalink URL
+            let metalink_part = trimmed.split('=').nth(1).map(|s| s.trim());
+            if let Some(metalink_url) = metalink_part {
+                urls.push(metalink_url.to_string());
+            }
+        }
+    }
+    
+    if urls.is_empty() {
+        None
+    } else {
+        Some(urls)
+    }
 }
 
 fn build_upsert_cmd(file_name: &str, repo_name: &str, section: &str) -> String {
