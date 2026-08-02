@@ -144,41 +144,67 @@ impl Inventory {
         let span = span!(Level::INFO, "inventory_init", inventory = self.name);
         let _enter = span.enter();
 
-        let mut managed_hosts: HashMap<String, ManagedHost> = HashMap::new();
+        let mut set = JoinSet::new();
 
         for (host_id, managed_host_builder) in self.hosts.clone() {
-            // Try to build a ManagedHost out of a ManagedHostBuilder (implies fetching secrets when needed)
-            match managed_host_builder
-                .build(optional_secret_provider.clone())
-                .await
-            {
-                Ok(mut managed_host) => {
-                    let host_span = span!(Level::DEBUG, "host_connection", host_id);
-                    let _host_enter = host_span.enter();
+            let optional_secret_provider_clone = optional_secret_provider.clone();
+            set.spawn(async move {
+                // Try to build a ManagedHost out of a ManagedHostBuilder (implies fetching secrets when needed)
+                match managed_host_builder
+                    .build(optional_secret_provider_clone)
+                    .await
+                {
+                    Ok(mut managed_host) => {
+                        let host_span = span!(Level::DEBUG, "host_connection", host_id);
+                        let _host_enter = host_span.enter();
 
-                    match managed_host.connect().await {
-                        Ok(()) => {
-                            debug!(host_id, "Successfully connected to host");
-                            managed_hosts.insert(host_id, managed_host);
-                        }
-                        Err(connection_error) => {
-                            error!(
-                                host_id,
-                                "Failed to connect to host : {:?}", connection_error
-                            );
-                            return Err(connection_error);
+                        match managed_host.connect().await {
+                            Ok(()) => {
+                                debug!(host_id, "Successfully connected to host");
+                                Ok(managed_host)
+                            }
+                            Err(connection_error) => {
+                                error!(
+                                    host_id,
+                                    "Failed to connect to host : {:?}", connection_error
+                                );
+                                Err((managed_host.id().to_string(), connection_error))
+                            }
                         }
                     }
+                    Err(detail) => {
+                        error!(host_id, "Failed to build host: {:?}", detail);
+                        Err((host_id, detail))
+                    }
                 }
-                Err(detail) => {
-                    error!(host_id, "Failed to build host: {:?}", detail);
-                    return Err(detail);
+            });
+        }
+
+        let mut managed_hosts: HashMap<String, ManagedHost> = HashMap::new();
+        let results = set.join_all().await;
+        let mut failures = Vec::new();
+
+        for result in results {
+            match result {
+                Ok(managed_host) => {
+                    managed_hosts.insert(managed_host.id().to_string(), managed_host);
+                }
+                Err((host_id, error_details)) => {
+                    failures.push(format!("{}: {}", host_id, error_details));
+                    // TODO : add an "allowed-failure" mode here : some hosts init failed but we can go on with the ones who worked
                 }
             }
         }
 
-        info!(target: "inventory","Successfully connected to {} host(s)", managed_hosts.len());
-        Ok(LivingInventory::from(self.name.clone(), managed_hosts))
+        if failures.is_empty() {
+            info!(target: "inventory","Successfully connected to {} host(s)", managed_hosts.len());
+            Ok(LivingInventory::from(self.name.clone(), managed_hosts))
+        } else {
+            Err(RegentError::ProblemWithHostConnection(format!(
+                "Following hosts encountered problems while trying to init: {}",
+                failures.join(", ")
+            )))
+        }
     }
 }
 
@@ -192,6 +218,7 @@ impl LivingInventory {
         Self { name, hosts }
     }
 
+    // TODO : is it worth it to make this parallel through tokio tasks ?
     pub fn add_var(&mut self, key: String, value: String) {
         let span = span!(Level::DEBUG, "living_inventory_add_var");
         let _enter = span.enter();
@@ -256,33 +283,50 @@ impl LivingInventory {
         info!("Disconnecting from {} hosts", self.hosts.len());
 
         // Take ownership of hosts to avoid borrowing issues
-        let mut hosts = std::mem::take(&mut self.hosts);
+        let hosts = std::mem::take(&mut self.hosts);
 
         let mut set = JoinSet::new();
 
-        for (host_id, mut managed_host) in hosts.drain() {
+        for (host_id, mut managed_host) in hosts {
+            // for (host_id, mut managed_host) in hosts.drain() {
             set.spawn(async move {
                 let host_span = span!(Level::DEBUG, "disconnect_host", host_id);
                 let _host_enter = host_span.enter();
 
                 debug!("Disconnecting from host {}", host_id);
-                managed_host.disconnect().await
+                match managed_host.disconnect().await {
+                    Ok(()) => Ok(managed_host),
+                    Err(error_details) => Err((managed_host, error_details)),
+                }
             });
         }
 
         let results = set.join_all().await;
+
+        let mut failures = Vec::new();
+
         for result in results {
-            if let Err(details) = result {
-                error!("Failed to disconnect host: {:?}", details);
-                return Err(details);
+            match result {
+                Ok(managed_host) => {
+                    self.hosts
+                        .insert(managed_host.id().to_string(), managed_host);
+                }
+                Err((managed_host, error_details)) => {
+                    failures.push(format!("{}: {}", managed_host.id(), error_details));
+                    self.hosts
+                        .insert(managed_host.id().to_string(), managed_host);
+                }
             }
         }
 
-        // Collect the disconnected hosts back into the inventory
-        self.hosts = hosts;
-
-        info!("Successfully disconnected from all hosts");
-        Ok(())
+        if failures.is_empty() {
+            Ok(())
+        } else {
+            Err(RegentError::ProblemWithHostConnection(format!(
+                "Following hosts encountered problems while trying to disconnect: {}",
+                failures.join(", ")
+            )))
+        }
     }
 
     pub async fn assess_compliance(
@@ -294,33 +338,58 @@ impl LivingInventory {
 
         info!("Assessing compliance for {} hosts", self.hosts.len());
 
-        let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
+        // Take ownership of hosts to avoid borrowing issues
+        let hosts = std::mem::take(&mut self.hosts);
 
-        // TODO : make this run concurrently by spawning tasks
-        for (host_id, managed_host) in &mut self.hosts {
-            let host_span = span!(Level::DEBUG, "host", host_id);
-            let _host_enter = host_span.enter();
+        let mut set = JoinSet::new();
 
-            debug!(name = host_id, "Assessing compliance");
-            match managed_host.assess_compliance(expected_state).await {
-                Ok(managed_host_status) => {
-                    debug!("Compliance assessment complete");
-                    results.push((host_id.to_string(), managed_host_status));
+        for (host_id, mut managed_host) in hosts {
+            let expected_state_clone = expected_state.clone();
+            set.spawn(async move {
+                let host_span = span!(Level::DEBUG, "host", host_id);
+                let _host_enter = host_span.enter();
+
+                debug!(name = host_id, "Assessing compliance");
+                match managed_host.assess_compliance(&expected_state_clone).await {
+                    Ok(managed_host_status) => {
+                        debug!("Compliance assessment complete");
+                        Ok((host_id.to_string(), managed_host_status))
+                    }
+                    Err(details) => {
+                        error!("Failed to assess compliance : {:?}", details);
+                        Err((host_id, details))
+                    }
                 }
-                Err(details) => {
-                    error!("Failed to assess compliance : {:?}", details);
-                    return Err(details);
+            });
+        }
+
+        let results = set.join_all().await;
+        let mut results_map = HashMap::new();
+        let mut failures = Vec::new();
+
+        for result in results {
+            match result {
+                Ok((host_id, managed_host_status)) => {
+                    results_map.insert(host_id, managed_host_status);
+                }
+                Err((host_id, error_details)) => {
+                    failures.push(format!("{}: {}", host_id, error_details));
                 }
             }
         }
 
-        let results_map: HashMap<String, ManagedHostStatus> = results.into_iter().collect();
-
-        info!(
-            "Completed compliance assessment for {} hosts",
-            results_map.len()
-        );
-        Ok(results_map)
+        if failures.is_empty() {
+            info!(
+                "Completed compliance assessment for {} hosts",
+                results_map.len()
+            );
+            Ok(results_map)
+        } else {
+            Err(RegentError::ProblemWithHostConnection(format!(
+                "Following hosts encountered problems while trying to assess compliance: {}",
+                failures.join(", ")
+            )))
+        }
     }
 
     pub async fn reach_compliance(
@@ -330,47 +399,76 @@ impl LivingInventory {
         let job_span = span!(Level::INFO, "job", inventory = self.name, goal = "enforce");
         let _enter = job_span.enter();
 
-        debug!("Starting");
+        info!("Enforcing compliance for {} hosts", self.hosts.len());
 
-        let mut results: Vec<(String, ManagedHostStatus)> = Vec::new();
+        // Take ownership of hosts to avoid borrowing issues
+        let hosts = std::mem::take(&mut self.hosts);
 
-        // TODO : make this run concurrently by spawning tasks
-        for (host_id, managed_host) in &mut self.hosts {
-            let host_span = span!(parent: &job_span, Level::INFO, "host", id = host_id);
-            let _host_enter = host_span.enter();
+        let mut set = JoinSet::new();
 
-            info!(target: "run",
-                "Starting to enforce compliance (described by {} attribute(s))",
-                expected_state.attributes.len()
-            );
-            match managed_host.reach_compliance(expected_state).await {
-                Ok(managed_host_status) => {
-                    match managed_host_status.state {
-                        HostStatus::AlreadyCompliant => {
-                            info!(target: "run","Already compliant");
+        for (host_id, mut managed_host) in hosts {
+            let expected_state_clone = expected_state.clone();
+            set.spawn(async move {
+                let host_span = span!(parent: None, Level::INFO, "host", id = host_id);
+                let _host_enter = host_span.enter();
+
+                info!(target: "run",
+                    "Starting to enforce compliance (described by {} attribute(s))",
+                    expected_state_clone.attributes.len()
+                );
+                match managed_host.reach_compliance(&expected_state_clone).await {
+                    Ok(managed_host_status) => {
+                        match managed_host_status.state {
+                            HostStatus::AlreadyCompliant => {
+                                info!(target: "run","Already compliant");
+                            }
+                            HostStatus::NotCompliant => {
+                                warn!("Not compliant");
+                            }
+                            HostStatus::ReachComplianceSuccess => {
+                                info!(target: "run","Compliance reached")
+                            }
+                            HostStatus::ReachComplianceFailed => {
+                                warn!("Failed to reach compliance");
+                            }
                         }
-                        HostStatus::NotCompliant => {
-                            warn!("Not compliant");
-                        }
-                        HostStatus::ReachComplianceSuccess => {
-                            info!(target: "run","Compliance reached")
-                        }
-                        HostStatus::ReachComplianceFailed => {
-                            warn!("Failed to reach compliance")
-                        }
+                        Ok((managed_host, managed_host_status))
                     }
-                    results.push((host_id.to_string(), managed_host_status));
+                    Err(details) => {
+                        warn!("Failed to reach compliance");
+                        Err((managed_host, details))
+                    }
                 }
-                Err(details) => {
-                    warn!("Failed to reach compliance");
-                    return Err(details);
+            });
+        }
+
+        let results = set.join_all().await;
+        let mut results_map = HashMap::new();
+        let mut failures = Vec::new();
+
+        for result in results {
+            match result {
+                Ok((managed_host, managed_host_status)) => {
+                    let host_id = managed_host.id().to_string();
+                    self.hosts.insert(host_id.clone(), managed_host);
+                    results_map.insert(host_id, managed_host_status);
+                }
+                Err((managed_host, error_details)) => {
+                    let host_id = managed_host.id().to_string();
+                    failures.push(format!("{}: {}", host_id, error_details));
+                    self.hosts.insert(host_id, managed_host);
                 }
             }
         }
 
-        let results_map: HashMap<String, ManagedHostStatus> = results.into_iter().collect();
-
-        info!(target: "run","All hosts handled");
-        Ok(results_map)
+        if failures.is_empty() {
+            info!(target: "run","All hosts handled");
+            Ok(results_map)
+        } else {
+            Err(RegentError::ProblemWithHostConnection(format!(
+                "Following hosts encountered problems while trying to reach compliance: {}",
+                failures.join(", ")
+            )))
+        }
     }
 }
