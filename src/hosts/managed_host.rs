@@ -584,6 +584,24 @@ impl ManagedHost {
         self.host_properties = host_properties;
     }
 
+    /// Enable secret caching for this managed host.
+    ///
+    /// This ensures that secrets retrieved during assessment and enforcement
+    /// phases are the same, even if the underlying secrets are rotated.
+    /// This is crucial for idempotency in compliance operations.
+    pub fn enable_secret_caching(&mut self) {
+        if let Some(secret_providers) = &mut self.secret_providers {
+            secret_providers.enable_caching();
+        }
+    }
+
+    /// Disable secret caching for this managed host.
+    pub fn disable_secret_caching(&mut self) {
+        if let Some(secret_providers) = &mut self.secret_providers {
+            secret_providers.disable_caching();
+        }
+    }
+
     /// Collect host properties dynamically from the host.
     ///
     /// This method connects to the host and collects information about its
@@ -746,6 +764,9 @@ impl ManagedHost {
             return Err(RegentError::NotConnectedToHost);
         }
 
+        // Enable secret caching to ensure idempotency
+        self.enable_secret_caching();
+
         let mut already_compliant = true;
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
@@ -836,6 +857,9 @@ impl ManagedHost {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
+
+        // Enable secret caching to ensure idempotency
+        self.enable_secret_caching();
 
         let mut final_host_status = HostStatus::AlreadyCompliant;
         let mut reaching_compliance_failed = false;

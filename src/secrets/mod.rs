@@ -35,6 +35,8 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
 
@@ -45,6 +47,63 @@ use crate::secrets::local::files::FilesSecretProvider;
 use crate::secrets::remote::aws_secrets_manager::AwsSecretsManagerProvider;
 #[cfg(feature = "gcp-secretmanager")]
 use crate::secrets::remote::gcp_secret_manager::GcpSecretProvider;
+
+/// A cache for storing resolved secrets to ensure idempotency.
+///
+/// This cache stores secrets that have been retrieved from providers, ensuring
+/// that the same secret value is used throughout a compliance operation,
+/// even if the underlying secret is rotated during the operation.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct SecretCache {
+    /// Map from secret reference to cached secret value
+    cache: Arc<Mutex<HashMap<String, String>>>,
+}
+
+impl SecretCache {
+    /// Create a new, empty secret cache.
+    pub fn new() -> Self {
+        Self {
+            cache: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    /// Insert a secret into the cache.
+    ///
+    /// # Arguments
+    /// * `secret_ref` - The secret reference string (including provider if specified)
+    /// * `value` - The resolved secret value
+    pub async fn insert(&self, secret_ref: String, value: String) {
+        let mut cache = self.cache.lock().await;
+        cache.insert(secret_ref, value);
+    }
+
+    /// Get a secret from the cache.
+    ///
+    /// # Arguments
+    /// * `secret_ref` - The secret reference string (including provider if specified)
+    ///
+    /// # Returns
+    /// * `Some(String)` if the secret is in the cache
+    /// * `None` if the secret is not cached
+    pub async fn get(&self, secret_ref: &str) -> Option<String> {
+        let cache = self.cache.lock().await;
+        cache.get(secret_ref).cloned()
+    }
+
+    /// Check if a secret is in the cache.
+    ///
+    /// # Arguments
+    /// * `secret_ref` - The secret reference string (including provider if specified)
+    ///
+    /// # Returns
+    /// * `true` if the secret is cached
+    /// * `false` otherwise
+    pub async fn contains(&self, secret_ref: &str) -> bool {
+        let cache = self.cache.lock().await;
+        cache.contains_key(secret_ref)
+    }
+}
 
 /// Enum representing different types of secret providers.
 ///
@@ -622,6 +681,7 @@ impl SecretProvidersPoolBuilder {
                 Some(_secrets_provider) => Ok(SecretProvidersPool {
                     providers: self.providers,
                     default_provider: default_provider_name,
+                    secret_cache: None,
                 }),
                 None => {
                     error!(
@@ -668,6 +728,10 @@ pub struct SecretProvidersPool {
     providers: HashMap<String, SecretProvider>,
     /// Name of the default provider to use when none is specified.
     default_provider: String,
+    /// Optional cache for storing resolved secrets to ensure idempotency.
+    /// When `Some`, secrets are cached after first retrieval and subsequent
+    /// requests for the same secret will return the cached value.
+    secret_cache: Option<SecretCache>,
 }
 
 impl SecretProvidersPool {
@@ -698,7 +762,62 @@ impl SecretProvidersPool {
         Self {
             providers,
             default_provider: name.to_string(),
+            secret_cache: None,
         }
+    }
+
+    /// Enable secret caching for this pool.
+    ///
+    /// When caching is enabled, secrets are stored after first retrieval and
+    /// subsequent requests for the same secret will return the cached value.
+    /// This ensures idempotency by preventing secret rotation from affecting
+    /// compliance operations that are in progress.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
+    ///
+    /// let mut pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// pool.enable_caching();
+    /// ```
+    pub fn enable_caching(&mut self) {
+        self.secret_cache = Some(SecretCache::new());
+    }
+
+    /// Disable secret caching for this pool.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
+    ///
+    /// let mut pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// pool.disable_caching();
+    /// ```
+    pub fn disable_caching(&mut self) {
+        self.secret_cache = None;
+    }
+
+    /// Check if caching is enabled for this pool.
+    ///
+    /// # Returns
+    /// * `true` if caching is enabled
+    /// * `false` otherwise
+    pub fn is_caching_enabled(&self) -> bool {
+        self.secret_cache.is_some()
+    }
+
+    /// Create a cache key from a secret reference.
+    ///
+    /// This creates a unique key that combines the provider name and secret reference
+    /// to ensure proper caching across different providers.
+    pub fn create_cache_key(&self, secret_reference: &SecretReference) -> String {
+        let provider = match secret_reference.provider() {
+            Some(user_defined_provider) => user_defined_provider.clone(),
+            None => self.default_provider.clone(),
+        };
+        format!("{}:{}", provider, secret_reference.sec_ref())
     }
 
     /// Retrieve a secret as a specific type.
@@ -783,12 +902,23 @@ impl SecretProvidersPool {
         &self,
         secret_reference: &SecretReference,
     ) -> Result<Secret<String>, RegentError> {
+        let cache_key = self.create_cache_key(secret_reference);
+
+        // Check if the secret is in cache
+        if let Some(cache) = &self.secret_cache {
+            if let Some(cached_value) = cache.get(&cache_key).await {
+                debug!("Secret cache hit for: {}", cache_key);
+                return Ok(Secret::from(secret_reference.sec_ref(), cached_value));
+            }
+        }
+
+        // Secret not in cache, fetch from provider
         let provider = match secret_reference.provider() {
             Some(user_defined_provider) => user_defined_provider,
             None => &self.default_provider,
         };
 
-        match self.providers.get(provider) {
+        let secret_result = match self.providers.get(provider) {
             Some(secret_provider) => {
                 secret_provider
                     .get_secret_raw(secret_reference.sec_ref())
@@ -804,6 +934,17 @@ impl SecretProvidersPool {
                     self.default_provider
                 )));
             }
+        };
+
+        // Store in cache if caching is enabled
+        if let Some(cache) = &self.secret_cache {
+            if let Ok(secret) = &secret_result {
+                let secret_value = secret.clone().inner();
+                cache.insert(cache_key.clone(), secret_value).await;
+                debug!("Secret cached for: {}", cache_key);
+            }
         }
+
+        secret_result
     }
 }
