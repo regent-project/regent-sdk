@@ -147,13 +147,13 @@ pub enum IptablesSyn {
 }
 
 /// TCP flags for matching packets with specific TCP flag combinations
-/// 
+///
 /// Used with the `--tcp-flags` iptables option to match packets based on TCP flags.
 /// `flags` specifies which flags to examine, and `flags_set` specifies which of those
 /// must be set for the packet to match.
-/// 
+///
 /// # Example
-/// 
+///
 /// To match SYN packets (SYN set, ACK not set):
 /// ```yaml
 /// TcpFlags:
@@ -172,20 +172,20 @@ pub struct TcpFlags {
 // ── Block expected state ──────────────────────────────────────────────────────
 
 /// Configuration for an iptables/ip6tables rule or chain
-/// 
+///
 /// Use the builder pattern to create firewall rules with various matching criteria
 /// and actions. Each rule must specify at least one of: `jump`, `goto`, `policy`, or `chain_management`.
-/// 
+///
 /// # Examples
-/// 
+///
 /// ## Rust API
-/// 
+///
 /// ```no_run
 /// use regent_sdk::state::attribute::network::iptables::{
 ///     IptablesBlockExpectedState, IptablesExpectedState, IptablesPolicy, IptablesTable
 /// };
 /// use regent_sdk::{Attribute, ExpectedState, Privilege};
-/// 
+///
 /// // Allow SSH on port 22
 /// let ssh_rule = IptablesBlockExpectedState::builder("INPUT")
 ///     .with_protocol("tcp")
@@ -193,13 +193,13 @@ pub struct TcpFlags {
 ///     .with_jump("ACCEPT")
 ///     .build()
 ///     .unwrap();
-/// 
+///
 /// // Set default DROP policy on INPUT chain
 /// let policy_rule = IptablesBlockExpectedState::builder("INPUT")
 ///     .with_policy(IptablesPolicy::Drop)
 ///     .build()
 ///     .unwrap();
-/// 
+///
 /// // NAT masquerade for outbound traffic
 /// let nat_rule = IptablesBlockExpectedState::builder("POSTROUTING")
 ///     .with_table(IptablesTable::Nat)
@@ -208,9 +208,9 @@ pub struct TcpFlags {
 ///     .build()
 ///     .unwrap();
 /// ```
-/// 
+///
 /// ## YAML API
-/// 
+///
 /// ```yaml
 /// Attributes:
 ///   # Allow SSH
@@ -220,13 +220,13 @@ pub struct TcpFlags {
 ///       DestinationPort: "22"
 ///       Jump: ACCEPT
 ///       Privilege: !WithSudo
-/// 
+///
 ///   # Set default policy
 ///   - Detail: !Iptables
 ///       Chain: INPUT
 ///       Policy: !Drop
 ///       Privilege: !WithSudo
-/// 
+///
 ///   # NAT masquerade
 ///   - Detail: !Iptables
 ///       Chain: POSTROUTING
@@ -545,12 +545,16 @@ impl Check for IptablesBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but iptables is only supported on Linux", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but iptables is only supported on Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -895,12 +899,16 @@ impl Check for IptablesApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but iptables is only supported on Linux", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but iptables is only supported on Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -973,12 +981,8 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for IptablesApiCall {
 
         if result.return_code == 0 {
             // Post-operation verification: verify the rule is in the correct position
-            let verification_result = verify_rule_position(
-                host_handler,
-                &self.api_call,
-                &self.privilege,
-            )
-            .await;
+            let verification_result =
+                verify_rule_position(host_handler, &self.api_call, &self.privilege).await;
 
             if verification_result {
                 Ok(InternalApiCallOutcome::Success(None))
@@ -1031,7 +1035,7 @@ async fn verify_rule_position<Handler: HostHandler>(
                 .run_command(&check_cmd, privilege)
                 .await
                 .unwrap();
-            
+
             if check_result.return_code != 0 {
                 return false; // Rule doesn't exist
             }
@@ -1039,7 +1043,11 @@ async fn verify_rule_position<Handler: HostHandler>(
             // If a specific position was requested, verify it
             if let Some(expected_position) = rule_num {
                 // List all rules in the chain and check position
-                let list_cmd = build_cmd(binary, table_arg, &format!("-L {} --line-numbers -n", chain));
+                let list_cmd = build_cmd(
+                    binary,
+                    table_arg,
+                    &format!("-L {} --line-numbers -n", chain),
+                );
                 let list_result = host_handler
                     .run_command(&list_cmd, privilege)
                     .await

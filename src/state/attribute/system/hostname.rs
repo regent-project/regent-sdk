@@ -106,12 +106,16 @@ impl Check for HostnameBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but hostname management is only supported on Unix-like systems", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but hostname management is only supported on Unix-like systems",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -213,12 +217,16 @@ impl Check for HostnameApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but hostname management is only supported on Unix-like systems", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but hostname management is only supported on Unix-like systems",
+                incompatible_os_kind
+            ))),
         }
     }
 }

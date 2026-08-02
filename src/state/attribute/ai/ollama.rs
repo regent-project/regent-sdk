@@ -237,12 +237,16 @@ impl Check for OllamaBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) | OsKind::MacOs(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but Ollama is only supported on Linux and macOS", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but Ollama is only supported on Linux and macOS",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -659,12 +663,16 @@ impl Check for OllamaApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) | OsKind::MacOs(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but Ollama is only supported on Linux and macOS", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but Ollama is only supported on Linux and macOS",
+                incompatible_os_kind
+            ))),
         }
     }
 }

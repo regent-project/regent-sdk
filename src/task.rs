@@ -131,7 +131,7 @@ impl RegentTask {
     /// # Returns
     ///
     /// A new `RegentTask` with a randomly generated idempotency key for task-level idempotency.
-/// This allows external systems to detect and skip duplicate task deliveries.
+    /// This allows external systems to detect and skip duplicate task deliveries.
     ///
     /// # Example
     ///

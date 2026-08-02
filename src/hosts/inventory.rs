@@ -259,17 +259,17 @@ impl LivingInventory {
         let mut hosts = std::mem::take(&mut self.hosts);
 
         let mut set = JoinSet::new();
-        
+
         for (host_id, mut managed_host) in hosts.drain() {
             set.spawn(async move {
                 let host_span = span!(Level::DEBUG, "disconnect_host", host_id);
                 let _host_enter = host_span.enter();
-                
+
                 debug!("Disconnecting from host {}", host_id);
                 managed_host.disconnect().await
             });
         }
-        
+
         let results = set.join_all().await;
         for result in results {
             if let Err(details) = result {

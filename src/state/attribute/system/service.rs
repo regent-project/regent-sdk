@@ -120,20 +120,22 @@ impl Check for ServiceBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         use crate::hosts::properties::InitSystem;
         match host_properties.os_kind() {
-            OsKind::Linux(linux_specifics) => {
-                match linux_specifics.init_system {
-                    InitSystem::Systemd => Ok(()),
-                    InitSystem::Unknown => Err(RegentError::IncompatibleHost(
-                        "systemctl requires systemd but init system could not be detected".to_string()
-                    )),
-                }
-            }
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but systemctl is only supported on Linux with systemd", incompatible_os_kind)
-            )),
+            OsKind::Linux(linux_specifics) => match linux_specifics.init_system {
+                InitSystem::Systemd => Ok(()),
+                InitSystem::Unknown => Err(RegentError::IncompatibleHost(
+                    "systemctl requires systemd but init system could not be detected".to_string(),
+                )),
+            },
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but systemctl is only supported on Linux with systemd",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -294,20 +296,22 @@ impl Check for ServiceApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         use crate::hosts::properties::InitSystem;
         match host_properties.os_kind() {
-            OsKind::Linux(linux_specifics) => {
-                match linux_specifics.init_system {
-                    InitSystem::Systemd => Ok(()),
-                    InitSystem::Unknown => Err(RegentError::IncompatibleHost(
-                        "systemctl requires systemd but init system could not be detected".to_string()
-                    )),
-                }
-            }
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but systemctl is only supported on Linux with systemd", incompatible_os_kind)
-            )),
+            OsKind::Linux(linux_specifics) => match linux_specifics.init_system {
+                InitSystem::Systemd => Ok(()),
+                InitSystem::Unknown => Err(RegentError::IncompatibleHost(
+                    "systemctl requires systemd but init system could not be detected".to_string(),
+                )),
+            },
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but systemctl is only supported on Linux with systemd",
+                incompatible_os_kind
+            ))),
         }
     }
 }

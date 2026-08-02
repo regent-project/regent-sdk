@@ -66,7 +66,10 @@ impl Check for DebugBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Debug messages are cross-platform compatible
         Ok(())
     }
@@ -110,7 +113,10 @@ impl Check for DebugApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Debug messages are cross-platform compatible
         Ok(())
     }

@@ -148,12 +148,19 @@ impl Check for PacmanBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Arch, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but Pacman is only supported on Arch Linux", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Arch,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but Pacman is only supported on Arch Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -254,12 +261,19 @@ impl Check for PacmanApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Arch, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but Pacman is only supported on Arch Linux", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Arch,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but Pacman is only supported on Arch Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -303,7 +317,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
                 &self.privilege,
                 Some(package_name.clone()),
             ),
-            PacmanModuleInternalApiCall::Upgrade => ("pacman -Syu".to_string(), &self.privilege, None),
+            PacmanModuleInternalApiCall::Upgrade => {
+                ("pacman -Syu".to_string(), &self.privilege, None)
+            }
         };
 
         let cmd_result = host_handler
@@ -332,9 +348,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
                 if verification_result {
                     Ok(InternalApiCallOutcome::Success(None))
                 } else {
-                    Ok(InternalApiCallOutcome::Failure(
-                        format!("Command succeeded but post-verification failed: package {} state does not match expected", pkg_name),
-                    ))
+                    Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command succeeded but post-verification failed: package {} state does not match expected",
+                        pkg_name
+                    )))
                 }
             } else {
                 // For upgrade operations without specific package verification

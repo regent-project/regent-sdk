@@ -248,12 +248,19 @@ impl Check for AptRepoBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Debian, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but APT repositories are only supported on Debian-based Linux distributions", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but APT repositories are only supported on Debian-based Linux distributions",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -318,7 +325,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                     if let Some(ref current) = current_content {
                         let current_trimmed = current.trim();
                         let expected_trimmed = expected_content.trim();
-                        
+
                         // Check if URIs (source URLs) are different
                         if let (Some(current_uris), Some(expected_uris)) = (
                             extract_uris_from_deb822(current_trimmed),
@@ -393,12 +400,19 @@ impl Check for AptRepoApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Debian, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but APT repositories are only supported on Debian-based Linux distributions", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but APT repositories are only supported on Debian-based Linux distributions",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -518,10 +532,8 @@ fn extract_uris_from_deb822(content: &str) -> Option<Vec<String>> {
         if trimmed.starts_with("URIs:") || trimmed.starts_with("URI:") {
             let uris_part = trimmed.split(':').nth(1).map(|s| s.trim());
             if let Some(uris_str) = uris_part {
-                let uris: Vec<String> = uris_str
-                    .split_whitespace()
-                    .map(|s| s.to_string())
-                    .collect();
+                let uris: Vec<String> =
+                    uris_str.split_whitespace().map(|s| s.to_string()).collect();
                 return Some(uris);
             }
         }

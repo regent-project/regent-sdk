@@ -76,7 +76,7 @@ pub enum PackageExpectedState {
 }
 
 /// Configuration for APT package management
-/// 
+///
 /// Use the builder to specify package state (Present/Absent) and optionally trigger
 /// a system upgrade.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -151,12 +151,19 @@ impl Check for AptBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Debian, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but APT is only supported on Debian-based Linux distributions", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but APT is only supported on Debian-based Linux distributions",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -282,12 +289,19 @@ impl Check for AptApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Debian, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but APT is only supported on Debian-based Linux distributions", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but APT is only supported on Debian-based Linux distributions",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -371,9 +385,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
                 if verification_result {
                     Ok(InternalApiCallOutcome::Success(None))
                 } else {
-                    Ok(InternalApiCallOutcome::Failure(
-                        format!("Command succeeded but post-verification failed: package {} state does not match expected", pkg_name),
-                    ))
+                    Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command succeeded but post-verification failed: package {} state does not match expected",
+                        pkg_name
+                    )))
                 }
             } else {
                 // For upgrade operations without specific package verification

@@ -57,7 +57,10 @@ impl Check for PingBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Ping is cross-platform compatible
         Ok(())
     }
@@ -110,7 +113,10 @@ impl Check for PingApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Ping is cross-platform compatible
         Ok(())
     }

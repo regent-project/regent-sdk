@@ -187,7 +187,10 @@ impl Check for LineInFileBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Line in file operations are cross-platform compatible
         Ok(())
     }
@@ -667,7 +670,10 @@ impl Check for LineInFileApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Line in file operations are cross-platform compatible
         Ok(())
     }
@@ -824,7 +830,10 @@ async fn verify_file_state<Handler: HostHandler>(
         LineInFileModuleInternalApiCall::InsertBottom => {
             // Verify the line exists at the end of the file
             if let Some(content) = read_file_content(host_handler, file_path).await {
-                content.lines().last().map_or(false, |last_line| last_line.trim() == line.trim())
+                content
+                    .lines()
+                    .last()
+                    .map_or(false, |last_line| last_line.trim() == line.trim())
             } else {
                 false
             }
@@ -832,7 +841,10 @@ async fn verify_file_state<Handler: HostHandler>(
         LineInFileModuleInternalApiCall::InsertTop => {
             // Verify the line exists at the beginning of the file
             if let Some(content) = read_file_content(host_handler, file_path).await {
-                content.lines().next().map_or(false, |first_line| first_line.trim() == line.trim())
+                content
+                    .lines()
+                    .next()
+                    .map_or(false, |first_line| first_line.trim() == line.trim())
             } else {
                 false
             }
@@ -879,7 +891,10 @@ async fn verify_file_state<Handler: HostHandler>(
                 false
             }
         }
-        LineInFileModuleInternalApiCall::ReplaceWithBackrefs { line_number, regexp } => {
+        LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
+            line_number,
+            regexp,
+        } => {
             // For backrefs, we need to check that the line matches the expected pattern
             // This is complex to verify exactly, so we'll check the line exists
             if let Some(content) = read_file_content(host_handler, file_path).await {

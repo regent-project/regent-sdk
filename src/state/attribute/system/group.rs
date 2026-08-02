@@ -140,12 +140,16 @@ impl Check for GroupBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but group management is only supported on Linux", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but group management is only supported on Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -238,15 +242,9 @@ pub enum GroupModuleInternalApiCall {
         local: bool,
     },
     /// Modify an existing group's GID
-    ModifyGid {
-        groupname: String,
-        gid: u32,
-    },
+    ModifyGid { groupname: String, gid: u32 },
     /// Remove a group
-    Delete {
-        groupname: String,
-        local: bool,
-    },
+    Delete { groupname: String, local: bool },
 }
 
 impl std::fmt::Display for GroupModuleInternalApiCall {
@@ -302,12 +300,16 @@ impl Check for GroupApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but group management is only supported on Linux", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but group management is only supported on Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }

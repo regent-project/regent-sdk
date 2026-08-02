@@ -90,7 +90,10 @@ impl Check for CommandBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Shell commands are cross-platform compatible
         Ok(())
     }
@@ -139,7 +142,10 @@ impl Check for CommandApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, _host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        _host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         // Shell commands are cross-platform compatible
         Ok(())
     }

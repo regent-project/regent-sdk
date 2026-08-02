@@ -1,11 +1,11 @@
 use bytes::Bytes;
 use russh::Disconnect;
+use russh::Preferred;
 use russh::client::AuthResult;
 use russh::client::{Config, Handle, Handler};
 use russh::keys::key::PrivateKeyWithHashAlg;
 use russh::keys::{load_secret_key, ssh_key};
 use russh::{Channel, ChannelMsg};
-use russh::Preferred;
 use serde::Deserialize;
 use serde::Serialize;
 use std::io::Cursor;
@@ -64,7 +64,6 @@ impl Clone for Ssh2HostHandler {
     }
 }
 
-
 impl std::fmt::Debug for Ssh2HostHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -113,10 +112,10 @@ impl HostHandler for Ssh2HostHandler {
 
         // Create russh configuration
         let config = Arc::new(Config {
-            keepalive_interval : Some(Duration::from_secs(5)),
-            keepalive_max : 3,
+            keepalive_interval: Some(Duration::from_secs(5)),
+            keepalive_max: 3,
             nodelay: true,
-            window_size: 2097152, // 2 MB
+            window_size: 2097152,       // 2 MB
             maximum_packet_size: 32768, // 32 KB
             channel_buffer_size: 128,
             inactivity_timeout: None,
@@ -127,17 +126,23 @@ impl HostHandler for Ssh2HostHandler {
         // Connect using russh
         let client_handler = Ssh2Client {};
         let connection_timeout = Duration::from_secs(10);
-        let mut handle = match timeout(connection_timeout, russh::client::connect(config, addrs, client_handler)).await {
-            Ok(connection_result) => {
-                match connection_result {
-                    Ok(h) => h,
-                    Err(e) => {
-                        return Err(RegentError::FailedTcpBinding(format!("{:?}", e)));
-                    }
+        let mut handle = match timeout(
+            connection_timeout,
+            russh::client::connect(config, addrs, client_handler),
+        )
+        .await
+        {
+            Ok(connection_result) => match connection_result {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(RegentError::FailedTcpBinding(format!("{:?}", e)));
                 }
-            }
+            },
             Err(_details) => {
-                return Err(RegentError::FailureToEstablishConnection(format!("Connection timeout elapsed ({} ms)", connection_timeout.as_millis())));
+                return Err(RegentError::FailureToEstablishConnection(format!(
+                    "Connection timeout elapsed ({} ms)",
+                    connection_timeout.as_millis()
+                )));
             }
         };
 
@@ -192,7 +197,8 @@ impl HostHandler for Ssh2HostHandler {
                             {
                                 Ok(auth_result) => match auth_result {
                                     AuthResult::Success => {
-                                        *self = Ssh2HostHandler::Connected(auth_method.clone(), handle);
+                                        *self =
+                                            Ssh2HostHandler::Connected(auth_method.clone(), handle);
                                         return Ok(());
                                     }
                                     AuthResult::Failure {
@@ -431,9 +437,7 @@ impl HostHandler for Ssh2HostHandler {
 
                         // 4. Validate the received header type (\x01 = Warning, \x02 = Fatal Error)
                         if header_line.starts_with('\x01') || header_line.starts_with('\x02') {
-                            return Err(RegentError::FailedToGetFile(
-                                header_line[1..].to_string(),
-                            ));
+                            return Err(RegentError::FailedToGetFile(header_line[1..].to_string()));
                         }
                         if !header_line.starts_with('C') {
                             return Err(RegentError::FailedToGetFile(format!(
@@ -670,9 +674,7 @@ impl std::fmt::Debug for Ssh2AuthMethod {
     }
 }
 
-async fn fetch_next_chunk(
-    channel: &mut Channel<russh::client::Msg>,
-) -> Result<Bytes, RegentError> {
+async fn fetch_next_chunk(channel: &mut Channel<russh::client::Msg>) -> Result<Bytes, RegentError> {
     while let Some(msg) = channel.wait().await {
         if let ChannelMsg::Data { data } = msg {
             if !data.is_empty() {

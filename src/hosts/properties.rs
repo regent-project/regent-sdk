@@ -10,7 +10,7 @@ use crate::{Privilege, RegentError};
 #[serde(deny_unknown_fields)]
 pub struct HostProperties {
     os_kind: OsKind,
-    hostname: Option<String>
+    hostname: Option<String>,
 }
 
 impl HostProperties {
@@ -24,7 +24,9 @@ impl HostProperties {
         let mut os_kind = OsKind::Unknown;
 
         // Linux & FreeBSD -> try to get file /etc/os-release
-        if let Ok(os_release_file_content) = host_handler.get_file(PathBuf::from("/etc/os-release")).await
+        if let Ok(os_release_file_content) = host_handler
+            .get_file(PathBuf::from("/etc/os-release"))
+            .await
         {
             let content = String::from_utf8_lossy(&os_release_file_content);
             for line in content.lines() {
@@ -61,7 +63,10 @@ impl HostProperties {
                         };
 
                         let init_system = Self::detect_init_system(host_handler).await;
-                        os_kind = OsKind::Linux(LinuxSpecifics { linux_flavor, init_system });
+                        os_kind = OsKind::Linux(LinuxSpecifics {
+                            linux_flavor,
+                            init_system,
+                        });
                     }
 
                     break;
@@ -110,10 +115,7 @@ impl HostProperties {
         match os_kind {
             OsKind::Unknown => None,
             OsKind::Windows(_) => {
-                let cmd_result = host_handler
-                    .run_windows_command("hostname")
-                    .await
-                    .ok()?;
+                let cmd_result = host_handler.run_windows_command("hostname").await.ok()?;
                 if cmd_result.return_code == 0 {
                     Some(cmd_result.stdout.trim().to_string())
                 } else {
@@ -121,11 +123,14 @@ impl HostProperties {
                 }
             }
             OsKind::Linux(_) | OsKind::FreeBsd(_) | OsKind::MacOs(_) => {
-                if let Ok(hostname_file_content) = host_handler
-                    .get_file(PathBuf::from("/etc/hostname"))
-                    .await
+                if let Ok(hostname_file_content) =
+                    host_handler.get_file(PathBuf::from("/etc/hostname")).await
                 {
-                    Some(String::from_utf8_lossy(&hostname_file_content).trim().to_string())
+                    Some(
+                        String::from_utf8_lossy(&hostname_file_content)
+                            .trim()
+                            .to_string(),
+                    )
                 } else {
                     let cmd_result = host_handler
                         .run_command("hostname", &Privilege::None)
@@ -141,9 +146,7 @@ impl HostProperties {
         }
     }
 
-    async fn detect_init_system<Handler: HostHandler>(
-        host_handler: &mut Handler,
-    ) -> InitSystem {
+    async fn detect_init_system<Handler: HostHandler>(host_handler: &mut Handler) -> InitSystem {
         // Check for systemd by looking for the /run/systemd/system directory
         if host_handler
             .get_file(PathBuf::from("/run/systemd/system"))
@@ -152,7 +155,7 @@ impl HostProperties {
         {
             return InitSystem::Systemd;
         }
-        
+
         // Alternative check: see if systemd is PID 1
         if let Ok(cmd_result) = host_handler
             .run_command("ps -p 1 -o comm=", &Privilege::None)
@@ -165,7 +168,7 @@ impl HostProperties {
                 }
             }
         }
-        
+
         InitSystem::Unknown
     }
 }
@@ -202,7 +205,7 @@ pub enum LinuxFlavor {
     Suse,
     Gentoo,
 }
-    
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum InitSystem {
     Unknown,

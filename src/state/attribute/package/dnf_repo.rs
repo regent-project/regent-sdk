@@ -232,12 +232,19 @@ impl Check for DnfRepoBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Fedora, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but DNF/YUM repositories are only supported on Fedora/CentOS/RHEL Linux", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Fedora,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but DNF/YUM repositories are only supported on Fedora/CentOS/RHEL Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -426,12 +433,19 @@ impl Check for DnfRepoApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
-            OsKind::Linux(LinuxSpecifics { linux_flavor: LinuxFlavor::Fedora, .. }) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but DNF/YUM repositories are only supported on Fedora/CentOS/RHEL Linux", incompatible_os_kind)
-            )),
+            OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Fedora,
+                ..
+            }) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but DNF/YUM repositories are only supported on Fedora/CentOS/RHEL Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -551,7 +565,7 @@ fn escape_for_printf(content: &str) -> String {
 /// This ensures that repository baseurl, mirrorlist, and metalink are explicitly checked during assessment.
 fn extract_source_urls_from_section(content: &str) -> Option<Vec<String>> {
     let mut urls: Vec<String> = Vec::new();
-    
+
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("baseurl=") {
@@ -577,12 +591,8 @@ fn extract_source_urls_from_section(content: &str) -> Option<Vec<String>> {
             }
         }
     }
-    
-    if urls.is_empty() {
-        None
-    } else {
-        Some(urls)
-    }
+
+    if urls.is_empty() { None } else { Some(urls) }
 }
 
 fn build_upsert_cmd(file_name: &str, repo_name: &str, section: &str) -> String {

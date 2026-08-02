@@ -248,12 +248,16 @@ impl Check for CronBlockExpectedState {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but cron management is only supported on Linux", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but cron management is only supported on Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
@@ -396,12 +400,16 @@ impl Check for CronApiCall {
         Ok(())
     }
 
-    fn check_host_compatibility(&self, host_properties: &HostProperties) -> Result<(), RegentError> {
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(
-                format!("Host is {:?} but cron management is only supported on Linux", incompatible_os_kind)
-            )),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but cron management is only supported on Linux",
+                incompatible_os_kind
+            ))),
         }
     }
 }
