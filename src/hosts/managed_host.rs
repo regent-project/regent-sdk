@@ -153,6 +153,10 @@ impl ManagedHostBuilder {
         }
     }
 
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
     /// Set the connection method for this host.
     ///
     /// # Arguments
