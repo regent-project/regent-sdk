@@ -537,7 +537,12 @@ fn find_cron_entry(content: &str, name: &str) -> Option<String> {
     let mut lines = content.lines();
     while let Some(line) = lines.next() {
         if line == marker {
-            return lines.next().map(|l| l.to_string());
+            // Skip empty lines to find the actual cron job line
+            // Note: We don't skip lines starting with # because disabled cron jobs start with #
+            return lines
+                .skip_while(|l| l.trim().is_empty())
+                .next()
+                .map(|l| l.to_string());
         }
     }
     None

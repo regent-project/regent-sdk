@@ -79,6 +79,8 @@ pub struct GroupBlockExpectedState {
     state: Option<GroupExpectedState>,
     /// Group ID to assign (optional)
     gid: Option<u32>,
+    /// List of users that should be members of this group
+    members: Option<Vec<String>>,
     /// Whether this is a system group (uses -r flag with groupadd)
     system: Option<bool>,
     /// Whether to use local commands (lgroupadd/lgroupdel) instead of system commands
@@ -97,6 +99,7 @@ impl GroupBlockExpectedState {
             name: groupname.to_string(),
             state: None,
             gid: None,
+            members: None,
             system: None,
             local: None,
         }
@@ -109,6 +112,11 @@ impl GroupBlockExpectedState {
 
     pub fn with_gid(&mut self, gid: u32) -> &mut Self {
         self.gid = Some(gid);
+        self
+    }
+
+    pub fn with_members(&mut self, members: Vec<String>) -> &mut Self {
+        self.members = Some(members);
         self
     }
 
@@ -196,6 +204,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                             GroupModuleInternalApiCall::Add {
                                 groupname: self.name.clone(),
                                 gid: self.gid,
+                                members: self.members.clone(),
                                 system: self.system.unwrap_or(false),
                                 local,
                             },
@@ -223,6 +232,32 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                     }
                 }
 
+                // Group exists: check members if specified
+                if let Some(expected_members) = &self.members {
+                    let current_members = match get_group_members(host_handler, &self.name).await {
+                        Ok(members) => members,
+                        Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
+                    };
+
+                    // Sort both lists for comparison (order doesn't matter for group members)
+                    let mut expected_sorted = expected_members.clone();
+                    let mut current_sorted = current_members.clone();
+                    expected_sorted.sort();
+                    current_sorted.sort();
+
+                    if expected_sorted != current_sorted {
+                        return Ok(AttributeComplianceAssessment::NonCompliant(vec![
+                            Remediation::Group(GroupApiCall::from(
+                                GroupModuleInternalApiCall::ModifyMembers {
+                                    groupname: self.name.clone(),
+                                    members: expected_members.clone(),
+                                },
+                                privilege.clone(),
+                            )),
+                        ]));
+                    }
+                }
+
                 Ok(AttributeComplianceAssessment::Compliant)
             }
         }
@@ -237,12 +272,18 @@ pub enum GroupModuleInternalApiCall {
     Add {
         groupname: String,
         gid: Option<u32>,
+        members: Option<Vec<String>>,
         system: bool,
         /// Uses lgroupadd instead of groupadd (shadow-utils local command)
         local: bool,
     },
     /// Modify an existing group's GID
     ModifyGid { groupname: String, gid: u32 },
+    /// Modify an existing group's members
+    ModifyMembers {
+        groupname: String,
+        members: Vec<String>,
+    },
     /// Remove a group
     Delete { groupname: String, local: bool },
 }
@@ -255,6 +296,9 @@ impl std::fmt::Display for GroupModuleInternalApiCall {
             }
             GroupModuleInternalApiCall::ModifyGid { groupname, gid } => {
                 write!(f, "modify group {} gid to {}", groupname, gid)
+            }
+            GroupModuleInternalApiCall::ModifyMembers { groupname, members } => {
+                write!(f, "modify group {} members to {:?}", groupname, members)
             }
             GroupModuleInternalApiCall::Delete { groupname, .. } => {
                 write!(f, "delete group {}", groupname)
@@ -280,6 +324,9 @@ impl GroupApiCall {
             }
             GroupModuleInternalApiCall::ModifyGid { groupname, gid } => {
                 format!("Modify group {} GID to {}", groupname, gid)
+            }
+            GroupModuleInternalApiCall::ModifyMembers { groupname, members } => {
+                format!("Modify group {} members to {:?}", groupname, members)
             }
             GroupModuleInternalApiCall::Delete { groupname, .. } => {
                 format!("Delete group {}", groupname)
@@ -330,6 +377,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
             GroupModuleInternalApiCall::Add {
                 groupname,
                 gid,
+                members,
                 system,
                 local,
             } => {
@@ -341,15 +389,69 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
                 if *system {
                     args.push("-r".to_string());
                 }
-                (
-                    format!("{} {} {}", base, args.join(" "), groupname),
-                    &self.privilege,
-                )
+
+                let mut cmds = Vec::new();
+                // Create the group
+                cmds.push(format!("{} {} {}", base, args.join(" "), groupname));
+
+                // Add members if specified
+                if let Some(member_list) = members {
+                    for member in member_list {
+                        cmds.push(format!("usermod -aG {} {}", groupname, member));
+                    }
+                }
+
+                (cmds.join(" && "), &self.privilege)
             }
             GroupModuleInternalApiCall::ModifyGid { groupname, gid } => (
                 format!("groupmod -g {} {}", gid, groupname),
                 &self.privilege,
             ),
+            GroupModuleInternalApiCall::ModifyMembers { groupname, members } => {
+                // Get current members to calculate differences
+                let current_members = match get_group_members(host_handler, groupname).await {
+                    Ok(m) => m,
+                    Err(e) => {
+                        return Ok(InternalApiCallOutcome::Failure(format!(
+                            "Failed to get current group members: {}",
+                            e
+                        )));
+                    }
+                };
+
+                // Convert to sets for easier difference calculation
+                use std::collections::HashSet;
+                let expected_set: HashSet<&str> = members.iter().map(|s| s.as_str()).collect();
+                let current_set: HashSet<&str> =
+                    current_members.iter().map(|s| s.as_str()).collect();
+
+                // Calculate users to add and remove
+                let users_to_add: Vec<&str> =
+                    expected_set.difference(&current_set).cloned().collect();
+                let users_to_remove: Vec<&str> =
+                    current_set.difference(&expected_set).cloned().collect();
+
+                let mut cmds = Vec::new();
+
+                // Add users who should be in the group but aren't
+                for user in users_to_add {
+                    cmds.push(format!("usermod -aG {} {}", groupname, user));
+                }
+
+                // Remove users who shouldn't be in the group
+                // Note: Removing users from a group requires gpasswd or similar
+                // For now, we'll use gpasswd --delete to remove users
+                for user in users_to_remove {
+                    cmds.push(format!("gpasswd --delete {} {}", user, groupname));
+                }
+
+                if cmds.is_empty() {
+                    // No changes needed
+                    return Ok(InternalApiCallOutcome::Success(None));
+                }
+
+                (cmds.join(" && "), &self.privilege)
+            }
             GroupModuleInternalApiCall::Delete { groupname, local } => {
                 let base = if *local { "lgroupdel" } else { "groupdel" };
                 (format!("{} {}", base, groupname), &self.privilege)
@@ -411,6 +513,38 @@ async fn get_group_gid<Handler: HostHandler>(
         }
         Err(e) => Err(format!(
             "Unable to get GID for group {}: {:?}",
+            groupname, e
+        )),
+    }
+}
+
+async fn get_group_members<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    groupname: &str,
+) -> Result<Vec<String>, String> {
+    match host_handler
+        .run_command(&format!("getent group {}", groupname), &Privilege::None)
+        .await
+    {
+        Ok(result) => {
+            if result.return_code != 0 {
+                return Err(format!("getent group failed for group {}", groupname));
+            }
+            // Format: groupname:x:gid:members
+            let fields: Vec<&str> = result.stdout.trim().splitn(4, ':').collect();
+            if fields.len() < 4 {
+                // No members field, return empty vector
+                return Ok(Vec::new());
+            }
+            // Split members by comma and filter out empty strings
+            Ok(fields[3]
+                .split(',')
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.trim().to_string())
+                .collect())
+        }
+        Err(e) => Err(format!(
+            "Unable to get members for group {}: {:?}",
             groupname, e
         )),
     }

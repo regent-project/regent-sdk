@@ -295,9 +295,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                 let mut mod_shell: Option<String> = None;
                 let mut mod_home: Option<String> = None;
                 let mut mod_comment: Option<String> = None;
-                // Password hash cannot be read without root access; always enforce if specified.
-                let mod_password = self.password.clone();
-                let append = self.append.unwrap_or(false);
+                let append = self.append.unwrap_or(true);
 
                 let passwd_entry = match get_passwd_entry(host_handler, &self.name).await {
                     Ok(entry) => entry,
@@ -360,19 +358,44 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                     };
 
                     if !groups_compliant {
-                        mod_groups = Some(expected_groups.clone());
+                        if append {
+                            // For append mode, only add the missing groups
+                            let missing_groups: Vec<String> = expected_groups
+                                .iter()
+                                .filter(|g| !current_supp_groups.contains(g))
+                                .cloned()
+                                .collect();
+                            if !missing_groups.is_empty() {
+                                mod_groups = Some(missing_groups);
+                            }
+                        } else {
+                            // For replace mode, set all expected groups
+                            mod_groups = Some(expected_groups.clone());
+                        }
                     }
                 }
 
-                let needs_modification = mod_uid.is_some()
+                // Check if any non-password properties need modification
+                let needs_non_password_modification = mod_uid.is_some()
                     || mod_group.is_some()
                     || mod_groups.is_some()
                     || mod_shell.is_some()
                     || mod_home.is_some()
-                    || mod_comment.is_some()
-                    || mod_password.is_some();
+                    || mod_comment.is_some();
 
-                if needs_modification {
+                // Check if password needs modification (can't verify current password, so only if specified)
+                let password_needs_modification = self.password.is_some();
+
+                if needs_non_password_modification || password_needs_modification {
+                    // If both password and other properties need modification, include both
+                    // If only other properties need modification, don't include password
+                    // If only password needs modification, only include password
+                    let mod_password = if password_needs_modification {
+                        self.password.clone()
+                    } else {
+                        None
+                    };
+
                     return Ok(AttributeComplianceAssessment::NonCompliant(vec![
                         Remediation::User(UserApiCall::from(
                             UserModuleInternalApiCall::Modify {

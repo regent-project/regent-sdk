@@ -135,7 +135,12 @@ impl Attribute {
             Ok(context_aware_attribute) => {
                 // Validate the configuration after template rendering to ensure
                 // that template variables produced valid configuration
-                context_aware_attribute.check()?;
+                context_aware_attribute.check().map_err(|e| {
+                    RegentError::FailureToConsiderContext(format!(
+                        "Post-template validation failed: {}",
+                        e
+                    ))
+                })?;
                 Ok(context_aware_attribute)
             }
             Err(detail) => Err(RegentError::FailureToConsiderContext(format!("{}", detail))),
