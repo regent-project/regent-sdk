@@ -561,7 +561,10 @@ impl ManagedHost {
     /// * `value` - The variable value
     pub fn add_var(&mut self, key: String, value: String) {
         if self.context.contains_key(&key) {
-            warn!(key, "Writing an already-existing variable to context. Is this expected ?");
+            warn!(
+                key,
+                "Writing an already-existing variable to context. Is this expected ?"
+            );
         }
         self.context.insert(key, &value);
     }
@@ -586,13 +589,19 @@ impl ManagedHost {
     ///
     /// `Ok(())` if property collection succeeded, or a [`RegentError`] if it failed.
     pub async fn collect_properties(&mut self) -> Result<(), RegentError> {
-        match HostProperties::collect_dynamically(&mut self.handler).await {
-            Ok(host_properties) => {
-                self.host_properties = Some(host_properties);
-                Ok(())
+        if matches!(self.host_properties, None) {
+            match HostProperties::collect_dynamically(&mut self.handler).await {
+                Ok(host_properties) => {
+                    self.host_properties = Some(host_properties);
+                }
+                Err(details) => {
+                    return Err(details);
+                }
             }
-            Err(details) => Err(details),
+        } else {
+            warn!("HostProperties already collected. Logic error ?");
         }
+        Ok(())
     }
 
     /// Get the host properties.
