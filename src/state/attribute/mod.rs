@@ -662,8 +662,8 @@ impl AttributeDetail {
 
                 let mut actions_taken: Vec<(Remediation, InternalApiCallOutcome)> = Vec::new();
 
-                for remediation in remediations.iter() {
-                    let (remediation, internal_api_call_outcome) = match remediation {
+                for remediation_ref in remediations.iter() {
+                    let (remediation, internal_api_call_outcome) = match remediation_ref {
                         Remediation::None(message) => {
                             return Err(RegentError::InternalLogicError(format!(
                                 "Remediation::None({}) : get rid of this",
@@ -675,7 +675,7 @@ impl AttributeDetail {
                             .await
                         {
                             Ok(internal_api_call_outcome) => {
-                                (remediation, internal_api_call_outcome)
+                                (remediation_ref.clone(), internal_api_call_outcome)
                             }
                             Err(details) => {
                                 return Err(details);
@@ -687,7 +687,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -700,7 +700,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -712,7 +712,7 @@ impl AttributeDetail {
                             .await
                         {
                             Ok(internal_api_call_outcome) => {
-                                (remediation, internal_api_call_outcome)
+                                (remediation_ref.clone(), internal_api_call_outcome)
                             }
                             Err(details) => {
                                 return Err(details);
@@ -723,7 +723,7 @@ impl AttributeDetail {
                             .await
                         {
                             Ok(internal_api_call_outcome) => {
-                                (remediation, internal_api_call_outcome)
+                                (remediation_ref.clone(), internal_api_call_outcome)
                             }
                             Err(details) => {
                                 return Err(details);
@@ -734,7 +734,7 @@ impl AttributeDetail {
                             .await
                         {
                             Ok(internal_api_call_outcome) => {
-                                (remediation, internal_api_call_outcome)
+                                (remediation_ref.clone(), internal_api_call_outcome)
                             }
                             Err(details) => {
                                 return Err(details);
@@ -746,7 +746,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -759,7 +759,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -772,7 +772,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -785,7 +785,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -798,7 +798,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -811,7 +811,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -824,7 +824,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -837,7 +837,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -850,7 +850,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -863,7 +863,7 @@ impl AttributeDetail {
                                 .await
                             {
                                 Ok(internal_api_call_outcome) => {
-                                    (remediation, internal_api_call_outcome)
+                                    (remediation_ref.clone(), internal_api_call_outcome)
                                 }
                                 Err(details) => {
                                     return Err(details);
@@ -872,7 +872,7 @@ impl AttributeDetail {
                         }
                     };
 
-                    actions_taken.push((remediation.clone(), internal_api_call_outcome.clone()));
+                    actions_taken.push((remediation, internal_api_call_outcome.clone()));
 
                     if let InternalApiCallOutcome::Failure(_detail) = &internal_api_call_outcome {
                         return Ok(AttributeComplianceResult::from(

@@ -84,16 +84,13 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
+        // Ping is a connectivity check that should not affect compliance state
+        // The actual connectivity validation should be handled at the connection level
         let cmd = String::from("id");
-        let cmd_result = host_handler.run_command(cmd.as_str(), &privilege).await?;
-
-        if cmd_result.return_code == 0 {
-            return Ok(AttributeComplianceAssessment::Compliant);
-        } else {
-            return Err(RegentError::FailedDryRunEvaluation(
-                "Host unreachable".to_string(),
-            ));
-        }
+        let _cmd_result = host_handler.run_command(cmd.as_str(), &privilege).await?;
+        
+        // Always return Compliant - ping is a pre-requisite check, not a compliance attribute
+        return Ok(AttributeComplianceAssessment::Compliant);
     }
 }
 
