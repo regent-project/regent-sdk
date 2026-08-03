@@ -48,6 +48,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -295,12 +296,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                 if current_content.is_none() {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::AptRepo(AptRepoApiCall::from(
-                        AptRepoModuleInternalApiCall::RemoveFile { path: file_path },
-                        privilege.clone(),
-                    )),
-                ]));
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::AptRepo(AptRepoApiCall::from(
+                            AptRepoModuleInternalApiCall::RemoveFile { path: file_path },
+                            privilege.clone(),
+                        )),
+                    ])?
+                ));
             }
             AptRepoExpectedState::Present => {
                 let expected_content = if is_legacy {
@@ -332,15 +335,17 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                             extract_uris_from_deb822(expected_trimmed),
                         ) {
                             if current_uris != expected_uris {
-                                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                                    Remediation::AptRepo(AptRepoApiCall::from(
-                                        AptRepoModuleInternalApiCall::WriteFile {
-                                            path: file_path,
-                                            content: expected_content,
-                                        },
-                                        privilege.clone(),
-                                    )),
-                                ]));
+                                return Ok(AttributeComplianceAssessment::NonCompliant(
+                                    RemediationsList::from(vec![
+                                        Remediation::AptRepo(AptRepoApiCall::from(
+                                            AptRepoModuleInternalApiCall::WriteFile {
+                                                path: file_path,
+                                                content: expected_content,
+                                            },
+                                            privilege.clone(),
+                                        )),
+                                    ])?
+                                ));
                             }
                         }
                     }
@@ -361,7 +366,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                     )));
                 }
 
-                Ok(AttributeComplianceAssessment::NonCompliant(remediations))
+                Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(remediations)?
+                ))
             }
         }
     }

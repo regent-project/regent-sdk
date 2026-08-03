@@ -45,6 +45,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -187,30 +188,34 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                 if !group_exists {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::Group(GroupApiCall::from(
-                        GroupModuleInternalApiCall::Delete {
-                            groupname: self.name.clone(),
-                            local,
-                        },
-                        privilege.clone(),
-                    )),
-                ]));
-            }
-            GroupExpectedState::Present => {
-                if !group_exists {
-                    return Ok(AttributeComplianceAssessment::NonCompliant(vec![
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
                         Remediation::Group(GroupApiCall::from(
-                            GroupModuleInternalApiCall::Add {
+                            GroupModuleInternalApiCall::Delete {
                                 groupname: self.name.clone(),
-                                gid: self.gid,
-                                members: self.members.clone(),
-                                system: self.system.unwrap_or(false),
                                 local,
                             },
                             privilege.clone(),
                         )),
-                    ]));
+                    ]).unwrap()
+                ));
+            }
+            GroupExpectedState::Present => {
+                if !group_exists {
+                    return Ok(AttributeComplianceAssessment::NonCompliant(
+                        RemediationsList::from(vec![
+                            Remediation::Group(GroupApiCall::from(
+                                GroupModuleInternalApiCall::Add {
+                                    groupname: self.name.clone(),
+                                    gid: self.gid,
+                                    members: self.members.clone(),
+                                    system: self.system.unwrap_or(false),
+                                    local,
+                                },
+                                privilege.clone(),
+                            )),
+                        ]).unwrap()
+                    ));
                 }
 
                 // Group exists: check GID if specified
@@ -220,15 +225,17 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                         Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
                     };
                     if current_gid != expected_gid {
-                        return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                            Remediation::Group(GroupApiCall::from(
-                                GroupModuleInternalApiCall::ModifyGid {
-                                    groupname: self.name.clone(),
-                                    gid: expected_gid,
-                                },
-                                privilege.clone(),
-                            )),
-                        ]));
+                        return Ok(AttributeComplianceAssessment::NonCompliant(
+                            RemediationsList::from(vec![
+                                Remediation::Group(GroupApiCall::from(
+                                    GroupModuleInternalApiCall::ModifyGid {
+                                        groupname: self.name.clone(),
+                                        gid: expected_gid,
+                                    },
+                                    privilege.clone(),
+                                )),
+                            ]).unwrap()
+                        ));
                     }
                 }
 
@@ -246,15 +253,17 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                     current_sorted.sort();
 
                     if expected_sorted != current_sorted {
-                        return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                            Remediation::Group(GroupApiCall::from(
-                                GroupModuleInternalApiCall::ModifyMembers {
-                                    groupname: self.name.clone(),
-                                    members: expected_members.clone(),
-                                },
-                                privilege.clone(),
-                            )),
-                        ]));
+                        return Ok(AttributeComplianceAssessment::NonCompliant(
+                            RemediationsList::from(vec![
+                                Remediation::Group(GroupApiCall::from(
+                                    GroupModuleInternalApiCall::ModifyMembers {
+                                        groupname: self.name.clone(),
+                                        members: expected_members.clone(),
+                                    },
+                                    privilege.clone(),
+                                )),
+                            ]).unwrap()
+                        ));
                     }
                 }
 

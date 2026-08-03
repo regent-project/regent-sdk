@@ -43,6 +43,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
@@ -142,7 +143,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
             privilege,
         }));
 
-        return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
+        return Ok(AttributeComplianceAssessment::NonCompliant(
+            RemediationsList::from(remediations)?
+        ));
     }
 }
 

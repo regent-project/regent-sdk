@@ -59,6 +59,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -294,7 +295,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     OllamaModuleInternalApiCall::Uninstall,
                     privilege.clone(),
                 )));
-                return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(remediations)?
+                ));
             }
             // Already absent → compliant.
             return Ok(AttributeComplianceAssessment::Compliant);
@@ -307,7 +310,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     OllamaModuleInternalApiCall::Install,
                     privilege.clone(),
                 )));
-                return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(remediations)?
+                ));
             }
         }
 
@@ -490,7 +495,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
         if remediations.is_empty() {
             Ok(AttributeComplianceAssessment::Compliant)
         } else {
-            Ok(AttributeComplianceAssessment::NonCompliant(remediations))
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(remediations)?
+            ))
         }
     }
 }

@@ -47,6 +47,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -625,7 +626,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
                             privilege.clone(),
                         )));
                         // No point checking rules on a chain that is being deleted
-                        return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
+                        return Ok(AttributeComplianceAssessment::NonCompliant(
+                            RemediationsList::from(remediations)?
+                        ));
                     }
                     // Chain already absent — nothing to do for chain_management
                     if self.policy.is_none() && self.jump.is_none() && self.goto.is_none() {
@@ -741,7 +744,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
         if remediations.is_empty() {
             Ok(AttributeComplianceAssessment::Compliant)
         } else {
-            Ok(AttributeComplianceAssessment::NonCompliant(remediations))
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(remediations)?
+            ))
         }
     }
 }

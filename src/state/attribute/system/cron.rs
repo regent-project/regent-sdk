@@ -45,6 +45,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -301,16 +302,18 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState 
                 if existing_entry.is_none() {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::Cron(CronApiCall::from(
-                        CronModuleInternalApiCall::Remove {
-                            name: self.name.clone(),
-                            user: self.user.clone(),
-                            cron_file: self.cron_file.clone(),
-                        },
-                        privilege.clone(),
-                    )),
-                ]))
+                Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::Cron(CronApiCall::from(
+                            CronModuleInternalApiCall::Remove {
+                                name: self.name.clone(),
+                                user: self.user.clone(),
+                                cron_file: self.cron_file.clone(),
+                            },
+                            privilege.clone(),
+                        )),
+                    ]).unwrap()
+                ))
             }
             CronExpectedState::Present => {
                 let expected_line = build_cron_line(self, is_cron_d);
@@ -320,17 +323,19 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState 
                 };
 
                 if needs_upsert {
-                    return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                        Remediation::Cron(CronApiCall::from(
-                            CronModuleInternalApiCall::Upsert {
-                                name: self.name.clone(),
-                                cron_line: expected_line,
-                                user: self.user.clone(),
-                                cron_file: self.cron_file.clone(),
-                            },
-                            privilege.clone(),
-                        )),
-                    ]));
+                    return Ok(AttributeComplianceAssessment::NonCompliant(
+                        RemediationsList::from(vec![
+                            Remediation::Cron(CronApiCall::from(
+                                CronModuleInternalApiCall::Upsert {
+                                    name: self.name.clone(),
+                                    cron_line: expected_line,
+                                    user: self.user.clone(),
+                                    cron_file: self.cron_file.clone(),
+                                },
+                                privilege.clone(),
+                            )),
+                        ]).unwrap()
+                    ));
                 }
 
                 Ok(AttributeComplianceAssessment::Compliant)

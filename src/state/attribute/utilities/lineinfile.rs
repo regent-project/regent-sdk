@@ -49,6 +49,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
@@ -240,15 +241,17 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                 if let LineExpectedState::Absent = state {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::LineInFile(LineInFileApiCall {
-                        file_path: self.file_path.clone(),
-                        line_content: self.line.clone(),
-                        regexp: None,
-                        api_call: LineInFileModuleInternalApiCall::CreateFile,
-                        privilege: privilege.clone(),
-                    }),
-                ]));
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::LineInFile(LineInFileApiCall {
+                            file_path: self.file_path.clone(),
+                            line_content: self.line.clone(),
+                            regexp: None,
+                            api_call: LineInFileModuleInternalApiCall::CreateFile,
+                            privilege: privilege.clone(),
+                        })
+                    ]).unwrap()
+                ));
             }
             return Err(RegentError::FailedDryRunEvaluation(format!(
                 "{}: file not found (set Create: true to create it)",
@@ -297,15 +300,17 @@ async fn assess_absent<Handler: HostHandler>(
         if matches.is_empty() {
             return Ok(AttributeComplianceAssessment::Compliant);
         }
-        return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-            Remediation::LineInFile(LineInFileApiCall {
-                file_path: block.file_path.clone(),
-                line_content: None,
-                regexp: None,
-                api_call: LineInFileModuleInternalApiCall::DeleteByRegexp(regexp.clone()),
-                privilege: privilege.clone(),
-            }),
-        ]));
+        return Ok(AttributeComplianceAssessment::NonCompliant(
+            RemediationsList::from(vec![
+                Remediation::LineInFile(LineInFileApiCall {
+                    file_path: block.file_path.clone(),
+                    line_content: None,
+                    regexp: None,
+                    api_call: LineInFileModuleInternalApiCall::DeleteByRegexp(regexp.clone()),
+                    privilege: privilege.clone(),
+                })
+            ]).unwrap()
+        ));
     }
 
     // search_string or exact line: delete by line numbers
@@ -321,15 +326,17 @@ async fn assess_absent<Handler: HostHandler>(
         if matches.is_empty() {
             return Ok(AttributeComplianceAssessment::Compliant);
         }
-        return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-            Remediation::LineInFile(LineInFileApiCall {
-                file_path: block.file_path.clone(),
-                line_content: None,
-                regexp: None,
-                api_call: LineInFileModuleInternalApiCall::DeleteLines(matches),
-                privilege: privilege.clone(),
-            }),
-        ]));
+        return Ok(AttributeComplianceAssessment::NonCompliant(
+            RemediationsList::from(vec![
+                Remediation::LineInFile(LineInFileApiCall {
+                    file_path: block.file_path.clone(),
+                    line_content: None,
+                    regexp: None,
+                    api_call: LineInFileModuleInternalApiCall::DeleteLines(matches),
+                    privilege: privilege.clone(),
+                })
+            ]).unwrap()
+        ));
     }
 
     Ok(AttributeComplianceAssessment::Compliant)
@@ -357,18 +364,20 @@ async fn assess_present<Handler: HostHandler>(
             if backrefs {
                 // Always replace: can't know if current value already equals the
                 // backref-expanded replacement without running sed.
-                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::LineInFile(LineInFileApiCall {
-                        file_path: block.file_path.clone(),
-                        line_content: block.line.clone(),
-                        regexp: Some(regexp.clone()),
-                        api_call: LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
-                            line_number: target,
-                            regexp: regexp.clone(),
-                        },
-                        privilege: privilege.clone(),
-                    }),
-                ]));
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::LineInFile(LineInFileApiCall {
+                            file_path: block.file_path.clone(),
+                            line_content: block.line.clone(),
+                            regexp: Some(regexp.clone()),
+                            api_call: LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
+                                line_number: target,
+                                regexp: regexp.clone(),
+                            },
+                            privilege: privilege.clone(),
+                        })
+                    ]).unwrap()
+                ));
             }
 
             if let Some(expected) = &line_content {
@@ -376,15 +385,17 @@ async fn assess_present<Handler: HostHandler>(
                 if current.as_deref() == Some(expected.as_str()) {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::LineInFile(LineInFileApiCall {
-                        file_path: block.file_path.clone(),
-                        line_content: block.line.clone(),
-                        regexp: None,
-                        api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
-                        privilege: privilege.clone(),
-                    }),
-                ]));
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::LineInFile(LineInFileApiCall {
+                            file_path: block.file_path.clone(),
+                            line_content: block.line.clone(),
+                            regexp: None,
+                            api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
+                            privilege: privilege.clone(),
+                        })
+                    ]).unwrap()
+                ));
             }
 
             return Ok(AttributeComplianceAssessment::Compliant);
@@ -412,15 +423,17 @@ async fn assess_present<Handler: HostHandler>(
                 if current.as_deref() == Some(expected.as_str()) {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::LineInFile(LineInFileApiCall {
-                        file_path: block.file_path.clone(),
-                        line_content: block.line.clone(),
-                        regexp: None,
-                        api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
-                        privilege: privilege.clone(),
-                    }),
-                ]));
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::LineInFile(LineInFileApiCall {
+                            file_path: block.file_path.clone(),
+                            line_content: block.line.clone(),
+                            regexp: None,
+                            api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
+                            privilege: privilege.clone(),
+                        })
+                    ]).unwrap()
+                ));
             }
             return Ok(AttributeComplianceAssessment::Compliant);
         }
@@ -445,15 +458,17 @@ async fn assess_present<Handler: HostHandler>(
     )
     .await;
 
-    Ok(AttributeComplianceAssessment::NonCompliant(vec![
-        Remediation::LineInFile(LineInFileApiCall {
-            file_path: block.file_path.clone(),
-            line_content: block.line.clone(),
-            regexp: None,
-            api_call: insert_call,
-            privilege: privilege.clone(),
-        }),
-    ]))
+    Ok(AttributeComplianceAssessment::NonCompliant(
+        RemediationsList::from(vec![
+            Remediation::LineInFile(LineInFileApiCall {
+                file_path: block.file_path.clone(),
+                line_content: block.line.clone(),
+                regexp: None,
+                api_call: insert_call,
+                privilege: privilege.clone(),
+            })
+        ]).unwrap()
+    ))
 }
 
 async fn determine_insert_position<Handler: HostHandler>(

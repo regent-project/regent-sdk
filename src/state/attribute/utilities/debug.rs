@@ -41,6 +41,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -87,9 +88,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
-        return Ok(AttributeComplianceAssessment::NonCompliant(Vec::from([
-            Remediation::None(self.msg.clone()),
-        ])));
+        return Ok(AttributeComplianceAssessment::NonCompliant(
+            RemediationsList::from(vec![Remediation::None(self.msg.clone())]).unwrap()
+        ));
     }
 }
 

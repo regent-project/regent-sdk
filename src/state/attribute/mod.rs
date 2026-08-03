@@ -654,7 +654,7 @@ impl AttributeDetail {
                 None,
             )),
             AttributeComplianceAssessment::NonCompliant(remediations) => {
-                if remediations.len() == 0 {
+                if remediations.is_empty() {
                     return Err(RegentError::InternalLogicError(format!(
                         "This should not have been called as the ManagedHost is already compliant"
                     )));
@@ -662,8 +662,8 @@ impl AttributeDetail {
 
                 let mut actions_taken: Vec<(Remediation, InternalApiCallOutcome)> = Vec::new();
 
-                for remediation in remediations {
-                    let (remediation, internal_api_call_outcome) = match &remediation {
+                for remediation in remediations.iter() {
+                    let (remediation, internal_api_call_outcome) = match remediation {
                         Remediation::None(message) => {
                             return Err(RegentError::InternalLogicError(format!(
                                 "Remediation::None({}) : get rid of this",
@@ -872,7 +872,7 @@ impl AttributeDetail {
                         }
                     };
 
-                    actions_taken.push((remediation, internal_api_call_outcome.clone()));
+                    actions_taken.push((remediation.clone(), internal_api_call_outcome.clone()));
 
                     if let InternalApiCallOutcome::Failure(_detail) = &internal_api_call_outcome {
                         return Ok(AttributeComplianceResult::from(
@@ -1097,6 +1097,69 @@ impl Remediation {
             Remediation::Hostname(api_call) => api_call.display(),
             Remediation::Iptables(api_call) => api_call.display(),
             Remediation::Ollama(api_call) => api_call.display(),
+        }
+    }
+}
+
+
+// This type makes it impossible to have empty remediation lists elsewhere AKA error logic
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RemediationsList {
+    inner: Vec<Remediation>
+}
+
+impl RemediationsList {
+    pub fn from(remediations: Vec<Remediation>) -> Result<RemediationsList, RegentError> {
+        if remediations.len() == 0 {
+            Err(RegentError::InternalLogicError(format!("Empty remediation list passed")))
+        } else {
+            Ok(RemediationsList { inner: remediations })
+        }
+    }
+
+    pub fn remediations(&self) -> &Vec<Remediation> {
+        &self.inner
+    }
+
+    pub fn into_inner(self) -> Vec<Remediation> {
+        self.inner
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Remediation> {
+        self.inner.iter()
+    }
+}
+
+impl IntoIterator for RemediationsList {
+    type Item = Remediation;
+    type IntoIter = std::vec::IntoIter<Remediation>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a RemediationsList {
+    type Item = &'a Remediation;
+    type IntoIter = std::slice::Iter<'a, Remediation>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.iter()
+    }
+}
+
+impl FromIterator<Remediation> for RemediationsList {
+    fn from_iter<T: IntoIterator<Item = Remediation>>(iter: T) -> Self {
+        RemediationsList {
+            inner: Vec::from_iter(iter)
         }
     }
 }

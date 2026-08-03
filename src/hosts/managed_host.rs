@@ -790,7 +790,7 @@ impl ManagedHost {
                                 attribute_compliance
                             {
                                 already_compliant = false;
-                                final_remediations_list.extend(remediations);
+                                final_remediations_list.extend(remediations.into_inner());
                             }
                         }
                         Err(details) => {
@@ -896,7 +896,7 @@ impl ManagedHost {
 
                                     // Try to remedy
 
-                                    for remediation in remediations {
+                                    for remediation in remediations.iter() {
                                         match remediation
                                             .reach_compliance(
                                                 &mut self.handler,

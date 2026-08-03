@@ -53,6 +53,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -287,35 +288,39 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                 if !user_exists {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::User(UserApiCall::from(
-                        UserModuleInternalApiCall::Delete {
-                            username: self.name.clone(),
-                            remove_home: self.remove_home.unwrap_or(false),
-                        },
-                        privilege.clone(),
-                    )),
-                ]));
-            }
-            UserExpectedState::Present => {
-                if !user_exists {
-                    return Ok(AttributeComplianceAssessment::NonCompliant(vec![
+                return Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
                         Remediation::User(UserApiCall::from(
-                            UserModuleInternalApiCall::Add {
+                            UserModuleInternalApiCall::Delete {
                                 username: self.name.clone(),
-                                uid: self.uid,
-                                group: self.group.clone(),
-                                groups: self.groups.clone(),
-                                shell: self.shell.clone(),
-                                home: self.home.clone(),
-                                comment: self.comment.clone(),
-                                password: self.password.clone(),
-                                system: self.system.unwrap_or(false),
-                                create_home: self.create_home.unwrap_or(true),
+                                remove_home: self.remove_home.unwrap_or(false),
                             },
                             privilege.clone(),
                         )),
-                    ]));
+                    ]).unwrap()
+                ));
+            }
+            UserExpectedState::Present => {
+                if !user_exists {
+                    return Ok(AttributeComplianceAssessment::NonCompliant(
+                        RemediationsList::from(vec![
+                            Remediation::User(UserApiCall::from(
+                                UserModuleInternalApiCall::Add {
+                                    username: self.name.clone(),
+                                    uid: self.uid,
+                                    group: self.group.clone(),
+                                    groups: self.groups.clone(),
+                                    shell: self.shell.clone(),
+                                    home: self.home.clone(),
+                                    comment: self.comment.clone(),
+                                    password: self.password.clone(),
+                                    system: self.system.unwrap_or(false),
+                                    create_home: self.create_home.unwrap_or(true),
+                                },
+                                privilege.clone(),
+                            )),
+                        ]).unwrap()
+                    ));
                 }
 
                 // For Windows, many user properties don't map directly, so we'll do a simpler check
@@ -437,22 +442,24 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                                 None
                             };
 
-                            return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                                Remediation::User(UserApiCall::from(
-                                    UserModuleInternalApiCall::Modify {
-                                        username: self.name.clone(),
-                                        uid: mod_uid,
-                                        group: mod_group,
-                                        groups: mod_groups,
-                                        append,
-                                        shell: mod_shell,
-                                        home: mod_home,
-                                        comment: mod_comment,
-                                        password: mod_password,
-                                    },
-                                    privilege.clone(),
-                                )),
-                            ]));
+                            return Ok(AttributeComplianceAssessment::NonCompliant(
+                                RemediationsList::from(vec![
+                                    Remediation::User(UserApiCall::from(
+                                        UserModuleInternalApiCall::Modify {
+                                            username: self.name.clone(),
+                                            uid: mod_uid,
+                                            group: mod_group,
+                                            groups: mod_groups,
+                                            append,
+                                            shell: mod_shell,
+                                            home: mod_home,
+                                            comment: mod_comment,
+                                            password: mod_password,
+                                        },
+                                        privilege.clone(),
+                                    )),
+                                ]).unwrap()
+                            ));
                         }
 
                         Ok(AttributeComplianceAssessment::Compliant)

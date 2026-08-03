@@ -43,6 +43,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -238,15 +239,18 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
         }
 
         // If remediations are only None, it means a Match. If only one change is not a None, return the whole list.
-        for remediation in remediations.iter() {
-            match remediation {
-                Remediation::None(_) => {}
-                _ => {
-                    return Ok(AttributeComplianceAssessment::NonCompliant(remediations));
-                }
-            }
+        let filtered_remediations: Vec<Remediation> = remediations
+            .into_iter()
+            .filter(|r| !matches!(r, Remediation::None(_)))
+            .collect();
+        
+        if filtered_remediations.is_empty() {
+            return Ok(AttributeComplianceAssessment::Compliant);
         }
-        return Ok(AttributeComplianceAssessment::Compliant);
+        
+        return Ok(AttributeComplianceAssessment::NonCompliant(
+            RemediationsList::from(filtered_remediations)?
+        ));
     }
 }
 

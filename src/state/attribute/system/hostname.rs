@@ -45,6 +45,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -227,15 +228,17 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
             }
         };
 
-        Ok(AttributeComplianceAssessment::NonCompliant(vec![
-            Remediation::Hostname(HostnameApiCall::from(
-                HostnameModuleInternalApiCall::SetHostname {
-                    name: self.name.clone(),
-                    method,
-                },
-                privilege.clone(),
-            )),
-        ]))
+        Ok(AttributeComplianceAssessment::NonCompliant(
+            RemediationsList::from(vec![
+                Remediation::Hostname(HostnameApiCall::from(
+                    HostnameModuleInternalApiCall::SetHostname {
+                        name: self.name.clone(),
+                        method,
+                    },
+                    privilege.clone(),
+                )),
+            ]).unwrap()
+        ))
     }
 }
 

@@ -53,6 +53,7 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -284,15 +285,17 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
 
-                Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::DnfRepo(DnfRepoApiCall::from(
-                        DnfRepoModuleInternalApiCall::RemoveSection {
-                            file_name,
-                            repo_name: self.name.clone(),
-                        },
-                        privilege.clone(),
-                    )),
-                ]))
+                Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::DnfRepo(DnfRepoApiCall::from(
+                            DnfRepoModuleInternalApiCall::RemoveSection {
+                                file_name,
+                                repo_name: self.name.clone(),
+                            },
+                            privilege.clone(),
+                        )),
+                    ])?
+                ))
             }
             DnfRepoExpectedState::Present => {
                 let expected_section = build_section_content(self);
@@ -317,31 +320,35 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                             extract_source_urls_from_section(&expected_section),
                         ) {
                             if current_sources != expected_sources {
-                                return Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                                    Remediation::DnfRepo(DnfRepoApiCall::from(
-                                        DnfRepoModuleInternalApiCall::UpsertSection {
-                                            file_name,
-                                            repo_name: self.name.clone(),
-                                            section_content: expected_section,
-                                        },
-                                        privilege.clone(),
-                                    )),
-                                ]));
+                                return Ok(AttributeComplianceAssessment::NonCompliant(
+                                    RemediationsList::from(vec![
+                                        Remediation::DnfRepo(DnfRepoApiCall::from(
+                                            DnfRepoModuleInternalApiCall::UpsertSection {
+                                                file_name,
+                                                repo_name: self.name.clone(),
+                                                section_content: expected_section,
+                                            },
+                                            privilege.clone(),
+                                        )),
+                                    ])?
+                                ));
                             }
                         }
                     }
                 }
 
-                Ok(AttributeComplianceAssessment::NonCompliant(vec![
-                    Remediation::DnfRepo(DnfRepoApiCall::from(
-                        DnfRepoModuleInternalApiCall::UpsertSection {
-                            file_name,
-                            repo_name: self.name.clone(),
-                            section_content: expected_section,
-                        },
-                        privilege.clone(),
-                    )),
-                ]))
+                Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![
+                        Remediation::DnfRepo(DnfRepoApiCall::from(
+                            DnfRepoModuleInternalApiCall::UpsertSection {
+                                file_name,
+                                repo_name: self.name.clone(),
+                                section_content: expected_section,
+                            },
+                            privilege.clone(),
+                        )),
+                    ])?
+                ))
             }
         }
     }

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{hosts::managed_host::InternalApiCallOutcome, state::attribute::Remediation};
+use crate::attribute::RemediationsList;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ManagedHostStatus {
@@ -130,7 +131,7 @@ impl Action {
 #[derive(Debug, Clone)]
 pub enum AttributeComplianceAssessment {
     Compliant,
-    NonCompliant(Vec<Remediation>),
+    NonCompliant(RemediationsList),
 }
 
 impl AttributeComplianceAssessment {
