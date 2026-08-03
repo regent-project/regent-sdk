@@ -1,9 +1,10 @@
 //! Service management attribute
 //!
-//! This module provides the `ServiceBlockExpectedState` type for managing system services
-//! using systemctl.
+//! This module provides the `ServiceBlockExpectedState` type for managing system services.
 //!
-//! **Compatible OS:** Linux (all distributions with systemd)
+//! **Compatible OS:**
+//! - Linux (all distributions with systemd) - uses `systemctl`
+//! - Windows (when `windows` feature is enabled) - uses `sc.exe` and `net` commands
 //!
 //! # Examples
 //!
@@ -39,7 +40,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, OsKind};
+use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind, InitSystem};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -132,8 +133,10 @@ impl Check for ServiceBlockExpectedState {
                     "systemctl requires systemd but init system could not be detected".to_string(),
                 )),
             },
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but systemctl is only supported on Linux with systemd",
+                "Host is {:?} but service management is only supported on Linux with systemd or Windows (with windows feature)",
                 incompatible_os_kind
             ))),
         }
@@ -148,89 +151,193 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Linux)
+
+        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
-        if !host_handler
-            .is_this_command_available("systemctl", privilege)
-            .await
-            .unwrap()
-        {
-            return Err(RegentError::FailedDryRunEvaluation(
-                "systemctl is not available on this host".to_string(),
-            ));
-        }
+        // Determine the effective OS kind - assume Linux if HostProperties is None
+        let os_kind = host_properties
+            .as_ref()
+            .map(|props| props.os_kind())
+            .unwrap_or(&OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                init_system: InitSystem::Systemd,
+            }));
 
+        // Match on OS kind to determine service checking behavior
         let mut remediations: Vec<Remediation> = Vec::new();
 
-        // ── run-state ─────────────────────────────────────────────────────────
-        match &self.state {
-            Some(ServiceExpectedState::Started) => {
-                let active = service_is_active(host_handler, &self.name)
+        match os_kind {
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {
+                // Check if sc.exe is available on Windows
+                let command_available = host_handler
+                    .is_this_command_available("sc", privilege)
                     .await
-                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                if !active {
-                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                        ServiceModuleInternalApiCall::Start(self.name.clone()),
-                        privilege.clone(),
-                    )));
+                    .unwrap_or(false);
+                
+                if !command_available {
+                    return Err(RegentError::FailedDryRunEvaluation(
+                        "Service management commands are not available on this Windows host".to_string(),
+                    ));
                 }
-            }
-            Some(ServiceExpectedState::Stopped) => {
-                let active = service_is_active(host_handler, &self.name)
-                    .await
-                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                if active {
-                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                        ServiceModuleInternalApiCall::Stop(self.name.clone()),
-                        privilege.clone(),
-                    )));
-                }
-            }
-            Some(ServiceExpectedState::Restarted) => {
-                // Unconditional — always restart.
-                remediations.push(Remediation::Service(ServiceApiCall::from(
-                    ServiceModuleInternalApiCall::Restart(self.name.clone()),
-                    privilege.clone(),
-                )));
-            }
-            Some(ServiceExpectedState::Reloaded) => {
-                // Unconditional — always reload.
-                remediations.push(Remediation::Service(ServiceApiCall::from(
-                    ServiceModuleInternalApiCall::Reload(self.name.clone()),
-                    privilege.clone(),
-                )));
-            }
-            None => {}
-        }
 
-        // ── boot-enable state ─────────────────────────────────────────────────
-        match self.enabled {
-            Some(true) => {
-                let is_enabled = service_is_enabled(host_handler, &self.name)
-                    .await
-                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                if !is_enabled {
-                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                        ServiceModuleInternalApiCall::Enable(self.name.clone()),
-                        privilege.clone(),
-                    )));
+                // ── run-state ─────────────────────────────────────────────────────────
+                match &self.state {
+                    Some(ServiceExpectedState::Started) => {
+                        let active = windows_service_is_active(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if !active {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Start(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    Some(ServiceExpectedState::Stopped) => {
+                        let active = windows_service_is_active(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if active {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Stop(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    Some(ServiceExpectedState::Restarted) => {
+                        // Unconditional — always restart.
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Restart(self.name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                    Some(ServiceExpectedState::Reloaded) => {
+                        // Unconditional — always reload.
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Reload(self.name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                    None => {}
+                }
+
+                // ── boot-enable state ─────────────────────────────────────────────────
+                match self.enabled {
+                    Some(true) => {
+                        let is_enabled = windows_service_is_enabled(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if !is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Enable(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    Some(false) => {
+                        let is_enabled = windows_service_is_enabled(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Disable(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    None => {}
                 }
             }
-            Some(false) => {
-                let is_enabled = service_is_enabled(host_handler, &self.name)
+            OsKind::Linux(_) => {
+                // Check if systemctl is available on Linux
+                let command_available = host_handler
+                    .is_this_command_available("systemctl", privilege)
                     .await
-                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                if is_enabled {
-                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                        ServiceModuleInternalApiCall::Disable(self.name.clone()),
-                        privilege.clone(),
-                    )));
+                    .unwrap_or(false);
+                
+                if !command_available {
+                    return Err(RegentError::FailedDryRunEvaluation(
+                        "Service management commands are not available on this Linux host".to_string(),
+                    ));
+                }
+
+                // ── run-state ─────────────────────────────────────────────────────────
+                match &self.state {
+                    Some(ServiceExpectedState::Started) => {
+                        let active = service_is_active(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if !active {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Start(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    Some(ServiceExpectedState::Stopped) => {
+                        let active = service_is_active(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if active {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Stop(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    Some(ServiceExpectedState::Restarted) => {
+                        // Unconditional — always restart.
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Restart(self.name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                    Some(ServiceExpectedState::Reloaded) => {
+                        // Unconditional — always reload.
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Reload(self.name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                    None => {}
+                }
+
+                // ── boot-enable state ─────────────────────────────────────────────────
+                match self.enabled {
+                    Some(true) => {
+                        let is_enabled = service_is_enabled(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if !is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Enable(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    Some(false) => {
+                        let is_enabled = service_is_enabled(host_handler, &self.name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Disable(self.name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                    None => {}
                 }
             }
-            None => {}
+            OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                return Err(RegentError::FailedDryRunEvaluation(
+                    format!("Service management is not supported on {:?}", os_kind),
+                ));
+            }
         }
 
         if remediations.is_empty() {
@@ -308,8 +415,10 @@ impl Check for ServiceApiCall {
                     "systemctl requires systemd but init system could not be detected".to_string(),
                 )),
             },
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but systemctl is only supported on Linux with systemd",
+                "Host is {:?} but service management is only supported on Linux with systemd or Windows (with windows feature)",
                 incompatible_os_kind
             ))),
         }
@@ -323,32 +432,105 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Linux)
+        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
-        let cmd = match &self.api_call {
-            ServiceModuleInternalApiCall::Start(s) => format!("systemctl start {}", s),
-            ServiceModuleInternalApiCall::Stop(s) => format!("systemctl stop {}", s),
-            ServiceModuleInternalApiCall::Restart(s) => format!("systemctl restart {}", s),
-            ServiceModuleInternalApiCall::Reload(s) => format!("systemctl reload {}", s),
-            ServiceModuleInternalApiCall::Enable(s) => format!("systemctl enable {}", s),
-            ServiceModuleInternalApiCall::Disable(s) => format!("systemctl disable {}", s),
-        };
+        // Determine the effective OS kind - assume Linux if HostProperties is None
+        let os_kind = host_properties
+            .as_ref()
+            .map(|props| props.os_kind())
+            .unwrap_or(&OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                init_system: InitSystem::Systemd,
+            }));
 
-        let result = host_handler
-            .run_command(&cmd, &self.privilege)
-            .await
-            .unwrap();
+        // Match on OS kind to execute the appropriate command
+        match os_kind {
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {
+                // Build Windows command
+                let cmd = match &self.api_call {
+                    ServiceModuleInternalApiCall::Start(s) => format!("net start {}", s),
+                    ServiceModuleInternalApiCall::Stop(s) => format!("net stop {}", s),
+                    ServiceModuleInternalApiCall::Restart(s) => {
+                        // Windows doesn't have a direct restart command, we stop then start
+                        format!("net stop {} && net start {}", s, s)
+                    }
+                    ServiceModuleInternalApiCall::Reload(s) => {
+                        // Windows doesn't have a direct reload command
+                        // This might not be supported for all services
+                        format!("sc control {} 128", s) // Sends a reload parameter, but not all services support this
+                    }
+                    ServiceModuleInternalApiCall::Enable(s) => {
+                        format!("sc config {} start= auto", s)
+                    }
+                    ServiceModuleInternalApiCall::Disable(s) => {
+                        format!("sc config {} start= disabled", s)
+                    }
+                };
 
-        if result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success(None))
-        } else {
-            Ok(InternalApiCallOutcome::Failure(format!(
-                "RC: {}, STDOUT: {}, STDERR: {}",
-                result.return_code, result.stdout, result.stderr
-            )))
+                // Execute Windows command
+                let result = host_handler
+                    .run_windows_command(&cmd)
+                    .await;
+
+                match result {
+                    Ok(result) => {
+                        if result.return_code == 0 {
+                            Ok(InternalApiCallOutcome::Success(None))
+                        } else {
+                            Ok(InternalApiCallOutcome::Failure(format!(
+                                "RC: {}, STDOUT: {}, STDERR: {}",
+                                result.return_code, result.stdout, result.stderr
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command execution failed: {:?}",
+                        e
+                    ))),
+                }
+            }
+            OsKind::Linux(_) => {
+                // Build Linux command
+                let cmd = match &self.api_call {
+                    ServiceModuleInternalApiCall::Start(s) => format!("systemctl start {}", s),
+                    ServiceModuleInternalApiCall::Stop(s) => format!("systemctl stop {}", s),
+                    ServiceModuleInternalApiCall::Restart(s) => format!("systemctl restart {}", s),
+                    ServiceModuleInternalApiCall::Reload(s) => format!("systemctl reload {}", s),
+                    ServiceModuleInternalApiCall::Enable(s) => format!("systemctl enable {}", s),
+                    ServiceModuleInternalApiCall::Disable(s) => format!("systemctl disable {}", s),
+                };
+
+                // Execute Linux command
+                let result = host_handler
+                    .run_command(&cmd, &self.privilege)
+                    .await;
+
+                match result {
+                    Ok(result) => {
+                        if result.return_code == 0 {
+                            Ok(InternalApiCallOutcome::Success(None))
+                        } else {
+                            Ok(InternalApiCallOutcome::Failure(format!(
+                                "RC: {}, STDOUT: {}, STDERR: {}",
+                                result.return_code, result.stdout, result.stderr
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command execution failed: {:?}",
+                        e
+                    ))),
+                }
+            }
+            OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                Err(RegentError::FailedDryRunEvaluation(
+                    format!("Service management is not supported on {:?}", os_kind),
+                ))
+            }
         }
     }
 }
@@ -389,6 +571,71 @@ async fn service_is_enabled<Handler: HostHandler>(
             "Unable to check enabled state of {}: {:?}",
             name, e
         )),
+    }
+}
+
+#[cfg(feature = "windows")]
+async fn windows_service_is_active<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    name: &str,
+) -> Result<bool, String> {
+    match host_handler.run_windows_command(&format!("sc query {}", name)).await {
+        Ok(r) => {
+            // sc query returns 0 for success, but we need to parse the output
+            // The output contains "STATE" line which shows the service state
+            if r.return_code != 0 {
+                // Service might not exist or other error
+                if r.stdout.contains("does not exist") || r.stderr.contains("does not exist") {
+                    return Err(format!("Service not found: {}", name));
+                }
+                return Ok(false);
+            }
+            
+            // Parse the output for service state
+            // Looking for lines like: "STATE              : 4  RUNNING"
+            let output = r.stdout.to_lowercase();
+            if output.contains("running") {
+                Ok(true)
+            } else if output.contains("stopped") || output.contains("pending") {
+                Ok(false)
+            } else {
+                // Default to false if we can't determine the state
+                Ok(false)
+            }
+        }
+        Err(e) => Err(format!("Unable to check active state of {}: {:?}", name, e)),
+    }
+}
+
+#[cfg(feature = "windows")]
+async fn windows_service_is_enabled<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    name: &str,
+) -> Result<bool, String> {
+    match host_handler.run_windows_command(&format!("sc qc {}", name)).await {
+        Ok(r) => {
+            // sc qc (query configuration) returns information about the service
+            // We need to look for the START_TYPE line
+            if r.return_code != 0 {
+                if r.stdout.contains("does not exist") || r.stderr.contains("does not exist") {
+                    return Err(format!("Service not found: {}", name));
+                }
+                return Ok(false);
+            }
+            
+            // Parse the output for start type
+            // Looking for lines like: "START_TYPE       : 2   AUTO_START"
+            let output = r.stdout.to_lowercase();
+            if output.contains("auto_start") || output.contains("2") {
+                Ok(true)
+            } else if output.contains("disabled") || output.contains("3") || output.contains("4") {
+                Ok(false)
+            } else {
+                // Default to false if we can't determine
+                Ok(false)
+            }
+        }
+        Err(e) => Err(format!("Unable to check enabled state of {}: {:?}", name, e)),
     }
 }
 
