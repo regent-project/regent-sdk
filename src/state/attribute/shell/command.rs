@@ -3,7 +3,9 @@
 //! This module provides the `CommandBlockExpectedState` type for executing arbitrary
 //! shell commands on managed hosts.
 //!
-//! **Compatible OS:** All (cross-platform)
+//! **Compatible OS:**
+//! - All POSIX systems (Linux, macOS, FreeBSD) - uses `run_command`
+//! - Windows (when `windows` feature is enabled) - uses `run_windows_command`
 //!
 //! # Examples
 //!
@@ -35,7 +37,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind, InitSystem};
 use crate::secrets::{SecretProvidersPool, SecretReference};
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -112,6 +114,25 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
             self.check_host_compatibility(props)?;
         }
 
+        // Determine the effective OS kind - assume Linux if HostProperties is None
+        let os_kind = host_properties
+            .as_ref()
+            .map(|props| props.os_kind())
+            .unwrap_or(&OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                init_system: InitSystem::Systemd,
+            }));
+
+        // Match on OS kind - commands are supported on all platforms
+        match os_kind {
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {},
+            OsKind::Linux(_) => {},
+            OsKind::FreeBsd(_) => {},
+            OsKind::MacOs(_) => {},
+            OsKind::Unknown => {},
+        }
+
         let mut remediations: Vec<Remediation> = Vec::new();
 
         let privilege = privilege.clone();
@@ -163,26 +184,72 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
             self.check_host_compatibility(props)?;
         }
 
-        let cmd_result = host_handler
-            .run_command(
-                &self
-                    .cmd
-                    .clone()
-                    .inner_raw(optional_secret_provider)
-                    .await
-                    .unwrap(),
-                &self.privilege,
-            )
+        // Determine the effective OS kind - assume Linux if HostProperties is None
+        let os_kind = host_properties
+            .as_ref()
+            .map(|props| props.os_kind())
+            .unwrap_or(&OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                init_system: InitSystem::Systemd,
+            }));
+
+        // Get the raw command string
+        let cmd_string = self
+            .cmd
+            .clone()
+            .inner_raw(optional_secret_provider)
             .await
             .unwrap();
 
-        if cmd_result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success(Some(cmd_result.stdout)))
-        } else {
-            Ok(InternalApiCallOutcome::Failure(format!(
-                "RC : {}, STDOUT : {}, STDERR : {}",
-                cmd_result.return_code, cmd_result.stdout, cmd_result.stderr
-            )))
+        // Match on OS kind to use the appropriate command execution method
+        match os_kind {
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {
+                // Execute command on Windows using run_windows_command
+                let cmd_result = host_handler
+                    .run_windows_command(&cmd_string)
+                    .await;
+
+                match cmd_result {
+                    Ok(result) => {
+                        if result.return_code == 0 {
+                            Ok(InternalApiCallOutcome::Success(Some(result.stdout)))
+                        } else {
+                            Ok(InternalApiCallOutcome::Failure(format!(
+                                "RC : {}, STDOUT : {}, STDERR : {}",
+                                result.return_code, result.stdout, result.stderr
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command execution failed: {:?}",
+                        e
+                    ))),
+                }
+            }
+            OsKind::Linux(_) | OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                // Execute command on POSIX systems using run_command
+                let cmd_result = host_handler
+                    .run_command(&cmd_string, &self.privilege)
+                    .await;
+
+                match cmd_result {
+                    Ok(result) => {
+                        if result.return_code == 0 {
+                            Ok(InternalApiCallOutcome::Success(Some(result.stdout)))
+                        } else {
+                            Ok(InternalApiCallOutcome::Failure(format!(
+                                "RC : {}, STDOUT : {}, STDERR : {}",
+                                result.return_code, result.stdout, result.stderr
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command execution failed: {:?}",
+                        e
+                    ))),
+                }
+            }
         }
     }
 }
