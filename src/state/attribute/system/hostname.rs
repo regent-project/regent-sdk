@@ -3,7 +3,9 @@
 //! This module provides the `HostnameBlockExpectedState` type for setting and managing
 //! the system hostname.
 //!
-//! **Compatible OS:** Linux, macOS, FreeBSD
+//! **Compatible OS:**
+//! - Linux, macOS, FreeBSD - uses hostnamectl or /etc/hostname
+//! - Windows (when `windows` feature is enabled) - uses Windows hostname commands
 //!
 //! # Examples
 //!
@@ -37,7 +39,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, OsKind};
+use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind, InitSystem};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -55,6 +57,9 @@ pub enum HostnameMethod {
     Systemd,
     /// Uses hostname command + writes /etc/hostname (non-systemd systems)
     Generic,
+    #[cfg(feature = "windows")]
+    /// Uses Windows hostname command (Windows only)
+    Windows,
 }
 
 /// Configuration for managing the system hostname
@@ -112,8 +117,10 @@ impl Check for HostnameBlockExpectedState {
     ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => Ok(()),
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but hostname management is only supported on Unix-like systems",
+                "Host is {:?} but hostname management is only supported on Unix-like systems or Windows (with windows feature)",
                 incompatible_os_kind
             ))),
         }
@@ -128,28 +135,69 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Unix-like systems)
+        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
-        let current_hostname = match host_handler
-            .run_command("cat /etc/hostname", &Privilege::None)
-            .await
-        {
-            Ok(result) => {
-                if result.return_code != 0 {
-                    return Err(RegentError::FailedDryRunEvaluation(
-                        "Failed to get current hostname".to_string(),
-                    ));
+        // Determine the effective OS kind - assume Linux if HostProperties is None
+        let os_kind = host_properties
+            .as_ref()
+            .map(|props| props.os_kind())
+            .unwrap_or(&OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                init_system: InitSystem::Systemd,
+            }));
+
+        // Get current hostname based on OS
+        let current_hostname = match os_kind {
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {
+                match host_handler
+                    .run_windows_command("hostname")
+                    .await
+                {
+                    Ok(result) => {
+                        if result.return_code != 0 {
+                            return Err(RegentError::FailedDryRunEvaluation(
+                                "Failed to get current hostname on Windows".to_string(),
+                            ));
+                        }
+                        result.stdout.trim().to_string()
+                    }
+                    Err(e) => {
+                        return Err(RegentError::FailedDryRunEvaluation(format!(
+                            "Unable to get hostname on Windows: {:?}",
+                            e
+                        )));
+                    }
                 }
-                result.stdout.trim().to_string()
             }
-            Err(e) => {
-                return Err(RegentError::FailedDryRunEvaluation(format!(
-                    "Unable to get hostname: {:?}",
-                    e
-                )));
+            OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => {
+                match host_handler
+                    .run_command("cat /etc/hostname", &Privilege::None)
+                    .await
+                {
+                    Ok(result) => {
+                        if result.return_code != 0 {
+                            return Err(RegentError::FailedDryRunEvaluation(
+                                "Failed to get current hostname".to_string(),
+                            ));
+                        }
+                        result.stdout.trim().to_string()
+                    }
+                    Err(e) => {
+                        return Err(RegentError::FailedDryRunEvaluation(format!(
+                            "Unable to get hostname: {:?}",
+                            e
+                        )));
+                    }
+                }
+            }
+            OsKind::Unknown => {
+                return Err(RegentError::FailedDryRunEvaluation(
+                    "Cannot determine hostname on unknown OS".to_string(),
+                ));
             }
         };
 
@@ -157,7 +205,28 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
             return Ok(AttributeComplianceAssessment::Compliant);
         }
 
-        let method = self.method.clone().unwrap_or(HostnameMethod::Systemd);
+        // Determine method based on OS and user preference
+        let method = match os_kind {
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {
+                // On Windows, only Windows method makes sense
+                self.method.clone().unwrap_or(HostnameMethod::Windows)
+            }
+            OsKind::Linux(_) => {
+                // On Linux, use user preference or default to Systemd
+                self.method.clone().unwrap_or(HostnameMethod::Systemd)
+            }
+            OsKind::MacOs(_) | OsKind::FreeBsd(_) => {
+                // On macOS and FreeBSD, Generic method is more appropriate
+                self.method.clone().unwrap_or(HostnameMethod::Generic)
+            }
+            OsKind::Unknown => {
+                return Err(RegentError::FailedDryRunEvaluation(
+                    "Cannot set hostname on unknown OS".to_string(),
+                ));
+            }
+        };
+
         Ok(AttributeComplianceAssessment::NonCompliant(vec![
             Remediation::Hostname(HostnameApiCall::from(
                 HostnameModuleInternalApiCall::SetHostname {
@@ -223,8 +292,10 @@ impl Check for HostnameApiCall {
     ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => Ok(()),
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but hostname management is only supported on Unix-like systems",
+                "Host is {:?} but hostname management is only supported on Unix-like systems or Windows (with windows feature)",
                 incompatible_os_kind
             ))),
         }
@@ -238,36 +309,104 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Unix-like systems)
+        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
-        let (cmd, privilege) = match &self.api_call {
-            HostnameModuleInternalApiCall::SetHostname { name, method } => {
+        // Determine the effective OS kind - assume Linux if HostProperties is None
+        let os_kind = host_properties
+            .as_ref()
+            .map(|props| props.os_kind())
+            .unwrap_or(&OsKind::Linux(LinuxSpecifics {
+                linux_flavor: LinuxFlavor::Debian,
+                init_system: InitSystem::Systemd,
+            }));
+
+        // Match on OS kind to execute the appropriate hostname command
+        match os_kind {
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {
+                // Extract hostname and method from the API call
+                let (name, method) = match &self.api_call {
+                    HostnameModuleInternalApiCall::SetHostname { name, method } => (name, method),
+                };
+
+                // Build Windows hostname command
+                let cmd = match method {
+                    HostnameMethod::Windows => format!("hostname {}", name),
+                    // For Windows, we'll use the Windows method even if user specified systemd/generic
+                    HostnameMethod::Systemd | HostnameMethod::Generic => format!("hostname {}", name),
+                };
+
+                // Execute Windows command
+                let cmd_result = host_handler
+                    .run_windows_command(&cmd)
+                    .await;
+
+                match cmd_result {
+                    Ok(result) => {
+                        if result.return_code == 0 {
+                            Ok(InternalApiCallOutcome::Success(None))
+                        } else {
+                            Ok(InternalApiCallOutcome::Failure(format!(
+                                "RC: {}, STDOUT: {}, STDERR: {}",
+                                result.return_code, result.stdout, result.stderr
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command execution failed: {:?}",
+                        e
+                    ))),
+                }
+            }
+            OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => {
+                // Extract hostname and method from the API call
+                let (name, method) = match &self.api_call {
+                    HostnameModuleInternalApiCall::SetHostname { name, method } => (name, method),
+                };
+
+                // Build Unix hostname command
                 let cmd = match method {
                     HostnameMethod::Systemd => format!("hostnamectl set-hostname {}", name),
-                    // Sets transient hostname and persists it in /etc/hostname
                     HostnameMethod::Generic => {
                         format!("hostname {} && echo {} > /etc/hostname", name, name)
                     }
+                    #[cfg(feature = "windows")]
+                    HostnameMethod::Windows => {
+                        // On Unix, use systemd as fallback for Windows method
+                        format!("hostnamectl set-hostname {}", name)
+                    }
                 };
-                (cmd, &self.privilege)
+
+                // Execute Unix command
+                let cmd_result = host_handler
+                    .run_command(&cmd, &self.privilege)
+                    .await;
+
+                match cmd_result {
+                    Ok(result) => {
+                        if result.return_code == 0 {
+                            Ok(InternalApiCallOutcome::Success(None))
+                        } else {
+                            Ok(InternalApiCallOutcome::Failure(format!(
+                                "RC: {}, STDOUT: {}, STDERR: {}",
+                                result.return_code, result.stdout, result.stderr
+                            )))
+                        }
+                    }
+                    Err(e) => Ok(InternalApiCallOutcome::Failure(format!(
+                        "Command execution failed: {:?}",
+                        e
+                    ))),
+                }
             }
-        };
-
-        let cmd_result = host_handler
-            .run_command(cmd.as_str(), privilege)
-            .await
-            .unwrap();
-
-        if cmd_result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success(None))
-        } else {
-            Ok(InternalApiCallOutcome::Failure(format!(
-                "RC: {}, STDOUT: {}, STDERR: {}",
-                cmd_result.return_code, cmd_result.stdout, cmd_result.stderr
-            )))
+            OsKind::Unknown => {
+                Err(RegentError::FailedDryRunEvaluation(
+                    "Cannot set hostname on unknown OS".to_string(),
+                ))
+            }
         }
     }
 }
