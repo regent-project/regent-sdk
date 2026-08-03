@@ -75,6 +75,7 @@ impl HostProperties {
         }
 
         // OsKind still unknown, trying to detect Windows -> run "systeminfo"
+        #[cfg(feature = "windows")]
         if let OsKind::Unknown = os_kind {
             if let Ok(cmd_result) = host_handler.run_windows_command("systeminfo").await {
                 if cmd_result.stdout.contains("Microsoft Windows") {
@@ -114,6 +115,7 @@ impl HostProperties {
     ) -> Option<String> {
         match os_kind {
             OsKind::Unknown => None,
+            #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
                 let cmd_result = host_handler.run_windows_command("hostname").await.ok()?;
                 if cmd_result.return_code == 0 {
@@ -176,6 +178,7 @@ impl HostProperties {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum OsKind {
     Unknown,
+    #[cfg(feature = "windows")]
     Windows(WindowsSpecifics),
     FreeBsd(FreeBsdSpecifics),
     MacOs(MacOsSpecifics),
@@ -195,6 +198,7 @@ pub struct MacOsSpecifics;
 pub struct FreeBsdSpecifics;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[cfg(feature = "windows")]
 pub struct WindowsSpecifics;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]

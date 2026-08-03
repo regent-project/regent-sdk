@@ -23,6 +23,7 @@
 //!
 //! - `aws-secretsmanager`: Enable AWS Secrets Manager support via [`SecretProvider::aws_secretsmanager`]
 //! - `gcp-secretmanager`: Enable Google Cloud Secret Manager support via [`SecretProvider::gcp_secretmanager`]
+//! - `windows`: Enable Windows support, including Windows OS detection, command execution, and service management
 //!
 //! ## Capabilities
 //!

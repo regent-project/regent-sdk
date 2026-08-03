@@ -134,7 +134,7 @@ pub enum ConnectionMethod {
 /// - [`disconnect`]: Close the connection
 /// - [`is_this_command_available`]: Check if a command exists on the host
 /// - [`run_command`]: Execute a command on the host
-/// - [`run_windows_command`]: Execute a Windows command
+/// - [`run_windows_command`]: Execute a Windows command (available when the `windows` feature is enabled)
 /// - [`get_file`]: Retrieve a file from the host
 ///
 /// # Example
@@ -215,6 +215,7 @@ pub trait HostHandler: Sized {
     /// # Returns
     ///
     /// A [`CommandResult`] or a [`RegentError`] if execution failed.
+    #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError>;
 
     /// Retrieve the contents of a file from the host.
@@ -355,6 +356,7 @@ impl HostHandler for Handler {
         }
     }
 
+    #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.run_windows_command(command).await,

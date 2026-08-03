@@ -159,6 +159,7 @@ impl HostHandler for LocalHostHandler {
         }
     }
 
+    #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
         match Command::new("cmd").args(&["/C", command]).output().await {
             Ok(output) => match output.status.code() {

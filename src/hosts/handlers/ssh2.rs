@@ -342,6 +342,7 @@ impl HostHandler for Ssh2HostHandler {
         }
     }
 
+    #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
         match self {
             Ssh2HostHandler::NotConnected(_auth_method) => {
