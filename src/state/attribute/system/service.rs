@@ -15,11 +15,11 @@
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Ensure httpd service is running and enabled
-//! let httpd = ServiceBlockExpectedState::builder("httpd")
-//!     .with_state(ServiceExpectedState::Started)
-//!     .with_enabled(true)
-//!     .build()
-//!     .unwrap();
+//! let httpd = ServiceBlockExpectedState::state_and_enabled(
+//!     "httpd",
+//!     ServiceExpectedState::Started,
+//!     true
+//! );
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::service(httpd, Privilege::WithSudo, None))
@@ -56,7 +56,7 @@ use std::time::Duration;
 /// - `Started`  / `Stopped`  — idempotent: only act if the service is not already in the target state.
 /// - `Restarted`/ `Reloaded` — unconditional: always emit the corresponding systemctl command.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "lowercase")]
 pub enum ServiceExpectedState {
     /// Service should be running
     Started,
@@ -70,15 +70,22 @@ pub enum ServiceExpectedState {
 
 /// Configuration for a system service
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "PascalCase")]
-pub struct ServiceBlockExpectedState {
-    /// Service name
-    name: String,
-    /// Desired run-state. At least one of State or Enabled must be set.
-    state: Option<ServiceExpectedState>,
-    /// Whether the service should be enabled (start on boot). true = enabled, false = disabled.
-    enabled: Option<bool>,
+#[serde(rename_all_fields = "PascalCase")]
+#[serde(untagged)]
+pub enum ServiceBlockExpectedState {
+    StateOnly {
+        name: String,
+        state: ServiceExpectedState
+    },
+    EnabledOnly {
+        name: String,
+        enabled: bool
+    },
+    StateAndEnabled {
+        name: String,
+        state: ServiceExpectedState,
+        enabled: bool
+    }
 }
 
 impl Timeout for ServiceBlockExpectedState {
@@ -88,37 +95,26 @@ impl Timeout for ServiceBlockExpectedState {
 }
 
 impl ServiceBlockExpectedState {
-    pub fn builder(service_name: &str) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState {
-            name: service_name.to_string(),
-            state: None,
-            enabled: None,
-        }
+    pub fn state_only(name: &str, state: ServiceExpectedState) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::StateOnly { name: name.to_string(), state }
     }
 
-    pub fn with_state(&mut self, state: ServiceExpectedState) -> &mut Self {
-        self.state = Some(state);
-        self
+    pub fn enabled_only(name: &str, enabled: bool) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::EnabledOnly { name: name.to_string(), enabled }
     }
 
-    pub fn with_enabled(&mut self, enabled: bool) -> &mut Self {
-        self.enabled = Some(enabled);
-        self
-    }
-
-    pub fn build(&self) -> Result<ServiceBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
+    pub fn state_and_enabled(name: &str, state: ServiceExpectedState, enabled: bool) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::StateAndEnabled { name: name.to_string(), state, enabled }
     }
 }
 
 impl Check for ServiceBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if self.state.is_none() && self.enabled.is_none() {
-            return Err(RegentError::IncoherentExpectedState(
-                "At least one of State or Enabled must be set.".to_string(),
-            ));
-        }
+        // if self.state.is_none() && self.enabled.is_none() {
+        //     return Err(RegentError::IncoherentExpectedState(
+        //         "At least one of State or Enabled must be set.".to_string(),
+        //     ));
+        // }
         Ok(())
     }
 
@@ -166,10 +162,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                 linux_flavor: LinuxFlavor::Debian,
                 init_system: InitSystem::Systemd,
             }));
-
-        // Match on OS kind to determine service checking behavior
-        let mut remediations: Vec<Remediation> = Vec::new();
-
+        
+        // Check OS-dependent prerequisites
         match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
@@ -181,76 +175,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                 
                 if !command_available {
                     return Err(RegentError::FailedDryRunEvaluation(
-                        "Service management commands are not available on this Windows host".to_string(),
+                        "Service management commands (sc) are not available on this Windows host".to_string(),
                     ));
-                }
-
-                // ── run-state ─────────────────────────────────────────────────────────
-                match &self.state {
-                    Some(ServiceExpectedState::Started) => {
-                        let active = windows_service_is_active(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if !active {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Start(self.name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    Some(ServiceExpectedState::Stopped) => {
-                        let active = windows_service_is_active(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if active {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Stop(self.name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    Some(ServiceExpectedState::Restarted) => {
-                        // Unconditional — always restart.
-                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                            ServiceModuleInternalApiCall::Restart(self.name.clone()),
-                            privilege.clone(),
-                        )));
-                    }
-                    Some(ServiceExpectedState::Reloaded) => {
-                        // Unconditional — always reload.
-                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                            ServiceModuleInternalApiCall::Reload(self.name.clone()),
-                            privilege.clone(),
-                        )));
-                    }
-                    None => {}
-                }
-
-                // ── boot-enable state ─────────────────────────────────────────────────
-                match self.enabled {
-                    Some(true) => {
-                        let is_enabled = windows_service_is_enabled(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if !is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Enable(self.name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    Some(false) => {
-                        let is_enabled = windows_service_is_enabled(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Disable(self.name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    None => {}
                 }
             }
             OsKind::Linux(_) => {
@@ -262,82 +188,294 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                 
                 if !command_available {
                     return Err(RegentError::FailedDryRunEvaluation(
-                        "Service management commands are not available on this Linux host".to_string(),
+                        "Service management commands (systemctl) are not available on this Linux host".to_string(),
                     ));
                 }
+            }
+            OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {}
+        }
 
-                // ── run-state ─────────────────────────────────────────────────────────
-                match &self.state {
-                    Some(ServiceExpectedState::Started) => {
-                        let active = service_is_active(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if !active {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Start(self.name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    Some(ServiceExpectedState::Stopped) => {
-                        let active = service_is_active(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if active {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Stop(self.name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    Some(ServiceExpectedState::Restarted) => {
-                        // Unconditional — always restart.
-                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                            ServiceModuleInternalApiCall::Restart(self.name.clone()),
-                            privilege.clone(),
-                        )));
-                    }
-                    Some(ServiceExpectedState::Reloaded) => {
-                        // Unconditional — always reload.
-                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                            ServiceModuleInternalApiCall::Reload(self.name.clone()),
-                            privilege.clone(),
-                        )));
-                    }
-                    None => {}
-                }
+        // Match on OS kind to determine service checking behavior
+        let mut remediations: Vec<Remediation> = Vec::new();
 
-                // ── boot-enable state ─────────────────────────────────────────────────
-                match self.enabled {
-                    Some(true) => {
-                        let is_enabled = service_is_enabled(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if !is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Enable(self.name.clone()),
-                                privilege.clone(),
-                            )));
+        match &self {
+            Self::StateOnly { name, state } => {
+                match os_kind {
+                    #[cfg(feature = "windows")]
+                    OsKind::Windows(_) => {
+                        match &state {
+                            ServiceExpectedState::Started => {
+                                let active = windows_service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if !active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Start(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Stopped => {
+                                let active = windows_service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Stop(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Restarted => {
+                                // Unconditional — always restart.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Restart(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                            ServiceExpectedState::Reloaded => {
+                                // Unconditional — always reload.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Reload(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
                         }
                     }
-                    Some(false) => {
-                        let is_enabled = service_is_enabled(host_handler, &self.name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Disable(self.name.clone()),
-                                privilege.clone(),
-                            )));
+                    OsKind::Linux(_) => {
+                        match &state {
+                            ServiceExpectedState::Started => {
+                                let active = service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if !active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Start(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Stopped => {
+                                let active = service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Stop(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Restarted => {
+                                // Unconditional — always restart.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Restart(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                            ServiceExpectedState::Reloaded => {
+                                // Unconditional — always reload.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Reload(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
                         }
                     }
-                    None => {}
+                    OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                        return Err(RegentError::FailedDryRunEvaluation(
+                            format!("Service management is not supported on {:?}", os_kind),
+                        ));
+                    }
                 }
             }
-            OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
-                return Err(RegentError::FailedDryRunEvaluation(
-                    format!("Service management is not supported on {:?}", os_kind),
-                ));
+            Self::EnabledOnly { name, enabled } => {
+                match os_kind {
+                    #[cfg(feature = "windows")]
+                    OsKind::Windows(_) => {
+                        if *enabled {
+                            let is_enabled = windows_service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if !is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Enable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        } else {
+                            let is_enabled = windows_service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Disable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        }
+                    }
+                    OsKind::Linux(_) => {
+                        if *enabled {
+                            let is_enabled = service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if !is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Enable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        } else {
+                            let is_enabled = service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Disable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        }
+                    }
+                    OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                        return Err(RegentError::FailedDryRunEvaluation(
+                            format!("Service management is not supported on {:?}", os_kind),
+                        ));
+                    }
+                }
+            }
+            Self::StateAndEnabled { name, state, enabled } => {
+                match os_kind {
+                    #[cfg(feature = "windows")]
+                    OsKind::Windows(_) => {
+                        match &state {
+                            ServiceExpectedState::Started => {
+                                let active = windows_service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if !active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Start(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Stopped => {
+                                let active = windows_service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Stop(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Restarted => {
+                                // Unconditional — always restart.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Restart(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                            ServiceExpectedState::Reloaded => {
+                                // Unconditional — always reload.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Reload(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        }
+                        if *enabled {
+                            let is_enabled = windows_service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if !is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Enable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        } else {
+                            let is_enabled = windows_service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Disable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        }
+                    }
+                    OsKind::Linux(_) => {
+                        match &state {
+                            ServiceExpectedState::Started => {
+                                let active = service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if !active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Start(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Stopped => {
+                                let active = service_is_active(host_handler, &name)
+                                    .await
+                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                if active {
+                                    remediations.push(Remediation::Service(ServiceApiCall::from(
+                                        ServiceModuleInternalApiCall::Stop(name.clone()),
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
+                            ServiceExpectedState::Restarted => {
+                                // Unconditional — always restart.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Restart(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                            ServiceExpectedState::Reloaded => {
+                                // Unconditional — always reload.
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Reload(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        }
+                        if *enabled {
+                            let is_enabled = service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if !is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Enable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        } else {
+                            let is_enabled = service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if is_enabled {
+                                remediations.push(Remediation::Service(ServiceApiCall::from(
+                                    ServiceModuleInternalApiCall::Disable(name.clone()),
+                                    privilege.clone(),
+                                )));
+                            }
+                        }
+                    }
+                    OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                        return Err(RegentError::FailedDryRunEvaluation(
+                            format!("Service management is not supported on {:?}", os_kind),
+                        ));
+                    }
+                }
             }
         }
 
@@ -667,36 +805,5 @@ mod tests {
   Enabled: true
         ";
         let _: Vec<ServiceBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
-    }
-
-    #[test]
-    fn check_rejects_empty_state_and_enabled() {
-        let result = ServiceBlockExpectedState::builder("nginx").build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_accepts_state_only() {
-        let result = ServiceBlockExpectedState::builder("nginx")
-            .with_state(ServiceExpectedState::Started)
-            .build();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn check_accepts_enabled_only() {
-        let result = ServiceBlockExpectedState::builder("nginx")
-            .with_enabled(true)
-            .build();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn check_accepts_restarted_with_enabled() {
-        let result = ServiceBlockExpectedState::builder("nginx")
-            .with_state(ServiceExpectedState::Restarted)
-            .with_enabled(false)
-            .build();
-        assert!(result.is_ok());
     }
 }

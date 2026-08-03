@@ -30,11 +30,7 @@ async fn main() {
     assert!(managed_host.connect().await.is_ok());
 
     // Describe the expected state
-    let httpd_service_active_and_enabled = ServiceBlockExpectedState::builder("httpd")
-        .with_state(ServiceExpectedState::Started)
-        .with_enabled(true)
-        .build()
-        .unwrap();
+    let httpd_service_active_and_enabled = ServiceBlockExpectedState::state_and_enabled("httpd", ServiceExpectedState::Started, true);
 
     let localhost_expected_state = ExpectedState::new()
         .with_attribute(Attribute::service(
