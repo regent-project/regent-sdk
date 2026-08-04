@@ -14,10 +14,13 @@
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install a package
-//! let pkg = PacmanBlockExpectedState::builder()
-//!     .with_package_state("nginx", PackageExpectedState::Present)
-//!     .build()
-//!     .unwrap();
+//! let pkg = PacmanBlockExpectedState::package_state("nginx", PackageExpectedState::Present);
+//!
+//! // Remove a package
+//! let pkg = PacmanBlockExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//!
+//! // Trigger a full system upgrade
+//! let upgrade = PacmanBlockExpectedState::system_upgrade();
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::pacman(pkg, Privilege::WithSudo, None))
@@ -32,7 +35,17 @@
 //!     Privilege: !WithSudo
 //!     Detail: !Pacman
 //!       Package: nginx
-//!       State: !Present
+//!       State: present
+//! ```
+//!
+//! For a full system upgrade:
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: System must be up to date
+//!     Privilege: !WithSudo
+//!     Detail: !Pacman
+//!       SystemUpgrade
 //! ```
 
 use crate::error::RegentError;
@@ -69,7 +82,7 @@ impl std::fmt::Display for PacmanModuleInternalApiCall {
 
 /// Desired state of a package
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "lowercase")]
 pub enum PackageExpectedState {
     /// Package should be installed
     Present,
@@ -78,75 +91,61 @@ pub enum PackageExpectedState {
 }
 
 /// Configuration for Pacman package management
+///
+/// This enum represents the desired state for Pacman package management on Arch Linux systems.
+/// It supports two main operations:
+/// - Managing individual packages (install/remove) via the `PackageState` variant
+/// - Performing a full system upgrade via the `SystemUpgrade` variant
+///
+/// # YAML Representation
+///
+/// ## Package management:
+/// ```yaml
+/// Package: nginx
+/// State: present  # or "absent" to remove
+/// ```
+///
+/// ## Full system upgrade:
+/// ```yaml
+/// SystemUpgrade
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
-#[serde(rename_all = "PascalCase")]
-pub struct PacmanBlockExpectedState {
-    /// Desired state of the package(s)
-    state: Option<PackageExpectedState>,
-    /// Package name to manage
-    package: Option<String>,
-    /// Whether to perform a full system upgrade
-    upgrade: Option<bool>,
+pub enum PacmanBlockExpectedState {
+    /// Perform a full system upgrade (pacman -Syu)
+    SystemUpgrade,
+    /// Manage a specific package's state
+    #[serde(untagged)]
+    PackageState {
+        /// Name of the package to manage
+        package: String,
+        /// Desired state of the package
+        state: PackageExpectedState
+    }
 }
 
 impl Timeout for PacmanBlockExpectedState {
     fn default_timeout(&self) -> Duration {
-        Duration::from_secs(30)
+        match self {
+            Self::SystemUpgrade => Duration::from_secs(300),
+            Self::PackageState { package: _, state: _ } => Duration::from_secs(60),
+        }
     }
 }
 
 impl PacmanBlockExpectedState {
-    pub fn builder() -> PacmanBlockExpectedState {
-        PacmanBlockExpectedState {
-            state: None,
-            package: None,
-            upgrade: None,
-        }
+    pub fn system_upgrade() -> PacmanBlockExpectedState {
+        PacmanBlockExpectedState::SystemUpgrade
     }
 
-    pub fn with_system_upgrade(&mut self) -> &mut Self {
-        self.upgrade = Some(true);
-        self
-    }
-
-    pub fn with_package_state(
-        &mut self,
-        package_name: &str,
-        package_state: PackageExpectedState,
-    ) -> &mut Self {
-        self.package = Some(package_name.to_string());
-        self.state = Some(package_state);
-        self
-    }
-
-    pub fn build(&self) -> Result<PacmanBlockExpectedState, RegentError> {
-        if let Err(details) = self.check() {
-            return Err(details);
-        }
-        Ok(self.clone())
+    pub fn package_state(package: &str, state: PackageExpectedState) -> PacmanBlockExpectedState {
+        PacmanBlockExpectedState::PackageState { package: package.to_string(), state }
     }
 }
 
 impl Check for PacmanBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-            return Err(RegentError::IncoherentExpectedState(format!(
-                "All parameters are unset. Please describe the expected state."
-            )));
-        }
-        if let (None, Some(package_name)) = (&self.state, &self.package) {
-            return Err(RegentError::IncoherentExpectedState(format!(
-                "Missing 'state' parameter. What is the expected state of the package ({}) ?",
-                package_name
-            )));
-        }
-        if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-            return Err(RegentError::IncoherentExpectedState(format!(
-                "Missing 'package' parameter. Which package should be {:?} ?",
-                package_expected_state
-            )));
-        }
         Ok(())
     }
 
@@ -192,66 +191,46 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
 
         let mut remediations: Vec<Remediation> = Vec::new();
 
-        match &self.state {
-            None => {}
-            Some(state) => {
-                match state {
-                    PackageExpectedState::Present => {
-                        // Check is package is already installed or needs to be
-                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
-                            remediations.push(Remediation::None(format!(
-                                "{} already present",
-                                self.package.clone().unwrap()
-                            )));
-                        } else {
-                            // Package is absent and needs to be installed
-                            remediations.push(Remediation::Pacman(PacmanApiCall::from(
-                                PacmanModuleInternalApiCall::Install(self.package.clone().unwrap()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    PackageExpectedState::Absent => {
-                        // Check is package is already absent or needs to be removed
-                        if is_package_installed(host_handler, self.package.clone().unwrap()).await {
-                            // Package is present and needs to be removed
-                            remediations.push(Remediation::Pacman(PacmanApiCall::from(
-                                PacmanModuleInternalApiCall::Remove(self.package.clone().unwrap()),
-                                privilege.clone(),
-                            )));
-                        } else {
-                            remediations.push(Remediation::None(format!(
-                                "{} already absent",
-                                self.package.clone().unwrap()
-                            )));
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Some(value) = self.upgrade {
-            if value {
+        match &self {
+            Self::SystemUpgrade => {
+                // For system upgrade, we always add the upgrade remediation
+                // In a more sophisticated implementation, we could check if upgrades are available
                 remediations.push(Remediation::Pacman(PacmanApiCall::from(
                     PacmanModuleInternalApiCall::Upgrade,
                     privilege.clone(),
                 )));
             }
+            Self::PackageState { package, state: expected_state } => {
+                let package_is_currently_installed = is_package_installed(host_handler, package).await;
+
+                match (package_is_currently_installed, expected_state) {
+                    (true, PackageExpectedState::Present) => {} // Nothing to do
+                    (true, PackageExpectedState::Absent) => {
+                        // Package is present and needs to be removed
+                        remediations.push(Remediation::Pacman(PacmanApiCall::from(
+                            PacmanModuleInternalApiCall::Remove(package.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                    (false, PackageExpectedState::Present) => {
+                        // Package is absent and needs to be installed
+                        remediations.push(Remediation::Pacman(PacmanApiCall::from(
+                            PacmanModuleInternalApiCall::Install(package.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                    (false, PackageExpectedState::Absent) => {} // Nothing to do
+                }
+            }
         }
 
-        // If remediations are only None, it means a Match. If only one change is not a None, return the whole list.
-        let filtered_remediations: Vec<Remediation> = remediations
-            .into_iter()
-            .filter(|r| !matches!(r, Remediation::None(_)))
-            .collect();
-        
-        if filtered_remediations.is_empty() {
-            return Ok(AttributeComplianceAssessment::Compliant);
+        if remediations.is_empty() {
+            Ok(AttributeComplianceAssessment::Compliant)
+        } else {
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(remediations)?
+            ))
         }
-        
-        return Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(filtered_remediations)?
-        ));
     }
 }
 
@@ -338,11 +317,11 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
                 let verification_result = match &self.api_call {
                     PacmanModuleInternalApiCall::Install(_) => {
                         // Verify the package is now installed
-                        is_package_installed(host_handler, pkg_name.clone()).await
+                        is_package_installed(host_handler, pkg_name).await
                     }
                     PacmanModuleInternalApiCall::Remove(_) => {
                         // Verify the package is now removed
-                        !is_package_installed(host_handler, pkg_name.clone()).await
+                        !is_package_installed(host_handler, pkg_name).await
                     }
                     PacmanModuleInternalApiCall::Upgrade => {
                         // Upgrade is a system-wide operation, can't easily verify individual packages
@@ -382,7 +361,7 @@ impl PacmanApiCall {
 
 async fn is_package_installed<Handler: HostHandler>(
     host_handler: &mut Handler,
-    package: String,
+    package: &str,
 ) -> bool {
     let test = host_handler
         .run_command(
@@ -392,7 +371,7 @@ async fn is_package_installed<Handler: HostHandler>(
         .await
         .unwrap();
 
-    if test.return_code == 0 { true } else { false }
+    test.return_code == 0
 }
 
 #[cfg(test)]
@@ -404,50 +383,49 @@ mod tests {
     fn parsing_pacman_module_block_from_yaml_str() {
         let raw_attributes = "---
 - Package: apache
-  State: !Present
+  State: present
 
 - Package: apache
-  State: !Absent
+  State: absent
 
-- Upgrade: true
+- SystemUpgrade
     ";
 
         let attributes: Vec<PacmanBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
 
-        assert_eq!(attributes[0].package, Some("apache".to_string()));
-        assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));
-        assert_eq!(attributes[0].upgrade, None);
+        assert_eq!(attributes[0], PacmanBlockExpectedState::PackageState {
+            package: "apache".to_string(),
+            state: PackageExpectedState::Present
+        });
 
-        assert_eq!(attributes[1].package, Some("apache".to_string()));
-        assert_eq!(attributes[1].state, Some(PackageExpectedState::Absent));
-        assert_eq!(attributes[1].upgrade, None);
+        assert_eq!(attributes[1], PacmanBlockExpectedState::PackageState {
+            package: "apache".to_string(),
+            state: PackageExpectedState::Absent
+        });
 
-        assert_eq!(attributes[2].package, None);
-        assert_eq!(attributes[2].state, None);
-        assert_eq!(attributes[2].upgrade, Some(true));
+        assert_eq!(attributes[2], PacmanBlockExpectedState::SystemUpgrade);
     }
 
     #[test]
     fn rejecting_incorrect_pacman_module_block_from_yaml_str() {
+        // Test that Package without State fails to deserialize
         let raw_attribute = "---
 Package: apache
     ";
-        let yaml_part = yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute);
-        assert!(yaml_part.is_ok());
-        assert!(yaml_part.unwrap().check().is_err());
+        assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
 
+        // Test that Package with empty State fails
         let raw_attribute = "---
 Package:
-State: !Absent
+State: absent
     ";
-        let yaml_part = yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute);
-        assert!(yaml_part.is_ok());
-        assert!(yaml_part.unwrap().check().is_err());
+        assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
 
+        // Test that unknown keys are rejected
         let raw_attribute = "---
 Package: apache
-State: !Absent
+State: absent
 unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
