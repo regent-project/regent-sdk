@@ -788,18 +788,18 @@ mod tests {
     fn parsing_service_module_block_from_yaml_str() {
         let raw = "---
 - Name: nginx
-  State: !Started
+  State: started
   Enabled: true
 
 - Name: nginx
-  State: !Stopped
+  State: stopped
   Enabled: false
 
 - Name: nginx
-  State: !Restarted
+  State: restarted
 
 - Name: nginx
-  State: !Reloaded
+  State: reloaded
 
 - Name: nginx
   Enabled: true
