@@ -25,10 +25,7 @@ async fn main() {
     assert!(managed_host.connect().await.is_ok());
 
     // Describe the expected state
-    let apache_expected_state = AptBlockExpectedState::builder()
-        .with_package_state("apache2", PackageExpectedState::Present)
-        .build()
-        .unwrap();
+    let apache_expected_state = AptBlockExpectedState::package_state("apache2", PackageExpectedState::Present);
 
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::apt(
