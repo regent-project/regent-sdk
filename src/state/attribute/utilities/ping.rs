@@ -27,8 +27,9 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Ping
-//!       Privilege: !None
+//!   - Name: Host must be reachable
+//!     Privilege: !None
+//!     Detail: !Ping
 //! ```
 
 use crate::error::RegentError;

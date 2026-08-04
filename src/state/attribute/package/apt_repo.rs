@@ -31,12 +31,13 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !AptRepo
+//!   - Name: Docker repository must be present
+//!     Privilege: !WithSudo
+//!     Detail: !AptRepo
 //!       Filename: docker
 //!       State: !Present
 //!       Repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"
 //!       UpdateCache: true
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

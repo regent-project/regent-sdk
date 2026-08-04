@@ -29,11 +29,12 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Cron
+//!   - Name: Daily backup job must be present
+//!     Privilege: !WithSudo
+//!     Detail: !Cron
 //!       Name: backup
 //!       Job: /usr/local/bin/backup.sh
 //!       SpecialTime: !Daily
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

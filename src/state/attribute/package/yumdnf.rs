@@ -28,10 +28,11 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !YumDnf
+//!   - Name: Httpd package must be present
+//!     Privilege: !WithSudo
+//!     Detail: !YumDnf
 //!       Package: httpd
 //!       State: !Present
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

@@ -32,7 +32,9 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !DnfRepo
+//!   - Name: Docker CE repository must be present
+//!     Privilege: !WithSudo
+//!     Detail: !DnfRepo
 //!       Name: docker-ce
 //!       State: !Present
 //!       Baseurl:
@@ -41,7 +43,6 @@
 //!       Gpgcheck: true
 //!       Gpgkey:
 //!         - "https://download.docker.com/linux/centos/gpg"
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

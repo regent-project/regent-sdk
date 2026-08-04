@@ -27,9 +27,10 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Debug
+//!   - Name: Debug message to print
+//!     Privilege: !None
+//!     Detail: !Debug
 //!       Msg: "Checking system configuration"
-//!       Privilege: !None
 //! ```
 
 use crate::error::RegentError;

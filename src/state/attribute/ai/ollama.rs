@@ -36,7 +36,9 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Ollama
+//!   - Name: Ollama with llama3 model must be present and running
+//!     Privilege: !WithSudo
+//!     Detail: !Ollama
 //!       State: !Present
 //!       Service: !Started
 //!       ServiceEnabled: true
@@ -47,7 +49,6 @@
 //!         Host: '0.0.0.0:11434'
 //!         Origins:
 //!           - '*'
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

@@ -29,9 +29,10 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Command
+//!   - Name: Hello world must be printed
+//!     Privilege: !None
+//!     Detail: !Command
 //!       Cmd: "echo 'Hello, World!'"
-//!       Privilege: !None
 //! ```
 
 use crate::error::RegentError;

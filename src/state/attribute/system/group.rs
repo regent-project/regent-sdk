@@ -29,11 +29,12 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Group
+//!   - Name: Developers group must be present
+//!     Privilege: !WithSudo
+//!     Detail: !Group
 //!       Name: developers
 //!       State: !Present
 //!       Gid: 1500
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

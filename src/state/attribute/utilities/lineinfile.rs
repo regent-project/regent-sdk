@@ -30,12 +30,13 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !LineInFile
+//!   - Name: KEY=value must be present in /etc/environment
+//!     Privilege: !WithSudo
+//!     Detail: !LineInFile
 //!       FilePath: /etc/environment
 //!       State: !Present
 //!       Line: "KEY=value"
 //!       Create: true
-//!       Privilege: !WithSudo
 //! ```
 
 use std::time::Duration;

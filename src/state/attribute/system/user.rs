@@ -34,14 +34,15 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !User
+//!   - Name: User alice must be present
+//!     Privilege: !WithSudo
+//!     Detail: !User
 //!       Name: alice
 //!       State: !Present
 //!       Uid: 1001
 //!       Shell: /bin/bash
 //!       Home: /home/alice
 //!       Comment: Alice Smith
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

@@ -21,6 +21,12 @@
 //!     true
 //! );
 //!
+//! // Just manage service state (running/stopped)
+//! let nginx = ServiceBlockExpectedState::state_only("nginx", ServiceExpectedState::Started);
+//!
+//! // Just manage whether service is enabled at boot
+//! let mysql = ServiceBlockExpectedState::enabled_only("mysql", true);
+//!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::service(httpd, Privilege::WithSudo, None))
 //!     .build();
@@ -30,11 +36,34 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Service
+//!   - Name: Httpd must be running and enabled
+//!     Privilege: !WithSudo
+//!     Detail: !Service
 //!       Name: httpd
-//!       State: !Started
+//!       State: started
 //!       Enabled: true
-//!       Privilege: !WithSudo
+//! ```
+//!
+//! For state-only configuration:
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: Nginx must be stopped
+//!     Privilege: !WithSudo
+//!     Detail: !Service
+//!       Name: nginx
+//!       State: stopped
+//! ```
+//!
+//! For enabled-only configuration:
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: MySQL must be disabled at boot
+//!     Privilege: !WithSudo
+//!     Detail: !Service
+//!       Name: mysql
+//!       Enabled: false
 //! ```
 
 use crate::error::RegentError;
@@ -55,6 +84,14 @@ use std::time::Duration;
 ///
 /// - `Started`  / `Stopped`  — idempotent: only act if the service is not already in the target state.
 /// - `Restarted`/ `Reloaded` — unconditional: always emit the corresponding systemctl command.
+///
+/// # Serialization
+///
+/// This enum is serialized/deserialized in lowercase:
+/// - `Started` → `"started"`
+/// - `Stopped` → `"stopped"`
+/// - `Restarted` → `"restarted"`
+/// - `Reloaded` → `"reloaded"`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceExpectedState {
@@ -69,21 +106,57 @@ pub enum ServiceExpectedState {
 }
 
 /// Configuration for a system service
+///
+/// This enum represents the desired state for a system service, supporting three configurations:
+/// - `StateOnly`: Manage only the service's running state (started/stopped/restarted/reloaded)
+/// - `EnabledOnly`: Manage only whether the service starts at boot
+/// - `StateAndEnabled`: Manage both the running state and boot enablement
+///
+/// # YAML Representation
+///
+/// ## State only:
+/// ```yaml
+/// Name: nginx
+/// State: started
+/// ```
+///
+/// ## Enabled only:
+/// ```yaml
+/// Name: mysql
+/// Enabled: true
+/// ```
+///
+/// ## State and enabled:
+/// ```yaml
+/// Name: httpd
+/// State: started
+/// Enabled: true
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(untagged)]
 pub enum ServiceBlockExpectedState {
+    /// Manage only the service's running state
     StateOnly {
+        /// Name of the service
         name: String,
+        /// Desired running state of the service
         state: ServiceExpectedState
     },
+    /// Manage only whether the service is enabled at boot
     EnabledOnly {
+        /// Name of the service
         name: String,
+        /// Whether the service should be enabled at boot
         enabled: bool
     },
+    /// Manage both the service's running state and boot enablement
     StateAndEnabled {
+        /// Name of the service
         name: String,
+        /// Desired running state of the service
         state: ServiceExpectedState,
+        /// Whether the service should be enabled at boot
         enabled: bool
     }
 }

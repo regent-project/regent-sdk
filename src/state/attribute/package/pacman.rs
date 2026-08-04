@@ -28,10 +28,11 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Pacman
+//!   - Name: Nginx package must be present
+//!     Privilege: !WithSudo
+//!     Detail: !Pacman
 //!       Package: nginx
 //!       State: !Present
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

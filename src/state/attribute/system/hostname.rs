@@ -30,10 +30,11 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Hostname
+//!   - Name: Hostname must be myserver.example.com
+//!     Privilege: !WithSudo
+//!     Detail: !Hostname
 //!       Name: myserver.example.com
 //!       Method: !Systemd
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;

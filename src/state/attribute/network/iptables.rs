@@ -30,12 +30,13 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Detail: !Iptables
+//!   - Name: Allow SSH on port 22
+//!     Privilege: !WithSudo
+//!     Detail: !Iptables
 //!       Chain: INPUT
 //!       Protocol: tcp
 //!       DestinationPort: "22"
 //!       Jump: ACCEPT
-//!       Privilege: !WithSudo
 //! ```
 
 use crate::error::RegentError;
@@ -215,26 +216,29 @@ pub struct TcpFlags {
 /// ```yaml
 /// Attributes:
 ///   # Allow SSH
-///   - Detail: !Iptables
+///   - Name: SSH on port 22 must be allowed
+///     Privilege: !WithSudo
+///     Detail: !Iptables
 ///       Chain: INPUT
 ///       Protocol: tcp
 ///       DestinationPort: "22"
 ///       Jump: ACCEPT
-///       Privilege: !WithSudo
 ///
 ///   # Set default policy
-///   - Detail: !Iptables
+///   - Name: Default INPUT policy must be set to DROP
+///     Privilege: !WithSudo
+///     Detail: !Iptables
 ///       Chain: INPUT
 ///       Policy: !Drop
-///       Privilege: !WithSudo
 ///
 ///   # NAT masquerade
-///   - Detail: !Iptables
+///   - Name: NAT masquerade on eth0 must be enabled
+///     Privilege: !WithSudo
+///     Detail: !Iptables
 ///       Chain: POSTROUTING
 ///       Table: !Nat
 ///       OutInterface: eth0
 ///       Jump: MASQUERADE
-///       Privilege: !WithSudo
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
