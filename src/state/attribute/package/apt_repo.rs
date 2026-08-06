@@ -102,25 +102,37 @@ pub struct AptRepoBlockExpectedState {
     /// Filename (without extension) for the repository file in /etc/apt/sources.list.d/
     filename: String,
     /// Desired state of the repository
-    state: Option<AptRepoExpectedState>,
+    state: AptRepoExpectedState,
     /// Whether to run apt-get update after adding/removing repositories
-    update_cache: Option<bool>,
-    /// Legacy one-liner format → writes to <filename>.list
-    repo: Option<String>,
-    /// Repository types for deb822 format → writes to <filename>.sources
-    types: Option<Vec<AptRepoType>>,
-    /// URIs for deb822 format
-    uris: Option<Vec<String>>,
-    /// Suites for deb822 format
-    suites: Option<Vec<String>>,
-    /// Components for deb822 format
-    components: Option<Vec<String>>,
-    /// Signed-by fingerprint for deb822 format
-    signed_by: Option<String>,
-    /// Whether the repository is enabled for deb822 format
-    enabled: Option<bool>,
-    /// Architectures for deb822 format
-    architectures: Option<Vec<String>>,
+    #[serde(default)]
+    cache_up_to_date: bool,
+    format: AptRepoFormat,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[serde(untagged)]
+pub enum AptRepoFormat {
+    Legacy {
+        /// Legacy one-liner format → writes to <filename>.list
+        repo: String,
+    },
+    Deb822 {
+        /// Repository types for deb822 format → writes to <filename>.sources
+        types: Vec<AptRepoType>,
+        /// URIs for deb822 format
+        uris: Vec<String>,
+        /// Suites for deb822 format
+        suites: Vec<String>,
+        /// Components for deb822 format
+        components: Option<Vec<String>>,
+        /// Signed-by fingerprint for deb822 format
+        signed_by: Option<String>,
+        /// Whether the repository is enabled for deb822 format
+        enabled: Option<bool>,
+        /// Architectures for deb822 format
+        architectures: Option<Vec<String>>,
+    },
 }
 
 impl Timeout for AptRepoBlockExpectedState {
@@ -130,123 +142,53 @@ impl Timeout for AptRepoBlockExpectedState {
 }
 
 impl AptRepoBlockExpectedState {
-    pub fn builder(filename: &str) -> AptRepoBlockExpectedState {
+    pub fn legacy_format(
+        filename: &str,
+        repo: &str,
+        state: AptRepoExpectedState,
+        cache_up_to_date: bool,
+    ) -> AptRepoBlockExpectedState {
         AptRepoBlockExpectedState {
             filename: filename.to_string(),
-            state: None,
-            update_cache: None,
-            repo: None,
-            types: None,
-            uris: None,
-            suites: None,
-            components: None,
-            signed_by: None,
-            enabled: None,
-            architectures: None,
+            state,
+            cache_up_to_date,
+            format: AptRepoFormat::Legacy {
+                repo: repo.to_string(),
+            },
         }
     }
 
-    pub fn with_state(&mut self, state: AptRepoExpectedState) -> &mut Self {
-        self.state = Some(state);
-        self
-    }
-
-    pub fn with_update_cache(&mut self, update_cache: bool) -> &mut Self {
-        self.update_cache = Some(update_cache);
-        self
-    }
-
-    pub fn with_repo(&mut self, repo: &str) -> &mut Self {
-        self.repo = Some(repo.to_string());
-        self
-    }
-
-    pub fn with_types(&mut self, types: Vec<AptRepoType>) -> &mut Self {
-        self.types = Some(types);
-        self
-    }
-
-    pub fn with_uris(&mut self, uris: Vec<String>) -> &mut Self {
-        self.uris = Some(uris);
-        self
-    }
-
-    pub fn with_suites(&mut self, suites: Vec<String>) -> &mut Self {
-        self.suites = Some(suites);
-        self
-    }
-
-    pub fn with_components(&mut self, components: Vec<String>) -> &mut Self {
-        self.components = Some(components);
-        self
-    }
-
-    pub fn with_signed_by(&mut self, signed_by: &str) -> &mut Self {
-        self.signed_by = Some(signed_by.to_string());
-        self
-    }
-
-    pub fn with_enabled(&mut self, enabled: bool) -> &mut Self {
-        self.enabled = Some(enabled);
-        self
-    }
-
-    pub fn with_architectures(&mut self, architectures: Vec<String>) -> &mut Self {
-        self.architectures = Some(architectures);
-        self
-    }
-
-    pub fn build(&self) -> Result<AptRepoBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
+    pub fn deb822_format(
+        filename: &str,
+        state: AptRepoExpectedState,
+        types: Vec<AptRepoType>,
+        uris: Vec<String>,
+        suites: Vec<String>,
+        components: Option<Vec<String>>,
+        signed_by: Option<String>,
+        enabled: Option<bool>,
+        architectures: Option<Vec<String>>,
+        cache_up_to_date: bool,
+    ) -> AptRepoBlockExpectedState {
+        AptRepoBlockExpectedState {
+            filename: filename.to_string(),
+            state,
+            cache_up_to_date,
+            format: AptRepoFormat::Deb822 {
+                types,
+                uris,
+                suites,
+                components,
+                signed_by,
+                enabled,
+                architectures,
+            },
+        }
     }
 }
 
 impl Check for AptRepoBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if self.filename.is_empty() {
-            return Err(RegentError::IncoherentExpectedState(
-                "Filename cannot be empty.".to_string(),
-            ));
-        }
-
-        let state = self
-            .state
-            .as_ref()
-            .unwrap_or(&AptRepoExpectedState::Present);
-        if let AptRepoExpectedState::Present = state {
-            let is_legacy = self.repo.is_some();
-            let is_deb822 = self.types.is_some() || self.uris.is_some() || self.suites.is_some();
-
-            if !is_legacy && !is_deb822 {
-                return Err(RegentError::IncoherentExpectedState(
-                    "State Present requires either Repo (legacy) or Types+Uris+Suites (deb822)."
-                        .to_string(),
-                ));
-            }
-            if is_legacy && is_deb822 {
-                return Err(RegentError::IncoherentExpectedState(
-                    "Repo (legacy) and deb822 fields (Types, Uris, Suites, ...) are mutually exclusive.".to_string(),
-                ));
-            }
-            if is_deb822 {
-                if self.types.is_none() {
-                    return Err(RegentError::IncoherentExpectedState(
-                        "Deb822 format requires Types.".to_string(),
-                    ));
-                }
-                if self.uris.is_none() {
-                    return Err(RegentError::IncoherentExpectedState(
-                        "Deb822 format requires Uris.".to_string(),
-                    ));
-                }
-                if self.suites.is_none() {
-                    return Err(RegentError::IncoherentExpectedState(
-                        "Deb822 format requires Suites.".to_string(),
-                    ));
-                }
-            }
-        }
         Ok(())
     }
 
@@ -280,97 +222,77 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
             self.check_host_compatibility(props)?;
         }
 
-        let state = self
-            .state
-            .as_ref()
-            .unwrap_or(&AptRepoExpectedState::Present);
-        let is_legacy = self.repo.is_some();
-        let file_path = apt_repo_file_path(&self.filename, is_legacy);
+        let mut remediations: Vec<Remediation> = Vec::new();
 
-        let current_content = match read_file(host_handler, &file_path).await {
+        let current_content = match read_file(host_handler, &self.filename).await {
             Ok(c) => c,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
 
-        match state {
+        match self.state {
             AptRepoExpectedState::Absent => {
-                if current_content.is_none() {
-                    return Ok(AttributeComplianceAssessment::Compliant);
-                }
-                return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::AptRepo(AptRepoApiCall::from(
-                            AptRepoModuleInternalApiCall::RemoveFile { path: file_path },
-                            privilege.clone(),
-                        )),
-                    ])?
-                ));
-            }
-            AptRepoExpectedState::Present => {
-                let expected_content = if is_legacy {
-                    build_legacy_content(self.repo.as_deref().unwrap())
-                } else {
-                    build_deb822_content(self)
-                };
-
-                let already_correct = current_content
-                    .as_deref()
-                    .map(|c| c.trim() == expected_content.trim())
-                    .unwrap_or(false);
-
-                if already_correct {
-                    return Ok(AttributeComplianceAssessment::Compliant);
-                }
-
-                // Enhanced verification: explicitly check critical properties like URLs
-                // This provides better error messages and ensures source verification
-                if !is_legacy {
-                    // For deb822 format, verify that critical properties match
-                    if let Some(ref current) = current_content {
-                        let current_trimmed = current.trim();
-                        let expected_trimmed = expected_content.trim();
-
-                        // Check if URIs (source URLs) are different
-                        if let (Some(current_uris), Some(expected_uris)) = (
-                            extract_uris_from_deb822(current_trimmed),
-                            extract_uris_from_deb822(expected_trimmed),
-                        ) {
-                            if current_uris != expected_uris {
-                                return Ok(AttributeComplianceAssessment::NonCompliant(
-                                    RemediationsList::from(vec![
-                                        Remediation::AptRepo(AptRepoApiCall::from(
-                                            AptRepoModuleInternalApiCall::WriteFile {
-                                                path: file_path,
-                                                content: expected_content,
-                                            },
-                                            privilege.clone(),
-                                        )),
-                                    ])?
-                                ));
-                            }
-                        }
-                    }
-                }
-
-                let mut remediations = vec![Remediation::AptRepo(AptRepoApiCall::from(
-                    AptRepoModuleInternalApiCall::WriteFile {
-                        path: file_path,
-                        content: expected_content,
-                    },
-                    privilege.clone(),
-                ))];
-
-                if self.update_cache.unwrap_or(false) {
+                if current_content.is_some() {
                     remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
-                        AptRepoModuleInternalApiCall::UpdateCache,
+                        AptRepoModuleInternalApiCall::RemoveFile {
+                            path: self.filename.clone(),
+                        },
                         privilege.clone(),
                     )));
                 }
-
-                Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(remediations)?
-                ))
             }
+            AptRepoExpectedState::Present => {
+                let expected_content = match &self.format {
+                    AptRepoFormat::Legacy { repo } => build_legacy_content(&repo),
+                    AptRepoFormat::Deb822 {
+                        types: _,
+                        uris: _,
+                        suites: _,
+                        components: _,
+                        signed_by: _,
+                        enabled: _,
+                        architectures: _,
+                    } => build_deb822_content(&self.format),
+                };
+
+                if current_content.is_some() {
+                    // Check on content required
+                    if let Some(current) = current_content {
+                        if current.trim() != expected_content.trim() {
+                            remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
+                                AptRepoModuleInternalApiCall::WriteFile {
+                                    path: self.filename.clone(),
+                                    content: expected_content,
+                                },
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                } else {
+                    // Creation from scratch required
+                    remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
+                        AptRepoModuleInternalApiCall::WriteFile {
+                            path: self.filename.clone(),
+                            content: expected_content,
+                        },
+                        privilege.clone(),
+                    )));
+                }
+            }
+        }
+
+        if self.cache_up_to_date {
+            remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
+                AptRepoModuleInternalApiCall::UpdateCache,
+                privilege.clone(),
+            )));
+        }
+
+        if remediations.is_empty() {
+            Ok(AttributeComplianceAssessment::Compliant)
+        } else {
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(remediations)?,
+            ))
         }
     }
 }
@@ -496,30 +418,50 @@ fn build_legacy_content(repo_line: &str) -> String {
     format!("{}\n", repo_line.trim())
 }
 
-fn build_deb822_content(block: &AptRepoBlockExpectedState) -> String {
+fn build_deb822_content(format: &AptRepoFormat) -> String {
     let mut lines: Vec<String> = Vec::new();
 
-    if let Some(false) = block.enabled {
-        lines.push("Enabled: no".to_string());
-    }
-    if let Some(ref types) = block.types {
-        let s: Vec<&str> = types.iter().map(|t| t.as_str()).collect();
-        lines.push(format!("Types: {}", s.join(" ")));
-    }
-    if let Some(ref uris) = block.uris {
-        lines.push(format!("URIs: {}", uris.join(" ")));
-    }
-    if let Some(ref suites) = block.suites {
-        lines.push(format!("Suites: {}", suites.join(" ")));
-    }
-    if let Some(ref components) = block.components {
-        lines.push(format!("Components: {}", components.join(" ")));
-    }
-    if let Some(ref archs) = block.architectures {
-        lines.push(format!("Architectures: {}", archs.join(" ")));
-    }
-    if let Some(ref signed_by) = block.signed_by {
-        lines.push(format!("Signed-By: {}", signed_by));
+    match format {
+        AptRepoFormat::Legacy { .. } => {
+            // This shouldn't be called for Legacy format
+            unreachable!();
+        }
+        AptRepoFormat::Deb822 {
+            types,
+            uris,
+            suites,
+            components,
+            signed_by,
+            enabled,
+            architectures,
+        } => {
+            if let Some(false) = enabled {
+                lines.push("Enabled: no".to_string());
+            }
+            if !types.is_empty() {
+                let s: Vec<&str> = types.iter().map(|t| t.as_str()).collect();
+                lines.push(format!("Types: {}", s.join(" ")));
+            }
+            if !uris.is_empty() {
+                lines.push(format!("URIs: {}", uris.join(" ")));
+            }
+            if !suites.is_empty() {
+                lines.push(format!("Suites: {}", suites.join(" ")));
+            }
+            if let Some(components) = components {
+                if !components.is_empty() {
+                    lines.push(format!("Components: {}", components.join(" ")));
+                }
+            }
+            if let Some(archs) = architectures {
+                if !archs.is_empty() {
+                    lines.push(format!("Architectures: {}", archs.join(" ")));
+                }
+            }
+            if let Some(signed_by) = signed_by {
+                lines.push(format!("Signed-By: {}", signed_by));
+            }
+        }
     }
 
     lines.join("\n") + "\n"
@@ -576,7 +518,8 @@ mod tests {
     fn parsing_apt_repo_legacy_from_yaml() {
         let raw = "---
 - Filename: docker
-  Repo: 'deb https://download.docker.com/linux/ubuntu focal stable'
+  Format: !Legacy
+    Repo: 'deb https://download.docker.com/linux/ubuntu focal stable'
 
 - Filename: docker
   State: !Absent
@@ -588,15 +531,16 @@ mod tests {
     fn parsing_apt_repo_deb822_from_yaml() {
         let raw = "---
 - Filename: docker
-  Types:
-    - !Deb
-  Uris:
-    - https://download.docker.com/linux/ubuntu
-  Suites:
-    - focal
-  Components:
-    - stable
-  SignedBy: /usr/share/keyrings/docker-archive-keyring.gpg
+  Format: !Deb822
+    Types:
+      - !Deb
+    Uris:
+      - https://download.docker.com/linux/ubuntu
+    Suites:
+      - focal
+    Components:
+      - stable
+    SignedBy: /usr/share/keyrings/docker-archive-keyring.gpg
         ";
         let _attrs: Vec<AptRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
