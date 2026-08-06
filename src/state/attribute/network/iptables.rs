@@ -631,7 +631,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
                         )));
                         // No point checking rules on a chain that is being deleted
                         return Ok(AttributeComplianceAssessment::NonCompliant(
-                            RemediationsList::from(remediations)?
+                            RemediationsList::from(remediations)?,
                         ));
                     }
                     // Chain already absent — nothing to do for chain_management
@@ -749,7 +749,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
             Ok(AttributeComplianceAssessment::Compliant)
         } else {
             Ok(AttributeComplianceAssessment::NonCompliant(
-                RemediationsList::from(remediations)?
+                RemediationsList::from(remediations)?,
             ))
         }
     }

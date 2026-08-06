@@ -89,7 +89,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState 
         // The actual connectivity validation should be handled at the connection level
         let cmd = String::from("id");
         let _cmd_result = host_handler.run_command(cmd.as_str(), &privilege).await?;
-        
+
         // Always return Compliant - ping is a pre-requisite check, not a compliance attribute
         return Ok(AttributeComplianceAssessment::Compliant);
     }

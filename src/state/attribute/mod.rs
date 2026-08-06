@@ -1101,19 +1101,22 @@ impl Remediation {
     }
 }
 
-
 // This type makes it impossible to have empty remediation lists elsewhere AKA error logic
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemediationsList {
-    inner: Vec<Remediation>
+    inner: Vec<Remediation>,
 }
 
 impl RemediationsList {
     pub fn from(remediations: Vec<Remediation>) -> Result<RemediationsList, RegentError> {
         if remediations.len() == 0 {
-            Err(RegentError::InternalLogicError(format!("Empty remediation list passed")))
+            Err(RegentError::InternalLogicError(format!(
+                "Empty remediation list passed"
+            )))
         } else {
-            Ok(RemediationsList { inner: remediations })
+            Ok(RemediationsList {
+                inner: remediations,
+            })
         }
     }
 
@@ -1159,7 +1162,7 @@ impl<'a> IntoIterator for &'a RemediationsList {
 impl FromIterator<Remediation> for RemediationsList {
     fn from_iter<T: IntoIterator<Item = Remediation>>(iter: T) -> Self {
         RemediationsList {
-            inner: Vec::from_iter(iter)
+            inner: Vec::from_iter(iter),
         }
     }
 }

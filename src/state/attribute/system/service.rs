@@ -69,7 +69,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind, InitSystem};
+use crate::hosts::properties::{HostProperties, InitSystem, LinuxFlavor, LinuxSpecifics, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -141,14 +141,14 @@ pub enum ServiceBlockExpectedState {
         /// Name of the service
         name: String,
         /// Desired running state of the service
-        state: ServiceExpectedState
+        state: ServiceExpectedState,
     },
     /// Manage only whether the service is enabled at boot
     EnabledOnly {
         /// Name of the service
         name: String,
         /// Whether the service should be enabled at boot
-        enabled: bool
+        enabled: bool,
     },
     /// Manage both the service's running state and boot enablement
     StateAndEnabled {
@@ -157,8 +157,8 @@ pub enum ServiceBlockExpectedState {
         /// Desired running state of the service
         state: ServiceExpectedState,
         /// Whether the service should be enabled at boot
-        enabled: bool
-    }
+        enabled: bool,
+    },
 }
 
 impl Timeout for ServiceBlockExpectedState {
@@ -169,15 +169,29 @@ impl Timeout for ServiceBlockExpectedState {
 
 impl ServiceBlockExpectedState {
     pub fn state_only(name: &str, state: ServiceExpectedState) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::StateOnly { name: name.to_string(), state }
+        ServiceBlockExpectedState::StateOnly {
+            name: name.to_string(),
+            state,
+        }
     }
 
     pub fn enabled_only(name: &str, enabled: bool) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::EnabledOnly { name: name.to_string(), enabled }
+        ServiceBlockExpectedState::EnabledOnly {
+            name: name.to_string(),
+            enabled,
+        }
     }
 
-    pub fn state_and_enabled(name: &str, state: ServiceExpectedState, enabled: bool) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::StateAndEnabled { name: name.to_string(), state, enabled }
+    pub fn state_and_enabled(
+        name: &str,
+        state: ServiceExpectedState,
+        enabled: bool,
+    ) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::StateAndEnabled {
+            name: name.to_string(),
+            state,
+            enabled,
+        }
     }
 }
 
@@ -221,7 +235,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-
         // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
@@ -235,7 +248,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                 linux_flavor: LinuxFlavor::Debian,
                 init_system: InitSystem::Systemd,
             }));
-        
+
         // Check OS-dependent prerequisites
         match os_kind {
             #[cfg(feature = "windows")]
@@ -245,10 +258,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                     .is_this_command_available("sc", privilege)
                     .await
                     .unwrap_or(false);
-                
+
                 if !command_available {
                     return Err(RegentError::FailedDryRunEvaluation(
-                        "Service management commands (sc) are not available on this Windows host".to_string(),
+                        "Service management commands (sc) are not available on this Windows host"
+                            .to_string(),
                     ));
                 }
             }
@@ -258,7 +272,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                     .is_this_command_available("systemctl", privilege)
                     .await
                     .unwrap_or(false);
-                
+
                 if !command_available {
                     return Err(RegentError::FailedDryRunEvaluation(
                         "Service management commands (systemctl) are not available on this Linux host".to_string(),
@@ -356,69 +370,73 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                         }
                     }
                     OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
-                        return Err(RegentError::FailedDryRunEvaluation(
-                            format!("Service management is not supported on {:?}", os_kind),
-                        ));
+                        return Err(RegentError::FailedDryRunEvaluation(format!(
+                            "Service management is not supported on {:?}",
+                            os_kind
+                        )));
                     }
                 }
             }
-            Self::EnabledOnly { name, enabled } => {
-                match os_kind {
-                    #[cfg(feature = "windows")]
-                    OsKind::Windows(_) => {
-                        if *enabled {
-                            let is_enabled = windows_service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if !is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Enable(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        } else {
-                            let is_enabled = windows_service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Disable(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
+            Self::EnabledOnly { name, enabled } => match os_kind {
+                #[cfg(feature = "windows")]
+                OsKind::Windows(_) => {
+                    if *enabled {
+                        let is_enabled = windows_service_is_enabled(host_handler, &name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if !is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Enable(name.clone()),
+                                privilege.clone(),
+                            )));
                         }
-                    }
-                    OsKind::Linux(_) => {
-                        if *enabled {
-                            let is_enabled = service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if !is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Enable(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        } else {
-                            let is_enabled = service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Disable(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
+                    } else {
+                        let is_enabled = windows_service_is_enabled(host_handler, &name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Disable(name.clone()),
+                                privilege.clone(),
+                            )));
                         }
-                    }
-                    OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
-                        return Err(RegentError::FailedDryRunEvaluation(
-                            format!("Service management is not supported on {:?}", os_kind),
-                        ));
                     }
                 }
-            }
-            Self::StateAndEnabled { name, state, enabled } => {
+                OsKind::Linux(_) => {
+                    if *enabled {
+                        let is_enabled = service_is_enabled(host_handler, &name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if !is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Enable(name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    } else {
+                        let is_enabled = service_is_enabled(host_handler, &name)
+                            .await
+                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                        if is_enabled {
+                            remediations.push(Remediation::Service(ServiceApiCall::from(
+                                ServiceModuleInternalApiCall::Disable(name.clone()),
+                                privilege.clone(),
+                            )));
+                        }
+                    }
+                }
+                OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                    return Err(RegentError::FailedDryRunEvaluation(format!(
+                        "Service management is not supported on {:?}",
+                        os_kind
+                    )));
+                }
+            },
+            Self::StateAndEnabled {
+                name,
+                state,
+                enabled,
+            } => {
                 match os_kind {
                     #[cfg(feature = "windows")]
                     OsKind::Windows(_) => {
@@ -544,9 +562,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                         }
                     }
                     OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
-                        return Err(RegentError::FailedDryRunEvaluation(
-                            format!("Service management is not supported on {:?}", os_kind),
-                        ));
+                        return Err(RegentError::FailedDryRunEvaluation(format!(
+                            "Service management is not supported on {:?}",
+                            os_kind
+                        )));
                     }
                 }
             }
@@ -556,7 +575,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
             Ok(AttributeComplianceAssessment::Compliant)
         } else {
             Ok(AttributeComplianceAssessment::NonCompliant(
-                RemediationsList::from(remediations)?
+                RemediationsList::from(remediations)?,
             ))
         }
     }
@@ -686,9 +705,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
                 };
 
                 // Execute Windows command
-                let result = host_handler
-                    .run_windows_command(&cmd)
-                    .await;
+                let result = host_handler.run_windows_command(&cmd).await;
 
                 match result {
                     Ok(result) => {
@@ -719,9 +736,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
                 };
 
                 // Execute Linux command
-                let result = host_handler
-                    .run_command(&cmd, &self.privilege)
-                    .await;
+                let result = host_handler.run_command(&cmd, &self.privilege).await;
 
                 match result {
                     Ok(result) => {
@@ -741,9 +756,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
                 }
             }
             OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
-                Err(RegentError::FailedDryRunEvaluation(
-                    format!("Service management is not supported on {:?}", os_kind),
-                ))
+                Err(RegentError::FailedDryRunEvaluation(format!(
+                    "Service management is not supported on {:?}",
+                    os_kind
+                )))
             }
         }
     }
@@ -793,7 +809,10 @@ async fn windows_service_is_active<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
 ) -> Result<bool, String> {
-    match host_handler.run_windows_command(&format!("sc query {}", name)).await {
+    match host_handler
+        .run_windows_command(&format!("sc query {}", name))
+        .await
+    {
         Ok(r) => {
             // sc query returns 0 for success, but we need to parse the output
             // The output contains "STATE" line which shows the service state
@@ -804,7 +823,7 @@ async fn windows_service_is_active<Handler: HostHandler>(
                 }
                 return Ok(false);
             }
-            
+
             // Parse the output for service state
             // Looking for lines like: "STATE              : 4  RUNNING"
             let output = r.stdout.to_lowercase();
@@ -826,7 +845,10 @@ async fn windows_service_is_enabled<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
 ) -> Result<bool, String> {
-    match host_handler.run_windows_command(&format!("sc qc {}", name)).await {
+    match host_handler
+        .run_windows_command(&format!("sc qc {}", name))
+        .await
+    {
         Ok(r) => {
             // sc qc (query configuration) returns information about the service
             // We need to look for the START_TYPE line
@@ -836,7 +858,7 @@ async fn windows_service_is_enabled<Handler: HostHandler>(
                 }
                 return Ok(false);
             }
-            
+
             // Parse the output for start type
             // Looking for lines like: "START_TYPE       : 2   AUTO_START"
             let output = r.stdout.to_lowercase();
@@ -849,7 +871,10 @@ async fn windows_service_is_enabled<Handler: HostHandler>(
                 Ok(false)
             }
         }
-        Err(e) => Err(format!("Unable to check enabled state of {}: {:?}", name, e)),
+        Err(e) => Err(format!(
+            "Unable to check enabled state of {}: {:?}",
+            name, e
+        )),
     }
 }
 

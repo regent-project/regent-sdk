@@ -243,15 +243,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::LineInFile(LineInFileApiCall {
-                            file_path: self.file_path.clone(),
-                            line_content: self.line.clone(),
-                            regexp: None,
-                            api_call: LineInFileModuleInternalApiCall::CreateFile,
-                            privilege: privilege.clone(),
-                        })
-                    ]).unwrap()
+                    RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                        file_path: self.file_path.clone(),
+                        line_content: self.line.clone(),
+                        regexp: None,
+                        api_call: LineInFileModuleInternalApiCall::CreateFile,
+                        privilege: privilege.clone(),
+                    })])
+                    .unwrap(),
                 ));
             }
             return Err(RegentError::FailedDryRunEvaluation(format!(
@@ -302,15 +301,14 @@ async fn assess_absent<Handler: HostHandler>(
             return Ok(AttributeComplianceAssessment::Compliant);
         }
         return Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(vec![
-                Remediation::LineInFile(LineInFileApiCall {
-                    file_path: block.file_path.clone(),
-                    line_content: None,
-                    regexp: None,
-                    api_call: LineInFileModuleInternalApiCall::DeleteByRegexp(regexp.clone()),
-                    privilege: privilege.clone(),
-                })
-            ]).unwrap()
+            RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                file_path: block.file_path.clone(),
+                line_content: None,
+                regexp: None,
+                api_call: LineInFileModuleInternalApiCall::DeleteByRegexp(regexp.clone()),
+                privilege: privilege.clone(),
+            })])
+            .unwrap(),
         ));
     }
 
@@ -328,15 +326,14 @@ async fn assess_absent<Handler: HostHandler>(
             return Ok(AttributeComplianceAssessment::Compliant);
         }
         return Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(vec![
-                Remediation::LineInFile(LineInFileApiCall {
-                    file_path: block.file_path.clone(),
-                    line_content: None,
-                    regexp: None,
-                    api_call: LineInFileModuleInternalApiCall::DeleteLines(matches),
-                    privilege: privilege.clone(),
-                })
-            ]).unwrap()
+            RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                file_path: block.file_path.clone(),
+                line_content: None,
+                regexp: None,
+                api_call: LineInFileModuleInternalApiCall::DeleteLines(matches),
+                privilege: privilege.clone(),
+            })])
+            .unwrap(),
         ));
     }
 
@@ -366,18 +363,17 @@ async fn assess_present<Handler: HostHandler>(
                 // Always replace: can't know if current value already equals the
                 // backref-expanded replacement without running sed.
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::LineInFile(LineInFileApiCall {
-                            file_path: block.file_path.clone(),
-                            line_content: block.line.clone(),
-                            regexp: Some(regexp.clone()),
-                            api_call: LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
-                                line_number: target,
-                                regexp: regexp.clone(),
-                            },
-                            privilege: privilege.clone(),
-                        })
-                    ]).unwrap()
+                    RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                        file_path: block.file_path.clone(),
+                        line_content: block.line.clone(),
+                        regexp: Some(regexp.clone()),
+                        api_call: LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
+                            line_number: target,
+                            regexp: regexp.clone(),
+                        },
+                        privilege: privilege.clone(),
+                    })])
+                    .unwrap(),
                 ));
             }
 
@@ -387,15 +383,14 @@ async fn assess_present<Handler: HostHandler>(
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::LineInFile(LineInFileApiCall {
-                            file_path: block.file_path.clone(),
-                            line_content: block.line.clone(),
-                            regexp: None,
-                            api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
-                            privilege: privilege.clone(),
-                        })
-                    ]).unwrap()
+                    RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                        file_path: block.file_path.clone(),
+                        line_content: block.line.clone(),
+                        regexp: None,
+                        api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
+                        privilege: privilege.clone(),
+                    })])
+                    .unwrap(),
                 ));
             }
 
@@ -425,15 +420,14 @@ async fn assess_present<Handler: HostHandler>(
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::LineInFile(LineInFileApiCall {
-                            file_path: block.file_path.clone(),
-                            line_content: block.line.clone(),
-                            regexp: None,
-                            api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
-                            privilege: privilege.clone(),
-                        })
-                    ]).unwrap()
+                    RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                        file_path: block.file_path.clone(),
+                        line_content: block.line.clone(),
+                        regexp: None,
+                        api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
+                        privilege: privilege.clone(),
+                    })])
+                    .unwrap(),
                 ));
             }
             return Ok(AttributeComplianceAssessment::Compliant);
@@ -460,15 +454,14 @@ async fn assess_present<Handler: HostHandler>(
     .await;
 
     Ok(AttributeComplianceAssessment::NonCompliant(
-        RemediationsList::from(vec![
-            Remediation::LineInFile(LineInFileApiCall {
-                file_path: block.file_path.clone(),
-                line_content: block.line.clone(),
-                regexp: None,
-                api_call: insert_call,
-                privilege: privilege.clone(),
-            })
-        ]).unwrap()
+        RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+            file_path: block.file_path.clone(),
+            line_content: block.line.clone(),
+            regexp: None,
+            api_call: insert_call,
+            privilege: privilege.clone(),
+        })])
+        .unwrap(),
     ))
 }
 

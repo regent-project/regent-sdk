@@ -38,7 +38,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind, InitSystem};
+use crate::hosts::properties::{HostProperties, InitSystem, LinuxFlavor, LinuxSpecifics, OsKind};
 use crate::secrets::{SecretProvidersPool, SecretReference};
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -128,11 +128,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
         // Match on OS kind - commands are supported on all platforms
         match os_kind {
             #[cfg(feature = "windows")]
-            OsKind::Windows(_) => {},
-            OsKind::Linux(_) => {},
-            OsKind::FreeBsd(_) => {},
-            OsKind::MacOs(_) => {},
-            OsKind::Unknown => {},
+            OsKind::Windows(_) => {}
+            OsKind::Linux(_) => {}
+            OsKind::FreeBsd(_) => {}
+            OsKind::MacOs(_) => {}
+            OsKind::Unknown => {}
         }
 
         let mut remediations: Vec<Remediation> = Vec::new();
@@ -145,7 +145,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedSta
         }));
 
         return Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(remediations)?
+            RemediationsList::from(remediations)?,
         ));
     }
 }
@@ -210,9 +210,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
                 // Execute command on Windows using run_windows_command
-                let cmd_result = host_handler
-                    .run_windows_command(&cmd_string)
-                    .await;
+                let cmd_result = host_handler.run_windows_command(&cmd_string).await;
 
                 match cmd_result {
                     Ok(result) => {
@@ -233,9 +231,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
             }
             OsKind::Linux(_) | OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
                 // Execute command on POSIX systems using run_command
-                let cmd_result = host_handler
-                    .run_command(&cmd_string, &self.privilege)
-                    .await;
+                let cmd_result = host_handler.run_command(&cmd_string, &self.privilege).await;
 
                 match cmd_result {
                     Ok(result) => {

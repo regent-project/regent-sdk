@@ -190,32 +190,30 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::Group(GroupApiCall::from(
-                            GroupModuleInternalApiCall::Delete {
-                                groupname: self.name.clone(),
-                                local,
-                            },
-                            privilege.clone(),
-                        )),
-                    ]).unwrap()
+                    RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
+                        GroupModuleInternalApiCall::Delete {
+                            groupname: self.name.clone(),
+                            local,
+                        },
+                        privilege.clone(),
+                    ))])
+                    .unwrap(),
                 ));
             }
             GroupExpectedState::Present => {
                 if !group_exists {
                     return Ok(AttributeComplianceAssessment::NonCompliant(
-                        RemediationsList::from(vec![
-                            Remediation::Group(GroupApiCall::from(
-                                GroupModuleInternalApiCall::Add {
-                                    groupname: self.name.clone(),
-                                    gid: self.gid,
-                                    members: self.members.clone(),
-                                    system: self.system.unwrap_or(false),
-                                    local,
-                                },
-                                privilege.clone(),
-                            )),
-                        ]).unwrap()
+                        RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
+                            GroupModuleInternalApiCall::Add {
+                                groupname: self.name.clone(),
+                                gid: self.gid,
+                                members: self.members.clone(),
+                                system: self.system.unwrap_or(false),
+                                local,
+                            },
+                            privilege.clone(),
+                        ))])
+                        .unwrap(),
                     ));
                 }
 
@@ -227,15 +225,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                     };
                     if current_gid != expected_gid {
                         return Ok(AttributeComplianceAssessment::NonCompliant(
-                            RemediationsList::from(vec![
-                                Remediation::Group(GroupApiCall::from(
-                                    GroupModuleInternalApiCall::ModifyGid {
-                                        groupname: self.name.clone(),
-                                        gid: expected_gid,
-                                    },
-                                    privilege.clone(),
-                                )),
-                            ]).unwrap()
+                            RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
+                                GroupModuleInternalApiCall::ModifyGid {
+                                    groupname: self.name.clone(),
+                                    gid: expected_gid,
+                                },
+                                privilege.clone(),
+                            ))])
+                            .unwrap(),
                         ));
                     }
                 }
@@ -255,15 +252,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
 
                     if expected_sorted != current_sorted {
                         return Ok(AttributeComplianceAssessment::NonCompliant(
-                            RemediationsList::from(vec![
-                                Remediation::Group(GroupApiCall::from(
-                                    GroupModuleInternalApiCall::ModifyMembers {
-                                        groupname: self.name.clone(),
-                                        members: expected_members.clone(),
-                                    },
-                                    privilege.clone(),
-                                )),
-                            ]).unwrap()
+                            RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
+                                GroupModuleInternalApiCall::ModifyMembers {
+                                    groupname: self.name.clone(),
+                                    members: expected_members.clone(),
+                                },
+                                privilege.clone(),
+                            ))])
+                            .unwrap(),
                         ));
                     }
                 }

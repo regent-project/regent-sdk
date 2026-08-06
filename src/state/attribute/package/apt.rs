@@ -121,16 +121,18 @@ pub enum AptBlockExpectedState {
         /// Name of the package to manage
         package: String,
         /// Desired state of the package
-        state: PackageExpectedState
-    }
+        state: PackageExpectedState,
+    },
 }
-
 
 impl Timeout for AptBlockExpectedState {
     fn default_timeout(&self) -> Duration {
         match self {
             Self::SystemUpToDate => Duration::from_secs(300),
-            Self::PackageState { package: _, state: _ } => Duration::from_secs(60),
+            Self::PackageState {
+                package: _,
+                state: _,
+            } => Duration::from_secs(60),
         }
     }
 }
@@ -141,7 +143,10 @@ impl AptBlockExpectedState {
     }
 
     pub fn package_state(package: &str, state: PackageExpectedState) -> AptBlockExpectedState {
-        AptBlockExpectedState::PackageState { package: package.to_string(), state }
+        AptBlockExpectedState::PackageState {
+            package: package.to_string(),
+            state,
+        }
     }
 }
 
@@ -217,7 +222,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
         match &self {
             Self::SystemUpToDate => {
                 match host_handler
-                    .run_command(&format!("apt-get update -y && apt-get -s -u upgrade | grep -q \"^Inst\""), &Privilege::None)
+                    .run_command(
+                        &format!("apt-get update -y && apt-get -s -u upgrade | grep -q \"^Inst\""),
+                        &Privilege::None,
+                    )
                     .await
                 {
                     Ok(r) => match r.return_code {
@@ -233,28 +241,28 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
                         }
                         _ => {
                             // Something else happened -> error
-                            return Err(RegentError::FailedDryRunEvaluation(
-                                format!(
+                            return Err(RegentError::FailedDryRunEvaluation(format!(
                                 "Unable to check available updates: {:?}",
                                 r
-                            )
-                            ));
+                            )));
                         }
                     },
                     Err(e) => {
-                        return Err(RegentError::FailedDryRunEvaluation(
-                            format!(
+                        return Err(RegentError::FailedDryRunEvaluation(format!(
                             "Unable to check available updates: {:?}",
                             e
-                        )
-                        ));
+                        )));
                     }
                 }
             }
-            Self::PackageState { package, state: expected_state } => {
-                let package_is_currently_installed = is_package_installed(host_handler, package).await;
+            Self::PackageState {
+                package,
+                state: expected_state,
+            } => {
+                let package_is_currently_installed =
+                    is_package_installed(host_handler, package).await;
 
-                match (package_is_currently_installed, expected_state ) {
+                match (package_is_currently_installed, expected_state) {
                     (true, PackageExpectedState::Present) => {} // Nothing to do
                     (true, PackageExpectedState::Absent) => {
                         // Package is present and needs to be removed
@@ -279,7 +287,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
             Ok(AttributeComplianceAssessment::Compliant)
         } else {
             Ok(AttributeComplianceAssessment::NonCompliant(
-                RemediationsList::from(remediations)?
+                RemediationsList::from(remediations)?,
             ))
         }
     }

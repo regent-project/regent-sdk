@@ -14,10 +14,13 @@
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install httpd package
-//! let httpd = YumDnfBlockExpectedState::builder()
-//!     .with_package_state("httpd", PackageExpectedState::Present)
-//!     .build()
-//!     .unwrap();
+//! let httpd = YumDnfBlockExpectedState::package_state("httpd", PackageExpectedState::Present);
+//!
+//! // Remove a package
+//! let nginx = YumDnfBlockExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//!
+//! // Trigger a full system upgrade
+//! let upgrade = YumDnfBlockExpectedState::full_system_upgrade();
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::yumdnf(httpd, Privilege::WithSudo, None))
@@ -32,7 +35,17 @@
 //!     Privilege: !WithSudo
 //!     Detail: !YumDnf
 //!       Package: httpd
-//!       State: !Present
+//!       State: present
+//! ```
+//!
+//! For a full system upgrade:
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: All packages must be up to date
+//!     Privilege: !WithSudo
+//!     Detail: !YumDnf
+//!       SystemUpToDate
 //! ```
 
 use crate::error::RegentError;
@@ -69,7 +82,7 @@ impl std::fmt::Display for YumDnfModuleInternalApiCall {
 
 /// Desired state of a package
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
+#[serde(rename_all = "lowercase")]
 pub enum PackageExpectedState {
     /// Package should be installed
     Present,
@@ -79,77 +92,66 @@ pub enum PackageExpectedState {
 
 /// Configuration for YUM/DNF package management
 ///
-/// Use the builder to specify package state (Present/Absent) and optionally trigger
-/// a system upgrade.
+/// This enum represents the desired state for YUM/DNF package management on Fedora/CentOS/RHEL systems.
+/// It supports two main operations:
+/// - Managing individual packages (install/remove) via the `PackageState` variant
+/// - Performing a full system upgrade via the `SystemUpToDate` variant
+///
+/// # YAML Representation
+///
+/// ## Package management:
+/// ```yaml
+/// Package: httpd
+/// State: present  # or "absent" to remove
+/// ```
+///
+/// ## Full system upgrade:
+/// ```yaml
+/// SystemUpToDate
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
-#[serde(rename_all = "PascalCase")]
-pub struct YumDnfBlockExpectedState {
-    /// Desired state of the package(s)
-    state: Option<PackageExpectedState>,
-    /// Package name to manage
-    package: Option<String>,
-    /// Whether to perform a full system upgrade
-    upgrade: Option<bool>,
+pub enum YumDnfBlockExpectedState {
+    /// Perform a full system upgrade (dnf/yum update)
+    SystemUpToDate,
+    /// Manage a specific package's state
+    #[serde(untagged)]
+    PackageState {
+        /// Name of the package to manage
+        package: String,
+        /// Desired state of the package
+        state: PackageExpectedState,
+    },
 }
 
 impl Timeout for YumDnfBlockExpectedState {
     fn default_timeout(&self) -> Duration {
-        Duration::from_secs(30)
+        match self {
+            Self::SystemUpToDate => Duration::from_secs(300),
+            Self::PackageState {
+                package: _,
+                state: _,
+            } => Duration::from_secs(60),
+        }
     }
 }
 
 impl YumDnfBlockExpectedState {
-    pub fn builder() -> YumDnfBlockExpectedState {
-        YumDnfBlockExpectedState {
-            state: None,
-            package: None,
-            upgrade: None,
+    pub fn full_system_upgrade() -> YumDnfBlockExpectedState {
+        YumDnfBlockExpectedState::SystemUpToDate
+    }
+
+    pub fn package_state(package: &str, state: PackageExpectedState) -> YumDnfBlockExpectedState {
+        YumDnfBlockExpectedState::PackageState {
+            package: package.to_string(),
+            state,
         }
-    }
-
-    pub fn with_system_upgrade(&mut self) -> &mut Self {
-        self.upgrade = Some(true);
-        self
-    }
-
-    pub fn with_package_state(
-        &mut self,
-        package_name: &str,
-        package_state: PackageExpectedState,
-    ) -> &mut Self {
-        self.package = Some(package_name.to_string());
-        self.state = Some(package_state);
-        self
-    }
-
-    pub fn build(&self) -> Result<YumDnfBlockExpectedState, RegentError> {
-        if let Err(details) = self.check() {
-            return Err(details);
-        }
-        Ok(self.clone())
     }
 }
 
 impl Check for YumDnfBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if let (None, None, None) = (&self.state, &self.package, self.upgrade) {
-            return Err(RegentError::IncoherentExpectedState(format!(
-                "All parameters are unset. Please describe the expected state."
-            )));
-        }
-        if let (None, Some(package_name)) = (&self.state, &self.package) {
-            return Err(RegentError::IncoherentExpectedState(format!(
-                "Missing 'state' parameter. What is the expected state of the package ({}) ?",
-                package_name
-            )));
-        }
-        if let (Some(package_expected_state), None) = (&self.state, &self.package) {
-            return Err(RegentError::IncoherentExpectedState(format!(
-                "Missing 'package' parameter. Which package should be {:?} ?",
-                package_expected_state
-            )));
-        }
         Ok(())
     }
 
@@ -175,11 +177,15 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
         let package_manager: RedHatFlavoredPackageManager;
 
         if host_handler
@@ -202,84 +208,58 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedStat
 
         let mut remediations: Vec<Remediation> = Vec::new();
 
-        match &self.state {
-            None => {}
-            Some(state) => {
-                match state {
-                    PackageExpectedState::Present => {
-                        // Check is package is already installed or needs to be
-                        if is_package_installed(
-                            host_handler,
-                            &package_manager,
-                            self.package.clone().unwrap(),
-                            privilege.clone(),
-                        )
-                        .await
-                        {
-                            remediations.push(Remediation::None(format!(
-                                "{} already present",
-                                self.package.clone().unwrap()
-                            )));
-                        } else {
-                            // Package is absent and needs to be installed
-                            remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
-                                YumDnfModuleInternalApiCall::Install(self.package.clone().unwrap()),
-                                package_manager.clone(),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                    PackageExpectedState::Absent => {
-                        // Check is package is already absent or needs to be removed
-                        if is_package_installed(
-                            host_handler,
-                            &package_manager,
-                            self.package.clone().unwrap(),
-                            privilege.clone(),
-                        )
-                        .await
-                        {
-                            // Package is present and needs to be removed
-                            remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
-                                YumDnfModuleInternalApiCall::Remove(self.package.clone().unwrap()),
-                                package_manager.clone(),
-                                privilege.clone(),
-                            )));
-                        } else {
-                            remediations.push(Remediation::None(format!(
-                                "{} already absent",
-                                self.package.clone().unwrap()
-                            )));
-                        }
-                    }
-                }
-            }
-        }
-        // TODO : have this to do a "dnf check-update" only
-        // If updates available -> ApiCall, if not, Matched
-        if let Some(value) = self.upgrade {
-            if value {
+        match &self {
+            Self::SystemUpToDate => {
+                // For system upgrade, we need to check if updates are available
+                // This is a simplified check - in practice, we'd run the appropriate command
                 remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
                     YumDnfModuleInternalApiCall::Upgrade,
                     package_manager,
                     privilege.clone(),
                 )));
             }
+            Self::PackageState {
+                package,
+                state: expected_state,
+            } => {
+                let package_is_currently_installed = is_package_installed(
+                    host_handler,
+                    &package_manager,
+                    package.clone(),
+                    privilege.clone(),
+                )
+                .await;
+
+                match (package_is_currently_installed, expected_state) {
+                    (true, PackageExpectedState::Present) => {} // Nothing to do
+                    (true, PackageExpectedState::Absent) => {
+                        // Package is present and needs to be removed
+                        remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
+                            YumDnfModuleInternalApiCall::Remove(package.clone()),
+                            package_manager.clone(),
+                            privilege.clone(),
+                        )));
+                    }
+                    (false, PackageExpectedState::Present) => {
+                        // Package is absent and needs to be installed
+                        remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
+                            YumDnfModuleInternalApiCall::Install(package.clone()),
+                            package_manager.clone(),
+                            privilege.clone(),
+                        )));
+                    }
+                    (false, PackageExpectedState::Absent) => {} // Nothing to do
+                }
+            }
         }
 
-        // If remediations are only None, it means a Match. If only one change is not a None, return the whole list.
-        let filtered_remediations: Vec<Remediation> = remediations
-            .into_iter()
-            .filter(|r| !matches!(r, Remediation::None(_)))
-            .collect();
-        
-        if filtered_remediations.is_empty() {
-            return Ok(AttributeComplianceAssessment::Compliant);
+        if remediations.is_empty() {
+            Ok(AttributeComplianceAssessment::Compliant)
+        } else {
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(remediations)?,
+            ))
         }
-        
-        return Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(filtered_remediations)?
-        ));
     }
 }
 

@@ -48,7 +48,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind, InitSystem};
+use crate::hosts::properties::{HostProperties, InitSystem, LinuxFlavor, LinuxSpecifics, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -265,22 +265,19 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
         // Check if user exists using OS-specific method
         let user_exists = match os_kind {
             #[cfg(feature = "windows")]
-            OsKind::Windows(_) => {
-                match windows_user_exists(host_handler, &self.name).await {
-                    Ok(exists) => exists,
-                    Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
-                }
-            }
-            OsKind::Linux(_) => {
-                match user_exists(host_handler, &self.name).await {
-                    Ok(exists) => exists,
-                    Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
-                }
-            }
+            OsKind::Windows(_) => match windows_user_exists(host_handler, &self.name).await {
+                Ok(exists) => exists,
+                Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
+            },
+            OsKind::Linux(_) => match user_exists(host_handler, &self.name).await {
+                Ok(exists) => exists,
+                Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
+            },
             OsKind::MacOs(_) | OsKind::FreeBsd(_) | OsKind::Unknown => {
-                return Err(RegentError::FailedDryRunEvaluation(
-                    format!("User management is not supported on {:?}", os_kind),
-                ));
+                return Err(RegentError::FailedDryRunEvaluation(format!(
+                    "User management is not supported on {:?}",
+                    os_kind
+                )));
             }
         };
 
@@ -290,37 +287,35 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::User(UserApiCall::from(
-                            UserModuleInternalApiCall::Delete {
-                                username: self.name.clone(),
-                                remove_home: self.remove_home.unwrap_or(false),
-                            },
-                            privilege.clone(),
-                        )),
-                    ]).unwrap()
+                    RemediationsList::from(vec![Remediation::User(UserApiCall::from(
+                        UserModuleInternalApiCall::Delete {
+                            username: self.name.clone(),
+                            remove_home: self.remove_home.unwrap_or(false),
+                        },
+                        privilege.clone(),
+                    ))])
+                    .unwrap(),
                 ));
             }
             UserExpectedState::Present => {
                 if !user_exists {
                     return Ok(AttributeComplianceAssessment::NonCompliant(
-                        RemediationsList::from(vec![
-                            Remediation::User(UserApiCall::from(
-                                UserModuleInternalApiCall::Add {
-                                    username: self.name.clone(),
-                                    uid: self.uid,
-                                    group: self.group.clone(),
-                                    groups: self.groups.clone(),
-                                    shell: self.shell.clone(),
-                                    home: self.home.clone(),
-                                    comment: self.comment.clone(),
-                                    password: self.password.clone(),
-                                    system: self.system.unwrap_or(false),
-                                    create_home: self.create_home.unwrap_or(true),
-                                },
-                                privilege.clone(),
-                            )),
-                        ]).unwrap()
+                        RemediationsList::from(vec![Remediation::User(UserApiCall::from(
+                            UserModuleInternalApiCall::Add {
+                                username: self.name.clone(),
+                                uid: self.uid,
+                                group: self.group.clone(),
+                                groups: self.groups.clone(),
+                                shell: self.shell.clone(),
+                                home: self.home.clone(),
+                                comment: self.comment.clone(),
+                                password: self.password.clone(),
+                                system: self.system.unwrap_or(false),
+                                create_home: self.create_home.unwrap_or(true),
+                            },
+                            privilege.clone(),
+                        ))])
+                        .unwrap(),
                     ));
                 }
 
@@ -374,10 +369,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                         }
 
                         if let Some(ref expected_group) = self.group {
-                            let current_group = match get_primary_group(host_handler, &self.name).await {
-                                Ok(g) => g,
-                                Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
-                            };
+                            let current_group =
+                                match get_primary_group(host_handler, &self.name).await {
+                                    Ok(g) => g,
+                                    Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
+                                };
                             if &current_group != expected_group {
                                 mod_group = Some(expected_group.clone());
                             }
@@ -444,31 +440,31 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                             };
 
                             return Ok(AttributeComplianceAssessment::NonCompliant(
-                                RemediationsList::from(vec![
-                                    Remediation::User(UserApiCall::from(
-                                        UserModuleInternalApiCall::Modify {
-                                            username: self.name.clone(),
-                                            uid: mod_uid,
-                                            group: mod_group,
-                                            groups: mod_groups,
-                                            append,
-                                            shell: mod_shell,
-                                            home: mod_home,
-                                            comment: mod_comment,
-                                            password: mod_password,
-                                        },
-                                        privilege.clone(),
-                                    )),
-                                ]).unwrap()
+                                RemediationsList::from(vec![Remediation::User(UserApiCall::from(
+                                    UserModuleInternalApiCall::Modify {
+                                        username: self.name.clone(),
+                                        uid: mod_uid,
+                                        group: mod_group,
+                                        groups: mod_groups,
+                                        append,
+                                        shell: mod_shell,
+                                        home: mod_home,
+                                        comment: mod_comment,
+                                        password: mod_password,
+                                    },
+                                    privilege.clone(),
+                                ))])
+                                .unwrap(),
                             ));
                         }
 
                         Ok(AttributeComplianceAssessment::Compliant)
                     }
                     OsKind::MacOs(_) | OsKind::FreeBsd(_) | OsKind::Unknown => {
-                        Err(RegentError::FailedDryRunEvaluation(
-                            format!("Detailed user management is not supported on {:?}", os_kind),
-                        ))
+                        Err(RegentError::FailedDryRunEvaluation(format!(
+                            "Detailed user management is not supported on {:?}",
+                            os_kind
+                        )))
                     }
                 }
             }
@@ -607,19 +603,17 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                         // Windows net user command for adding users
                         // net user username password /add /comment:"comment"
                         let mut cmd = format!("net user {} /add", username);
-                        
+
                         if let Some(pass) = password {
                             // Note: This sets a plaintext password - in real usage, this should be handled securely
                             cmd.push_str(&format!(" {}", pass));
                         }
-                        
+
                         if let Some(comm) = comment {
                             cmd.push_str(&format!(" /comment:\"{}\"", comm));
                         }
-                        
-                        host_handler
-                            .run_windows_command(&cmd)
-                            .await
+
+                        host_handler.run_windows_command(&cmd).await
                     }
                     UserModuleInternalApiCall::Modify {
                         username,
@@ -629,28 +623,21 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                     } => {
                         // Windows net user command for modifying users
                         let mut cmd = format!("net user {}", username);
-                        
+
                         if let Some(_pass) = password {
                             cmd.push_str(" * /password:req"); // This prompts for password change
                         }
-                        
+
                         if let Some(comm) = comment {
                             cmd.push_str(&format!(" /comment:\"{}\"", comm));
                         }
-                        
-                        host_handler
-                            .run_windows_command(&cmd)
-                            .await
+
+                        host_handler.run_windows_command(&cmd).await
                     }
-                    UserModuleInternalApiCall::Delete {
-                        username,
-                        ..
-                    } => {
+                    UserModuleInternalApiCall::Delete { username, .. } => {
                         // Windows net user command for deleting users
                         let cmd = format!("net user {} /delete", username);
-                        host_handler
-                            .run_windows_command(&cmd)
-                            .await
+                        host_handler.run_windows_command(&cmd).await
                     }
                 };
 
@@ -773,9 +760,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                     }
                 };
 
-                let cmd_result = host_handler
-                    .run_command(cmd.as_str(), privilege)
-                    .await;
+                let cmd_result = host_handler.run_command(cmd.as_str(), privilege).await;
 
                 match cmd_result {
                     Ok(result) => {
@@ -795,9 +780,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                 }
             }
             OsKind::MacOs(_) | OsKind::FreeBsd(_) | OsKind::Unknown => {
-                Err(RegentError::FailedDryRunEvaluation(
-                    format!("User management is not supported on {:?}", os_kind),
-                ))
+                Err(RegentError::FailedDryRunEvaluation(format!(
+                    "User management is not supported on {:?}",
+                    os_kind
+                )))
             }
         }
     }
@@ -844,7 +830,10 @@ async fn windows_user_exists<Handler: HostHandler>(
                 Ok(false)
             }
         }
-        Err(e) => Err(format!("Unable to check if user exists on Windows: {:?}", e)),
+        Err(e) => Err(format!(
+            "Unable to check if user exists on Windows: {:?}",
+            e
+        )),
     }
 }
 

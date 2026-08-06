@@ -40,7 +40,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::{HostProperties, LinuxFlavor, LinuxSpecifics, OsKind, InitSystem};
+use crate::hosts::properties::{HostProperties, InitSystem, LinuxFlavor, LinuxSpecifics, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -154,27 +154,22 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
         // Get current hostname based on OS
         let current_hostname = match os_kind {
             #[cfg(feature = "windows")]
-            OsKind::Windows(_) => {
-                match host_handler
-                    .run_windows_command("hostname")
-                    .await
-                {
-                    Ok(result) => {
-                        if result.return_code != 0 {
-                            return Err(RegentError::FailedDryRunEvaluation(
-                                "Failed to get current hostname on Windows".to_string(),
-                            ));
-                        }
-                        result.stdout.trim().to_string()
+            OsKind::Windows(_) => match host_handler.run_windows_command("hostname").await {
+                Ok(result) => {
+                    if result.return_code != 0 {
+                        return Err(RegentError::FailedDryRunEvaluation(
+                            "Failed to get current hostname on Windows".to_string(),
+                        ));
                     }
-                    Err(e) => {
-                        return Err(RegentError::FailedDryRunEvaluation(format!(
-                            "Unable to get hostname on Windows: {:?}",
-                            e
-                        )));
-                    }
+                    result.stdout.trim().to_string()
                 }
-            }
+                Err(e) => {
+                    return Err(RegentError::FailedDryRunEvaluation(format!(
+                        "Unable to get hostname on Windows: {:?}",
+                        e
+                    )));
+                }
+            },
             OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => {
                 match host_handler
                     .run_command("cat /etc/hostname", &Privilege::None)
@@ -230,15 +225,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
         };
 
         Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(vec![
-                Remediation::Hostname(HostnameApiCall::from(
-                    HostnameModuleInternalApiCall::SetHostname {
-                        name: self.name.clone(),
-                        method,
-                    },
-                    privilege.clone(),
-                )),
-            ]).unwrap()
+            RemediationsList::from(vec![Remediation::Hostname(HostnameApiCall::from(
+                HostnameModuleInternalApiCall::SetHostname {
+                    name: self.name.clone(),
+                    method,
+                },
+                privilege.clone(),
+            ))])
+            .unwrap(),
         ))
     }
 }
@@ -340,13 +334,13 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
                 let cmd = match method {
                     HostnameMethod::Windows => format!("hostname {}", name),
                     // For Windows, we'll use the Windows method even if user specified systemd/generic
-                    HostnameMethod::Systemd | HostnameMethod::Generic => format!("hostname {}", name),
+                    HostnameMethod::Systemd | HostnameMethod::Generic => {
+                        format!("hostname {}", name)
+                    }
                 };
 
                 // Execute Windows command
-                let cmd_result = host_handler
-                    .run_windows_command(&cmd)
-                    .await;
+                let cmd_result = host_handler.run_windows_command(&cmd).await;
 
                 match cmd_result {
                     Ok(result) => {
@@ -385,9 +379,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
                 };
 
                 // Execute Unix command
-                let cmd_result = host_handler
-                    .run_command(&cmd, &self.privilege)
-                    .await;
+                let cmd_result = host_handler.run_command(&cmd, &self.privilege).await;
 
                 match cmd_result {
                     Ok(result) => {
@@ -406,11 +398,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
                     ))),
                 }
             }
-            OsKind::Unknown => {
-                Err(RegentError::FailedDryRunEvaluation(
-                    "Cannot set hostname on unknown OS".to_string(),
-                ))
-            }
+            OsKind::Unknown => Err(RegentError::FailedDryRunEvaluation(
+                "Cannot set hostname on unknown OS".to_string(),
+            )),
         }
     }
 }

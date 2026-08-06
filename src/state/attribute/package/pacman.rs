@@ -121,15 +121,18 @@ pub enum PacmanBlockExpectedState {
         /// Name of the package to manage
         package: String,
         /// Desired state of the package
-        state: PackageExpectedState
-    }
+        state: PackageExpectedState,
+    },
 }
 
 impl Timeout for PacmanBlockExpectedState {
     fn default_timeout(&self) -> Duration {
         match self {
             Self::SystemUpgrade => Duration::from_secs(300),
-            Self::PackageState { package: _, state: _ } => Duration::from_secs(60),
+            Self::PackageState {
+                package: _,
+                state: _,
+            } => Duration::from_secs(60),
         }
     }
 }
@@ -140,7 +143,10 @@ impl PacmanBlockExpectedState {
     }
 
     pub fn package_state(package: &str, state: PackageExpectedState) -> PacmanBlockExpectedState {
-        PacmanBlockExpectedState::PackageState { package: package.to_string(), state }
+        PacmanBlockExpectedState::PackageState {
+            package: package.to_string(),
+            state,
+        }
     }
 }
 
@@ -200,8 +206,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
                     privilege.clone(),
                 )));
             }
-            Self::PackageState { package, state: expected_state } => {
-                let package_is_currently_installed = is_package_installed(host_handler, package).await;
+            Self::PackageState {
+                package,
+                state: expected_state,
+            } => {
+                let package_is_currently_installed =
+                    is_package_installed(host_handler, package).await;
 
                 match (package_is_currently_installed, expected_state) {
                     (true, PackageExpectedState::Present) => {} // Nothing to do
@@ -228,7 +238,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedStat
             Ok(AttributeComplianceAssessment::Compliant)
         } else {
             Ok(AttributeComplianceAssessment::NonCompliant(
-                RemediationsList::from(remediations)?
+                RemediationsList::from(remediations)?,
             ))
         }
     }
@@ -394,15 +404,21 @@ mod tests {
         let attributes: Vec<PacmanBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
 
-        assert_eq!(attributes[0], PacmanBlockExpectedState::PackageState {
-            package: "apache".to_string(),
-            state: PackageExpectedState::Present
-        });
+        assert_eq!(
+            attributes[0],
+            PacmanBlockExpectedState::PackageState {
+                package: "apache".to_string(),
+                state: PackageExpectedState::Present
+            }
+        );
 
-        assert_eq!(attributes[1], PacmanBlockExpectedState::PackageState {
-            package: "apache".to_string(),
-            state: PackageExpectedState::Absent
-        });
+        assert_eq!(
+            attributes[1],
+            PacmanBlockExpectedState::PackageState {
+                package: "apache".to_string(),
+                state: PackageExpectedState::Absent
+            }
+        );
 
         assert_eq!(attributes[2], PacmanBlockExpectedState::SystemUpgrade);
     }

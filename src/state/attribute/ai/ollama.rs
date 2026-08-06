@@ -297,7 +297,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     privilege.clone(),
                 )));
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(remediations)?
+                    RemediationsList::from(remediations)?,
                 ));
             }
             // Already absent → compliant.
@@ -312,7 +312,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     privilege.clone(),
                 )));
                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(remediations)?
+                    RemediationsList::from(remediations)?,
                 ));
             }
         }
@@ -497,7 +497,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
             Ok(AttributeComplianceAssessment::Compliant)
         } else {
             Ok(AttributeComplianceAssessment::NonCompliant(
-                RemediationsList::from(remediations)?
+                RemediationsList::from(remediations)?,
             ))
         }
     }

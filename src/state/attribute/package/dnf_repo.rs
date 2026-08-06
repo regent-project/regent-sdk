@@ -287,15 +287,13 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                 }
 
                 Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::DnfRepo(DnfRepoApiCall::from(
-                            DnfRepoModuleInternalApiCall::RemoveSection {
-                                file_name,
-                                repo_name: self.name.clone(),
-                            },
-                            privilege.clone(),
-                        )),
-                    ])?
+                    RemediationsList::from(vec![Remediation::DnfRepo(DnfRepoApiCall::from(
+                        DnfRepoModuleInternalApiCall::RemoveSection {
+                            file_name,
+                            repo_name: self.name.clone(),
+                        },
+                        privilege.clone(),
+                    ))])?,
                 ))
             }
             DnfRepoExpectedState::Present => {
@@ -322,16 +320,16 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                         ) {
                             if current_sources != expected_sources {
                                 return Ok(AttributeComplianceAssessment::NonCompliant(
-                                    RemediationsList::from(vec![
-                                        Remediation::DnfRepo(DnfRepoApiCall::from(
+                                    RemediationsList::from(vec![Remediation::DnfRepo(
+                                        DnfRepoApiCall::from(
                                             DnfRepoModuleInternalApiCall::UpsertSection {
                                                 file_name,
                                                 repo_name: self.name.clone(),
                                                 section_content: expected_section,
                                             },
                                             privilege.clone(),
-                                        )),
-                                    ])?
+                                        ),
+                                    )])?,
                                 ));
                             }
                         }
@@ -339,16 +337,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                 }
 
                 Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![
-                        Remediation::DnfRepo(DnfRepoApiCall::from(
-                            DnfRepoModuleInternalApiCall::UpsertSection {
-                                file_name,
-                                repo_name: self.name.clone(),
-                                section_content: expected_section,
-                            },
-                            privilege.clone(),
-                        )),
-                    ])?
+                    RemediationsList::from(vec![Remediation::DnfRepo(DnfRepoApiCall::from(
+                        DnfRepoModuleInternalApiCall::UpsertSection {
+                            file_name,
+                            repo_name: self.name.clone(),
+                            section_content: expected_section,
+                        },
+                        privilege.clone(),
+                    ))])?,
                 ))
             }
         }
