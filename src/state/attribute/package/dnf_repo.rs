@@ -1,27 +1,59 @@
 //! DNF/YUM repository management attribute
 //!
-//! This module provides the `DnfRepoBlockExpectedState` type for managing DNF/YUM
-//! repository `.repo` files in `/etc/yum.repos.d/`.
+//! This module provides the `DnfRepoBlockExpectedState` enum for managing DNF/YUM
+//! repository `.repo` files in `/etc/yum.repos.d/`. The enum-based design ensures
+//! that incoherent state combinations are impossible to represent at compile time.
 //!
 //! **Compatible OS:** Linux (Fedora, CentOS, RHEL-based distributions)
+//!
+//! # Design
+//!
+//! The `DnfRepoBlockExpectedState` enum uses two variants to enforce type safety:
+//!
+//! - **`Present`**: Contains all repository configuration fields including `source` (required),
+//!   `description`, `enabled`, `gpgcheck`, `gpgkey`, `file`, `priority`, `sslverify`, and `exclude` (all optional).
+//! - **`Absent`**: Contains only `name` (required) and `file` (optional) fields.
+//!
+//! This design makes it impossible to represent invalid states such as:
+//! - An absent repository with `enabled`, `gpgcheck`, or other configuration settings
+//! - A present repository without a `source`
+//! - Multiple source types (baseurl, mirrorlist, metalink) simultaneously
 //!
 //! # Examples
 //!
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::dnf_repo::{DnfRepoBlockExpectedState, DnfRepoExpectedState};
+//! use regent_sdk::state::attribute::package::dnf_repo::{DnfRepoBlockExpectedState, DnfRepoSource};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
-//! // Add a repository with baseurl
-//! let repo = DnfRepoBlockExpectedState::builder("docker-ce")
-//!     .with_state(DnfRepoExpectedState::Present)
-//!     .with_baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()])
-//!     .with_enabled(true)
-//!     .with_gpgcheck(true)
-//!     .with_gpgkey(vec!["https://download.docker.com/linux/centos/gpg".to_string()])
-//!     .build()
-//!     .unwrap();
+//! // Using factory methods (recommended for most cases)
+//! let repo = DnfRepoBlockExpectedState::present("docker-ce",
+//!     DnfRepoSource::Baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()])
+//! );
+//!
+//! // Or using struct literal syntax for full configuration
+//! let repo = DnfRepoBlockExpectedState::Present {
+//!     name: "docker-ce".to_string(),
+//!     source: DnfRepoSource::Baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()]),
+//!     description: Some("Docker CE Stable".to_string()),
+//!     enabled: Some(true),
+//!     gpgcheck: Some(true),
+//!     gpgkey: Some(vec!["https://download.docker.com/linux/centos/gpg".to_string()]),
+//!     file: None,
+//!     priority: None,
+//!     sslverify: None,
+//!     exclude: None,
+//! };
+//!
+//! // Remove a repository (only name and optional file are available)
+//! let repo_absent = DnfRepoBlockExpectedState::absent("docker-ce");
+//!
+//! // Or using struct literal
+//! let repo_absent = DnfRepoBlockExpectedState::Absent {
+//!     name: "docker-ce".to_string(),
+//!     file: None,
+//! };
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::dnf_repo(repo, Privilege::WithSudo, None))
@@ -32,17 +64,34 @@
 //!
 //! ```yaml
 //! Attributes:
+//!   # Repository must be present with configuration
 //!   - Name: Docker CE repository must be present
 //!     Privilege: !WithSudo
 //!     Detail: !DnfRepo
-//!       Name: docker-ce
-//!       State: !Present
-//!       Baseurl:
-//!         - "https://download.docker.com/linux/centos/7/x86_64/stable"
-//!       Enabled: true
-//!       Gpgcheck: true
-//!       Gpgkey:
-//!         - "https://download.docker.com/linux/centos/gpg"
+//!       Present:
+//!         Name: docker-ce
+//!         Source: !Baseurl
+//!           - "https://download.docker.com/linux/centos/7/x86_64/stable"
+//!         Description: Docker CE Stable
+//!         Enabled: true
+//!         Gpgcheck: true
+//!         Gpgkey:
+//!           - "https://download.docker.com/linux/centos/gpg"
+//!
+//!   # Repository must be absent (removed)
+//!   - Name: Docker CE repository must be absent
+//!     Privilege: !WithSudo
+//!     Detail: !DnfRepo
+//!       Absent:
+//!         Name: docker-ce
+//!
+//!   # Absent with custom file path
+//!   - Name: Remove old repository file
+//!     Privilege: !WithSudo
+//!     Detail: !DnfRepo
+//!       Absent:
+//!         Name: docker-ce
+//!         File: custom-repo
 //! ```
 
 use crate::error::RegentError;
@@ -69,42 +118,102 @@ pub enum DnfRepoExpectedState {
     Absent,
 }
 
+/// Source configuration for a DNF/YUM repository
+///
+/// This enum ensures that exactly one source type is specified, making it impossible
+/// to have multiple conflicting source definitions. The variants are:
+///
+/// - **`Baseurl`**: One or more base URLs for the repository
+/// - **`Mirrorlist`**: URL to a file containing a list of mirror URLs
+/// - **`Metalink`**: URL to a metalink file for repository metadata
+///
+/// Exactly one of these must be set for a Present repository.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+#[serde(untagged)]
+pub enum DnfRepoSource {
+    /// One or more base URLs for the repository
+    Baseurl(Vec<String>),
+    /// URL to a file containing mirror URLs
+    Mirrorlist(String),
+    /// URL to a metalink file
+    Metalink(String),
+}
+
 /// Configuration for a DNF/YUM repository
 ///
 /// Manages a repository section inside a `.repo` file in `/etc/yum.repos.d/`.
-/// `name` is both the INI section header `[name]` and the default filename
-/// (override with `file`). Exactly one of `baseurl`, `mirrorlist`, or `metalink`
-/// must be set when state is Present.
+///
+/// This enum uses a type-safe design where each variant represents a valid state:
+///
+/// - **`Present` variant**: Represents a repository that should exist on the system.
+///   Contains all configuration fields needed to define the repository:
+///   - `name`: Repository name (used as INI section header)
+///   - `source`: **Required** - The repository source (Baseurl, Mirrorlist, or Metalink)
+///   - `description`: Human-readable description
+///   - `enabled`: Whether the repository is enabled (defaults to system default)
+///   - `gpgcheck`: Whether to verify packages with GPG signatures
+///   - `gpgkey`: URLs to GPG keys for package verification
+///   - `file`: Custom filename for the .repo file (overrides `name`)
+///   - `priority`: Repository priority (lower = higher priority)
+///   - `sslverify`: Whether to verify SSL certificates
+///   - `exclude`: Packages to exclude from this repository
+///
+/// - **`Absent` variant**: Represents a repository that should be removed from the system.
+///   Only contains the fields needed to identify which repository to remove:
+///   - `name`: Repository name (used to identify the section to remove)
+///   - `file`: Optional custom filename if the repo file uses a different name
+///
+/// This design ensures type safety by making it impossible to:
+/// - Create an Absent repository with configuration settings (they don't apply to non-existent repos)
+/// - Create a Present repository without a source
+/// - Specify multiple source types simultaneously
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct DnfRepoBlockExpectedState {
-    /// Repository name (used as INI section header and default filename)
-    name: String,
-    /// Desired state of the repository
-    state: Option<DnfRepoExpectedState>,
-    /// Human-readable description of the repository
-    description: Option<String>,
-    /// Base URLs for the repository
-    baseurl: Option<Vec<String>>,
-    /// URL to a file containing mirror URLs
-    mirrorlist: Option<String>,
-    /// URL to a metalink file
-    metalink: Option<String>,
-    /// Whether the repository is enabled
-    enabled: Option<bool>,
-    /// Whether to verify packages with GPG signatures
-    gpgcheck: Option<bool>,
-    /// URLs to GPG keys for package verification
-    gpgkey: Option<Vec<String>>,
-    /// Custom filename for the .repo file (overrides using `name`)
-    file: Option<String>,
-    /// Repository priority (lower = higher priority)
-    priority: Option<u32>,
-    /// Whether to verify SSL certificates
-    sslverify: Option<bool>,
-    /// Packages to exclude from this repository
-    exclude: Option<Vec<String>>,
+#[serde(untagged)]
+pub enum DnfRepoBlockExpectedState {
+    /// Repository should be present with full configuration
+    Present {
+        /// Repository name (used as INI section header)
+        name: String,
+        /// Repository source (mutually exclusive: Baseurl, Mirrorlist, or Metalink)
+        source: DnfRepoSource,
+        /// Human-readable description of the repository
+        #[serde(default)]
+        description: Option<String>,
+        /// Whether the repository is enabled
+        #[serde(default)]
+        enabled: Option<bool>,
+        /// Whether to verify packages with GPG signatures
+        #[serde(default)]
+        gpgcheck: Option<bool>,
+        /// URLs to GPG keys for package verification
+        #[serde(default)]
+        gpgkey: Option<Vec<String>>,
+        /// Custom filename for the .repo file (overrides using `name`)
+        #[serde(default)]
+        file: Option<String>,
+        /// Repository priority (lower = higher priority)
+        #[serde(default)]
+        priority: Option<u32>,
+        /// Whether to verify SSL certificates
+        #[serde(default)]
+        sslverify: Option<bool>,
+        /// Packages to exclude from this repository
+        #[serde(default)]
+        exclude: Option<Vec<String>>,
+    },
+    /// Repository should be absent (removed)
+    /// Only name and optional file are available - other settings don't make sense
+    /// for a repository that should not exist
+    Absent {
+        /// Repository name (used to identify the repository to remove)
+        name: String,
+        /// Custom filename for the .repo file (overrides using `name`)
+        #[serde(default)]
+        file: Option<String>,
+    },
 }
 
 impl Timeout for DnfRepoBlockExpectedState {
@@ -114,14 +223,54 @@ impl Timeout for DnfRepoBlockExpectedState {
 }
 
 impl DnfRepoBlockExpectedState {
-    pub fn builder(name: &str) -> DnfRepoBlockExpectedState {
-        DnfRepoBlockExpectedState {
+    /// Get the repository name
+    pub fn name(&self) -> &str {
+        match self {
+            DnfRepoBlockExpectedState::Present { name, .. } => name,
+            DnfRepoBlockExpectedState::Absent { name, .. } => name,
+        }
+    }
+
+    /// Get the repository filename (either custom or default to name)
+    pub fn repo_filename(&self) -> String {
+        match self {
+            DnfRepoBlockExpectedState::Present { file, name, .. } => {
+                file.as_deref().unwrap_or(name).to_string()
+            }
+            DnfRepoBlockExpectedState::Absent { file, name } => {
+                file.as_deref().unwrap_or(name).to_string()
+            }
+        }
+    }
+
+    /// Get the source URLs for verification purposes (only available for Present variant)
+    pub fn source_urls(&self) -> Option<Vec<String>> {
+        match self {
+            DnfRepoBlockExpectedState::Present { source, .. } => Some(match source {
+                DnfRepoSource::Baseurl(urls) => urls.clone(),
+                DnfRepoSource::Mirrorlist(url) => vec![url.clone()],
+                DnfRepoSource::Metalink(url) => vec![url.clone()],
+            }),
+            DnfRepoBlockExpectedState::Absent { .. } => None,
+        }
+    }
+
+    /// Check if this is a Present state
+    pub fn is_present(&self) -> bool {
+        matches!(self, DnfRepoBlockExpectedState::Present { .. })
+    }
+
+    /// Check if this is an Absent state
+    pub fn is_absent(&self) -> bool {
+        matches!(self, DnfRepoBlockExpectedState::Absent { .. })
+    }
+
+    /// Create a Present state configuration
+    pub fn present(name: &str, source: DnfRepoSource) -> DnfRepoBlockExpectedState {
+        DnfRepoBlockExpectedState::Present {
             name: name.to_string(),
-            state: None,
+            source,
             description: None,
-            baseurl: None,
-            mirrorlist: None,
-            metalink: None,
             enabled: None,
             gpgcheck: None,
             gpgkey: None,
@@ -132,109 +281,38 @@ impl DnfRepoBlockExpectedState {
         }
     }
 
-    pub fn with_state(&mut self, state: DnfRepoExpectedState) -> &mut Self {
-        self.state = Some(state);
-        self
-    }
-
-    pub fn with_description(&mut self, description: &str) -> &mut Self {
-        self.description = Some(description.to_string());
-        self
-    }
-
-    pub fn with_baseurl(&mut self, baseurl: Vec<String>) -> &mut Self {
-        self.baseurl = Some(baseurl);
-        self
-    }
-
-    pub fn with_mirrorlist(&mut self, mirrorlist: &str) -> &mut Self {
-        self.mirrorlist = Some(mirrorlist.to_string());
-        self
-    }
-
-    pub fn with_metalink(&mut self, metalink: &str) -> &mut Self {
-        self.metalink = Some(metalink.to_string());
-        self
-    }
-
-    pub fn with_enabled(&mut self, enabled: bool) -> &mut Self {
-        self.enabled = Some(enabled);
-        self
-    }
-
-    pub fn with_gpgcheck(&mut self, gpgcheck: bool) -> &mut Self {
-        self.gpgcheck = Some(gpgcheck);
-        self
-    }
-
-    pub fn with_gpgkey(&mut self, gpgkey: Vec<String>) -> &mut Self {
-        self.gpgkey = Some(gpgkey);
-        self
-    }
-
-    pub fn with_file(&mut self, file: &str) -> &mut Self {
-        self.file = Some(file.to_string());
-        self
-    }
-
-    pub fn with_priority(&mut self, priority: u32) -> &mut Self {
-        self.priority = Some(priority);
-        self
-    }
-
-    pub fn with_sslverify(&mut self, sslverify: bool) -> &mut Self {
-        self.sslverify = Some(sslverify);
-        self
-    }
-
-    pub fn with_exclude(&mut self, exclude: Vec<String>) -> &mut Self {
-        self.exclude = Some(exclude);
-        self
-    }
-
-    pub fn build(&self) -> Result<DnfRepoBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
-    }
-
-    fn repo_filename(&self) -> String {
-        self.file.as_deref().unwrap_or(&self.name).to_string()
-    }
-}
-
-impl Check for DnfRepoBlockExpectedState {
-    fn check(&self) -> Result<(), RegentError> {
-        if self.name.is_empty() {
-            return Err(RegentError::IncoherentExpectedState(
-                "Repo name cannot be empty.".to_string(),
-            ));
+    /// Create an Absent state configuration
+    pub fn absent(name: &str) -> DnfRepoBlockExpectedState {
+        DnfRepoBlockExpectedState::Absent {
+            name: name.to_string(),
+            file: None,
         }
+    }
 
-        let state = self
-            .state
-            .as_ref()
-            .unwrap_or(&DnfRepoExpectedState::Present);
-        if let DnfRepoExpectedState::Present = state {
-            let source_count = self.baseurl.is_some() as u8
-                + self.mirrorlist.is_some() as u8
-                + self.metalink.is_some() as u8;
-
-            if source_count == 0 {
-                return Err(RegentError::IncoherentExpectedState(
-                    "State Present requires exactly one of: Baseurl, Mirrorlist, Metalink."
-                        .to_string(),
-                ));
+    /// Validate the configuration
+    pub fn check(&self) -> Result<(), RegentError> {
+        match self {
+            DnfRepoBlockExpectedState::Present { name, .. } => {
+                if name.is_empty() {
+                    return Err(RegentError::IncoherentExpectedState(
+                        "Repo name cannot be empty.".to_string(),
+                    ));
+                }
+                Ok(())
             }
-            if source_count > 1 {
-                return Err(RegentError::IncoherentExpectedState(
-                    "Baseurl, Mirrorlist, and Metalink are mutually exclusive.".to_string(),
-                ));
+            DnfRepoBlockExpectedState::Absent { name, .. } => {
+                if name.is_empty() {
+                    return Err(RegentError::IncoherentExpectedState(
+                        "Repo name cannot be empty.".to_string(),
+                    ));
+                }
+                Ok(())
             }
         }
-        Ok(())
     }
 
-    fn check_host_compatibility(
+    /// Check host compatibility
+    pub fn check_host_compatibility(
         &self,
         host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
@@ -251,6 +329,19 @@ impl Check for DnfRepoBlockExpectedState {
     }
 }
 
+impl Check for DnfRepoBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        DnfRepoBlockExpectedState::check(self)
+    }
+
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
+        DnfRepoBlockExpectedState::check_host_compatibility(self, host_properties)
+    }
+}
+
 impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedState {
     async fn assess_compliance(
         &self,
@@ -263,10 +354,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
-        let state = self
-            .state
-            .as_ref()
-            .unwrap_or(&DnfRepoExpectedState::Present);
+
         let file_name = self.repo_filename();
         let file_path = format!("/etc/yum.repos.d/{}.repo", file_name);
 
@@ -275,11 +363,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
 
-        match state {
-            DnfRepoExpectedState::Absent => {
+        match self {
+            DnfRepoBlockExpectedState::Absent { name, .. } => {
                 let section_exists = current_content
                     .as_deref()
-                    .and_then(|c| extract_section(c, &self.name))
+                    .and_then(|c| extract_section(c, name))
                     .is_some();
 
                 if !section_exists {
@@ -290,18 +378,27 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                     RemediationsList::from(vec![Remediation::DnfRepo(DnfRepoApiCall::from(
                         DnfRepoModuleInternalApiCall::RemoveSection {
                             file_name,
-                            repo_name: self.name.clone(),
+                            repo_name: name.clone(),
                         },
                         privilege.clone(),
                     ))])?,
                 ))
             }
-            DnfRepoExpectedState::Present => {
-                let expected_section = build_section_content(self);
+            DnfRepoBlockExpectedState::Present {
+                name,
+                source,
+                description,
+                enabled,
+                gpgcheck,
+                gpgkey,
+                ..
+            } => {
+                let expected_section =
+                    build_section_content(name, source, description, enabled, gpgcheck, gpgkey);
 
                 let already_correct = current_content
                     .as_deref()
-                    .and_then(|c| extract_section(c, &self.name))
+                    .and_then(|c| extract_section(c, name))
                     .map(|s| s.trim() == expected_section.trim())
                     .unwrap_or(false);
 
@@ -310,21 +407,21 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                 }
 
                 // Enhanced verification: explicitly check critical properties like source URLs
-                // This provides better error messages and ensures source verification
                 if let Some(ref current) = current_content {
-                    if let Some(current_section) = extract_section(current, &self.name) {
-                        // Check if source URLs (baseurl, mirrorlist, metalink) are different
-                        if let (Some(current_sources), Some(expected_sources)) = (
-                            extract_source_urls_from_section(&current_section),
-                            extract_source_urls_from_section(&expected_section),
-                        ) {
+                    if let Some(current_section) = extract_section(current, name) {
+                        let current_sources = extract_source_urls_from_section(&current_section);
+                        let expected_sources = extract_source_urls_from_section(&expected_section);
+
+                        if let (Some(current_sources), Some(expected_sources)) =
+                            (current_sources, expected_sources)
+                        {
                             if current_sources != expected_sources {
                                 return Ok(AttributeComplianceAssessment::NonCompliant(
                                     RemediationsList::from(vec![Remediation::DnfRepo(
                                         DnfRepoApiCall::from(
                                             DnfRepoModuleInternalApiCall::UpsertSection {
                                                 file_name,
-                                                repo_name: self.name.clone(),
+                                                repo_name: name.clone(),
                                                 section_content: expected_section,
                                             },
                                             privilege.clone(),
@@ -340,7 +437,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                     RemediationsList::from(vec![Remediation::DnfRepo(DnfRepoApiCall::from(
                         DnfRepoModuleInternalApiCall::UpsertSection {
                             file_name,
-                            repo_name: self.name.clone(),
+                            repo_name: name.clone(),
                             section_content: expected_section,
                         },
                         privilege.clone(),
@@ -494,39 +591,41 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DnfRepoApiCall {
     }
 }
 
-fn build_section_content(block: &DnfRepoBlockExpectedState) -> String {
+fn build_section_content(
+    name: &str,
+    source: &DnfRepoSource,
+    description: &Option<String>,
+    enabled: &Option<bool>,
+    gpgcheck: &Option<bool>,
+    gpgkey: &Option<Vec<String>>,
+) -> String {
     let mut lines: Vec<String> = Vec::new();
-    lines.push(format!("[{}]", block.name));
+    lines.push(format!("[{}]", name));
 
-    if let Some(ref description) = block.description {
+    if let Some(description) = description {
         lines.push(format!("name={}", description));
     }
-    if let Some(ref baseurl) = block.baseurl {
-        lines.push(format!("baseurl={}", baseurl.join("\n        ")));
+
+    match source {
+        DnfRepoSource::Baseurl(urls) => {
+            lines.push(format!("baseurl={}", urls.join("\n        ")));
+        }
+        DnfRepoSource::Mirrorlist(url) => {
+            lines.push(format!("mirrorlist={}", url));
+        }
+        DnfRepoSource::Metalink(url) => {
+            lines.push(format!("metalink={}", url));
+        }
     }
-    if let Some(ref mirrorlist) = block.mirrorlist {
-        lines.push(format!("mirrorlist={}", mirrorlist));
+
+    if let Some(enabled) = enabled {
+        lines.push(format!("enabled={}", if *enabled { 1 } else { 0 }));
     }
-    if let Some(ref metalink) = block.metalink {
-        lines.push(format!("metalink={}", metalink));
+    if let Some(gpgcheck) = gpgcheck {
+        lines.push(format!("gpgcheck={}", if *gpgcheck { 1 } else { 0 }));
     }
-    if let Some(enabled) = block.enabled {
-        lines.push(format!("enabled={}", if enabled { 1 } else { 0 }));
-    }
-    if let Some(gpgcheck) = block.gpgcheck {
-        lines.push(format!("gpgcheck={}", if gpgcheck { 1 } else { 0 }));
-    }
-    if let Some(ref gpgkey) = block.gpgkey {
+    if let Some(gpgkey) = gpgkey {
         lines.push(format!("gpgkey={}", gpgkey.join("\n        ")));
-    }
-    if let Some(priority) = block.priority {
-        lines.push(format!("priority={}", priority));
-    }
-    if let Some(sslverify) = block.sslverify {
-        lines.push(format!("sslverify={}", if sslverify { 1 } else { 0 }));
-    }
-    if let Some(ref exclude) = block.exclude {
-        lines.push(format!("exclude={}", exclude.join(" ")));
     }
 
     lines.join("\n") + "\n"
@@ -647,70 +746,134 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parsing_dnf_repo_from_yaml() {
+    fn parsing_dnf_repo_present_from_yaml() {
         let raw = "---
-- Name: docker-ce-stable
-  Description: Docker CE Stable
-  Baseurl:
-    - https://download.docker.com/linux/centos/$releasever/$basearch/stable
-  Gpgcheck: true
-  Gpgkey:
-    - https://download.docker.com/linux/centos/gpg
-  Enabled: true
+- Present:
+    Name: docker-ce-stable
+    Description: Docker CE Stable
+    Source: !Baseurl
+      - https://download.docker.com/linux/centos/$releasever/$basearch/stable
+    Gpgcheck: true
+    Gpgkey:
+      - https://download.docker.com/linux/centos/gpg
+    Enabled: true
 
-- Name: epel
-  State: !Absent
+- Absent:
+    Name: epel
         ";
-        let _attrs: Vec<DnfRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        let attrs: Vec<DnfRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(attrs.len(), 2);
+        match &attrs[0] {
+            DnfRepoBlockExpectedState::Present { name, .. } => {
+                assert_eq!(name, "docker-ce-stable");
+            }
+            _ => panic!("Expected Present variant"),
+        }
+        match &attrs[1] {
+            DnfRepoBlockExpectedState::Absent { name, .. } => {
+                assert_eq!(name, "epel");
+            }
+            _ => panic!("Expected Absent variant"),
+        }
     }
 
     #[test]
-    fn check_rejects_empty_name() {
-        let result = DnfRepoBlockExpectedState::builder("").build();
+    fn parsing_dnf_repo_absent_from_yaml() {
+        let raw = "---
+- Absent:
+    Name: epel
+    File: custom-repo
+        ";
+        let attrs: Vec<DnfRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(attrs.len(), 1);
+        match &attrs[0] {
+            DnfRepoBlockExpectedState::Absent { name, file } => {
+                assert_eq!(name, "epel");
+                assert_eq!(file, &Some("custom-repo".to_string()));
+            }
+            _ => panic!("Expected Absent variant"),
+        }
+    }
+
+    #[test]
+    fn check_rejects_empty_name_present() {
+        let result = DnfRepoBlockExpectedState::Present {
+            name: "".to_string(),
+            source: DnfRepoSource::Baseurl(vec!["http://example.com".to_string()]),
+            description: None,
+            enabled: None,
+            gpgcheck: None,
+            gpgkey: None,
+            file: None,
+            priority: None,
+            sslverify: None,
+            exclude: None,
+        }
+        .check();
         assert!(result.is_err());
     }
 
     #[test]
-    fn check_rejects_present_without_url() {
-        let result = DnfRepoBlockExpectedState::builder("myrepo")
-            .with_state(DnfRepoExpectedState::Present)
-            .build();
+    fn check_rejects_empty_name_absent() {
+        let result = DnfRepoBlockExpectedState::Absent {
+            name: "".to_string(),
+            file: None,
+        }
+        .check();
         assert!(result.is_err());
     }
 
     #[test]
-    fn check_rejects_baseurl_and_mirrorlist() {
-        let result = DnfRepoBlockExpectedState::builder("myrepo")
-            .with_baseurl(vec!["http://example.com".to_string()])
-            .with_mirrorlist("http://mirrors.example.com")
-            .build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_accepts_absent_without_url() {
-        let result = DnfRepoBlockExpectedState::builder("myrepo")
-            .with_state(DnfRepoExpectedState::Absent)
-            .build();
+    fn check_accepts_absent() {
+        let result = DnfRepoBlockExpectedState::Absent {
+            name: "myrepo".to_string(),
+            file: None,
+        }
+        .check();
         assert!(result.is_ok());
     }
 
     #[test]
     fn build_section_content_basic() {
-        let block = DnfRepoBlockExpectedState::builder("docker-ce")
-            .with_description("Docker CE")
-            .with_baseurl(vec![
-                "https://download.docker.com/linux/centos/7/$basearch/stable".to_string(),
-            ])
-            .with_gpgcheck(true)
-            .with_enabled(true)
-            .build()
-            .unwrap();
-        let content = build_section_content(&block);
+        let source = DnfRepoSource::Baseurl(vec![
+            "https://download.docker.com/linux/centos/7/$basearch/stable".to_string(),
+        ]);
+        let content = build_section_content(
+            "docker-ce",
+            &source,
+            &Some("Docker CE".to_string()),
+            &Some(true),
+            &Some(true),
+            &None,
+        );
         assert!(content.starts_with("[docker-ce]\n"));
         assert!(content.contains("name=Docker CE"));
         assert!(content.contains("gpgcheck=1"));
         assert!(content.contains("enabled=1"));
+    }
+
+    #[test]
+    fn build_section_content_with_mirrorlist() {
+        let source = DnfRepoSource::Mirrorlist(
+            "http://mirrors.fedoraproject.org/mirrorlist?repo=epel-7&arch=x86_64".to_string(),
+        );
+        let content = build_section_content("epel", &source, &None, &None, &None, &None);
+        assert!(content.starts_with("[epel]\n"));
+        assert!(content.contains(
+            "mirrorlist=http://mirrors.fedoraproject.org/mirrorlist?repo=epel-7&arch=x86_64"
+        ));
+    }
+
+    #[test]
+    fn build_section_content_with_metalink() {
+        let source = DnfRepoSource::Metalink(
+            "https://mirrors.fedoraproject.org/metalink?repo=fedora-35&arch=x86_64".to_string(),
+        );
+        let content = build_section_content("fedora", &source, &None, &None, &None, &None);
+        assert!(content.starts_with("[fedora]\n"));
+        assert!(content.contains(
+            "metalink=https://mirrors.fedoraproject.org/metalink?repo=fedora-35&arch=x86_64"
+        ));
     }
 
     #[test]
@@ -730,21 +893,105 @@ mod tests {
     }
 
     #[test]
-    fn repo_filename_defaults_to_name() {
-        let block = DnfRepoBlockExpectedState::builder("myrepo")
-            .with_baseurl(vec!["http://x.com".to_string()])
-            .build()
-            .unwrap();
+    fn repo_filename_defaults_to_name_present() {
+        let block = DnfRepoBlockExpectedState::present(
+            "myrepo",
+            DnfRepoSource::Baseurl(vec!["http://x.com".to_string()]),
+        );
         assert_eq!(block.repo_filename(), "myrepo");
     }
 
     #[test]
-    fn repo_filename_uses_file_field_when_set() {
-        let block = DnfRepoBlockExpectedState::builder("myrepo")
-            .with_file("custom-file")
-            .with_baseurl(vec!["http://x.com".to_string()])
-            .build()
-            .unwrap();
+    fn repo_filename_uses_file_field_when_set_present() {
+        let block = DnfRepoBlockExpectedState::Present {
+            name: "myrepo".to_string(),
+            source: DnfRepoSource::Baseurl(vec!["http://x.com".to_string()]),
+            description: None,
+            enabled: None,
+            gpgcheck: None,
+            gpgkey: None,
+            file: Some("custom-file".to_string()),
+            priority: None,
+            sslverify: None,
+            exclude: None,
+        };
         assert_eq!(block.repo_filename(), "custom-file");
+    }
+
+    #[test]
+    fn repo_filename_uses_file_field_when_set_absent() {
+        let block = DnfRepoBlockExpectedState::Absent {
+            name: "myrepo".to_string(),
+            file: Some("custom-file".to_string()),
+        };
+        assert_eq!(block.repo_filename(), "custom-file");
+    }
+
+    #[test]
+    fn source_urls_returns_baseurl() {
+        let block = DnfRepoBlockExpectedState::present(
+            "myrepo",
+            DnfRepoSource::Baseurl(vec!["http://a.com".to_string(), "http://b.com".to_string()]),
+        );
+        let urls = block.source_urls();
+        assert_eq!(urls, Some(vec!["http://a.com", "http://b.com"]));
+    }
+
+    #[test]
+    fn source_urls_returns_mirrorlist() {
+        let block = DnfRepoBlockExpectedState::present(
+            "myrepo",
+            DnfRepoSource::Mirrorlist("http://mirror.com".to_string()),
+        );
+        let urls = block.source_urls();
+        assert_eq!(urls, Some(vec!["http://mirror.com"]));
+    }
+
+    #[test]
+    fn source_urls_returns_metalink() {
+        let block = DnfRepoBlockExpectedState::present(
+            "myrepo",
+            DnfRepoSource::Metalink("http://metalink.com".to_string()),
+        );
+        let urls = block.source_urls();
+        assert_eq!(urls, Some(vec!["http://metalink.com"]));
+    }
+
+    #[test]
+    fn source_urls_returns_none_for_absent() {
+        let block = DnfRepoBlockExpectedState::absent("myrepo");
+        let urls = block.source_urls();
+        assert_eq!(urls, None);
+    }
+
+    #[test]
+    fn is_present_and_is_absent() {
+        let present = DnfRepoBlockExpectedState::present(
+            "test",
+            DnfRepoSource::Baseurl(vec!["http://x.com".to_string()]),
+        );
+        assert!(present.is_present());
+        assert!(!present.is_absent());
+
+        let absent = DnfRepoBlockExpectedState::absent("test");
+        assert!(!absent.is_present());
+        assert!(absent.is_absent());
+    }
+
+    #[test]
+    fn absent_variant_only_has_name_and_file() {
+        // The Absent variant should only have name and file fields
+        let absent = DnfRepoBlockExpectedState::Absent {
+            name: "test".to_string(),
+            file: None,
+        };
+
+        match absent {
+            DnfRepoBlockExpectedState::Absent { name, file } => {
+                assert_eq!(name, "test");
+                assert_eq!(file, None);
+            }
+            _ => panic!("Expected Absent variant"),
+        }
     }
 }
