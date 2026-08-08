@@ -82,7 +82,7 @@ impl std::fmt::Display for PacmanModuleInternalApiCall {
 
 /// Desired state of a package
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
     /// Package should be installed
     Present,

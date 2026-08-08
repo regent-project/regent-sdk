@@ -69,23 +69,16 @@ impl Timeout for CommandBlockExpectedState {
 }
 
 impl CommandBlockExpectedState {
-    pub fn builder(cmd: &str) -> CommandBlockExpectedState {
+    pub fn new(cmd: &str) -> CommandBlockExpectedState {
         CommandBlockExpectedState {
             cmd: Parameter::Clear(cmd.to_string()),
         }
     }
 
-    pub fn builder_secret(sec_ref: SecretReference) -> CommandBlockExpectedState {
+    pub fn new_from_secret(sec_ref: SecretReference) -> CommandBlockExpectedState {
         CommandBlockExpectedState {
             cmd: Parameter::Secret(sec_ref),
         }
-    }
-
-    pub fn build(&self) -> Result<CommandBlockExpectedState, RegentError> {
-        if let Err(details) = self.check() {
-            return Err(details);
-        }
-        Ok(self.clone())
     }
 }
 

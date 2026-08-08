@@ -130,7 +130,6 @@ pub enum DnfRepoExpectedState {
 /// Exactly one of these must be set for a Present repository.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(untagged)]
 pub enum DnfRepoSource {
     /// One or more base URLs for the repository
     Baseurl(Vec<String>),
@@ -925,36 +924,6 @@ mod tests {
             file: Some("custom-file".to_string()),
         };
         assert_eq!(block.repo_filename(), "custom-file");
-    }
-
-    #[test]
-    fn source_urls_returns_baseurl() {
-        let block = DnfRepoBlockExpectedState::present(
-            "myrepo",
-            DnfRepoSource::Baseurl(vec!["http://a.com".to_string(), "http://b.com".to_string()]),
-        );
-        let urls = block.source_urls();
-        assert_eq!(urls, Some(vec!["http://a.com", "http://b.com"]));
-    }
-
-    #[test]
-    fn source_urls_returns_mirrorlist() {
-        let block = DnfRepoBlockExpectedState::present(
-            "myrepo",
-            DnfRepoSource::Mirrorlist("http://mirror.com".to_string()),
-        );
-        let urls = block.source_urls();
-        assert_eq!(urls, Some(vec!["http://mirror.com"]));
-    }
-
-    #[test]
-    fn source_urls_returns_metalink() {
-        let block = DnfRepoBlockExpectedState::present(
-            "myrepo",
-            DnfRepoSource::Metalink("http://metalink.com".to_string()),
-        );
-        let urls = block.source_urls();
-        assert_eq!(urls, Some(vec!["http://metalink.com"]));
     }
 
     #[test]

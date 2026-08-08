@@ -82,7 +82,7 @@ impl std::fmt::Display for YumDnfModuleInternalApiCall {
 
 /// Desired state of a package
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
     /// Package should be installed
     Present,
@@ -447,23 +447,28 @@ mod tests {
 - Package: httpd
   State: !Absent
 
-- Upgrade: true
+- !SystemUpToDate
     ";
 
         let attributes: Vec<YumDnfBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
+        assert_eq!(
+            attributes[1],
+            YumDnfBlockExpectedState::PackageState {
+                package: "httpd".to_string(),
+                state: PackageExpectedState::Present
+            }
+        );
 
-        assert_eq!(attributes[0].package, Some("httpd".to_string()));
-        assert_eq!(attributes[0].state, Some(PackageExpectedState::Present));
-        assert_eq!(attributes[0].upgrade, None);
+        assert_eq!(
+            attributes[1],
+            YumDnfBlockExpectedState::PackageState {
+                package: "httpd".to_string(),
+                state: PackageExpectedState::Absent
+            }
+        );
 
-        assert_eq!(attributes[1].package, Some("httpd".to_string()));
-        assert_eq!(attributes[1].state, Some(PackageExpectedState::Absent));
-        assert_eq!(attributes[1].upgrade, None);
-
-        assert_eq!(attributes[2].package, None);
-        assert_eq!(attributes[2].state, None);
-        assert_eq!(attributes[2].upgrade, Some(true));
+        assert_eq!(attributes[2], YumDnfBlockExpectedState::SystemUpToDate);
     }
 
     #[test]

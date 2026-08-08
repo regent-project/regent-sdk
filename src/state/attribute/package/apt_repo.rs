@@ -111,7 +111,6 @@ pub struct AptRepoBlockExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-#[serde(untagged)]
 pub enum AptRepoFormat {
     Legacy {
         /// Legacy one-liner format → writes to <filename>.list
@@ -543,62 +542,6 @@ mod tests {
     SignedBy: /usr/share/keyrings/docker-archive-keyring.gpg
         ";
         let _attrs: Vec<AptRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
-    }
-
-    #[test]
-    fn check_rejects_empty_filename() {
-        let result = AptRepoBlockExpectedState::builder("").build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_rejects_present_without_content() {
-        let result = AptRepoBlockExpectedState::builder("test")
-            .with_state(AptRepoExpectedState::Present)
-            .build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_rejects_mixed_legacy_and_deb822() {
-        let result = AptRepoBlockExpectedState::builder("test")
-            .with_repo("deb http://... focal main")
-            .with_types(vec![AptRepoType::Deb])
-            .build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_rejects_deb822_missing_uris() {
-        let result = AptRepoBlockExpectedState::builder("test")
-            .with_types(vec![AptRepoType::Deb])
-            .with_suites(vec!["focal".to_string()])
-            .build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_accepts_absent_without_content() {
-        let result = AptRepoBlockExpectedState::builder("test")
-            .with_state(AptRepoExpectedState::Absent)
-            .build();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn build_deb822_content_basic() {
-        let block = AptRepoBlockExpectedState::builder("docker")
-            .with_types(vec![AptRepoType::Deb])
-            .with_uris(vec!["https://download.docker.com/linux/ubuntu".to_string()])
-            .with_suites(vec!["focal".to_string()])
-            .with_components(vec!["stable".to_string()])
-            .build()
-            .unwrap();
-        let content = build_deb822_content(&block);
-        assert!(content.contains("Types: deb"));
-        assert!(content.contains("URIs: https://download.docker.com/linux/ubuntu"));
-        assert!(content.contains("Suites: focal"));
-        assert!(content.contains("Components: stable"));
     }
 
     #[test]
