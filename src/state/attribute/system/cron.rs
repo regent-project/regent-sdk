@@ -238,10 +238,12 @@ impl CronBlockExpectedState {
         }
     }
 
-    pub fn present(schedule: CronSchedule,
+    pub fn present(
+        schedule: CronSchedule,
         command: CronCommand,
         name: Option<String>,
-        target: CronTarget,) -> CronBlockExpectedState {
+        target: CronTarget,
+    ) -> CronBlockExpectedState {
         CronBlockExpectedState {
             schedule,
             command,
