@@ -14,15 +14,10 @@
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Create a group with a specific GID
-//! let developers = GroupBlockExpectedState::builder("developers")
-//!     .with_state(GroupExpectedState::Present)
-//!     .with_gid(1500)
-//!     .build()
-//!     .unwrap();
+//! let developers = GroupBlockExpectedState::present("developers", Some(1500), Some(vec!["daniel".to_string(), "chris".to_string()]), None, None);
 //!
-//! let expected_state = ExpectedState::new()
-//!     .with_attribute(Attribute::group(developers, Privilege::WithSudo, None))
-//!     .build();
+//!
+//! let group_cleaning = GroupBlockExpectedState::absent("oldgroup", None);
 //! ```
 //!
 //! ## YAML API
@@ -34,7 +29,8 @@
 //!     Detail: !Group
 //!       Name: developers
 //!       State: !Present
-//!       Gid: 1500
+//!         Gid: 1500
+//!         Members:
 //! ```
 
 use crate::error::RegentError;
@@ -55,10 +51,17 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum GroupExpectedState {
-    /// Group should exist
-    Present,
-    /// Group should not exist
     Absent,
+    /// Group should exist
+    #[serde(rename_all = "PascalCase")]
+    Present {
+        /// Group ID to assign (optional)
+        gid: Option<u32>,
+        /// List of users that should be members of this group
+        members: Option<Vec<String>>,
+        /// Whether this is a system group (uses -r flag with groupadd)
+        system: Option<bool>,
+    },
 }
 
 /// Configuration for a system group
@@ -77,14 +80,8 @@ pub enum GroupExpectedState {
 pub struct GroupBlockExpectedState {
     /// Unique name of the group
     name: String,
-    /// Desired state of the group (defaults to Present if not specified)
-    state: Option<GroupExpectedState>,
-    /// Group ID to assign (optional)
-    gid: Option<u32>,
-    /// List of users that should be members of this group
-    members: Option<Vec<String>>,
-    /// Whether this is a system group (uses -r flag with groupadd)
-    system: Option<bool>,
+    /// Desired state of the group
+    state: GroupExpectedState,
     /// Whether to use local commands (lgroupadd/lgroupdel) instead of system commands
     local: Option<bool>,
 }
@@ -96,57 +93,35 @@ impl Timeout for GroupBlockExpectedState {
 }
 
 impl GroupBlockExpectedState {
-    pub fn builder(groupname: &str) -> GroupBlockExpectedState {
+    pub fn absent(name: &str, local: Option<bool>) -> GroupBlockExpectedState {
         GroupBlockExpectedState {
-            name: groupname.to_string(),
-            state: None,
-            gid: None,
-            members: None,
-            system: None,
-            local: None,
+            name: name.to_string(),
+            state: GroupExpectedState::Absent,
+            local,
         }
     }
 
-    pub fn with_state(&mut self, state: GroupExpectedState) -> &mut Self {
-        self.state = Some(state);
-        self
-    }
-
-    pub fn with_gid(&mut self, gid: u32) -> &mut Self {
-        self.gid = Some(gid);
-        self
-    }
-
-    pub fn with_members(&mut self, members: Vec<String>) -> &mut Self {
-        self.members = Some(members);
-        self
-    }
-
-    pub fn with_system(&mut self, system: bool) -> &mut Self {
-        self.system = Some(system);
-        self
-    }
-
-    pub fn with_local(&mut self, local: bool) -> &mut Self {
-        self.local = Some(local);
-        self
-    }
-
-    pub fn build(&self) -> Result<GroupBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
+    pub fn present(
+        name: &str,
+        gid: Option<u32>,
+        members: Option<Vec<String>>,
+        system: Option<bool>,
+        local: Option<bool>,
+    ) -> GroupBlockExpectedState {
+        GroupBlockExpectedState {
+            name: name.to_string(),
+            state: GroupExpectedState::Present {
+                gid,
+                members,
+                system,
+            },
+            local,
+        }
     }
 }
 
 impl Check for GroupBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if let Some(GroupExpectedState::Absent) = &self.state {
-            if self.gid.is_some() || self.system.is_some() {
-                return Err(RegentError::IncoherentExpectedState(
-                    "Gid and System are incompatible with state Absent.".to_string(),
-                ));
-            }
-        }
         Ok(())
     }
 
@@ -176,96 +151,94 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
-        let expected_state = self.state.as_ref().unwrap_or(&GroupExpectedState::Present);
+
         let local = self.local.unwrap_or(false);
 
-        let group_exists = match group_exists(host_handler, &self.name).await {
-            Ok(exists) => exists,
+        let opt_group_info = match get_group_info(host_handler, &self.name).await {
+            Ok(opt_group_info) => opt_group_info,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
 
-        match expected_state {
+        let mut remediations: Vec<Remediation> = Vec::new();
+
+        match &self.state {
             GroupExpectedState::Absent => {
-                if !group_exists {
-                    return Ok(AttributeComplianceAssessment::Compliant);
-                }
-                return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
+                if let Some(_group_info) = opt_group_info {
+                    remediations.push(Remediation::Group(GroupApiCall::from(
                         GroupModuleInternalApiCall::Delete {
                             groupname: self.name.clone(),
                             local,
                         },
                         privilege.clone(),
-                    ))])
-                    .unwrap(),
-                ));
+                    )));
+                };
             }
-            GroupExpectedState::Present => {
-                if !group_exists {
-                    return Ok(AttributeComplianceAssessment::NonCompliant(
-                        RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
+            GroupExpectedState::Present {
+                gid,
+                members,
+                system,
+            } => {
+                match opt_group_info {
+                    Some(current_group_info) => {
+                        // Group exists: check GID if specified
+                        if let Some(expected_gid) = gid {
+                            if current_group_info.gid != *expected_gid {
+                                return Ok(AttributeComplianceAssessment::NonCompliant(
+                                    RemediationsList::from(vec![Remediation::Group(
+                                        GroupApiCall::from(
+                                            GroupModuleInternalApiCall::ModifyGid {
+                                                groupname: self.name.clone(),
+                                                gid: *expected_gid,
+                                            },
+                                            privilege.clone(),
+                                        ),
+                                    )])
+                                    .unwrap(),
+                                ));
+                            }
+                        }
+
+                        // Group exists: check members if specified
+                        if let Some(expected_members) = members {
+                            // Sort both lists for comparison (order doesn't matter for group members)
+                            let mut expected_sorted = expected_members.clone();
+                            let mut current_sorted = current_group_info.members.clone();
+                            expected_sorted.sort();
+                            current_sorted.sort();
+
+                            if expected_sorted != current_sorted {
+                                remediations.push(Remediation::Group(GroupApiCall::from(
+                                    GroupModuleInternalApiCall::ModifyMembers {
+                                        groupname: self.name.clone(),
+                                        members: expected_members.clone(),
+                                    },
+                                    privilege.clone(),
+                                )));
+                            }
+                        }
+                    }
+                    None => {
+                        remediations.push(Remediation::Group(GroupApiCall::from(
                             GroupModuleInternalApiCall::Add {
                                 groupname: self.name.clone(),
-                                gid: self.gid,
-                                members: self.members.clone(),
-                                system: self.system.unwrap_or(false),
+                                gid: *gid,
+                                members: members.clone(),
+                                system: system.unwrap_or(false),
                                 local,
                             },
                             privilege.clone(),
-                        ))])
-                        .unwrap(),
-                    ));
-                }
-
-                // Group exists: check GID if specified
-                if let Some(expected_gid) = self.gid {
-                    let current_gid = match get_group_gid(host_handler, &self.name).await {
-                        Ok(gid) => gid,
-                        Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
-                    };
-                    if current_gid != expected_gid {
-                        return Ok(AttributeComplianceAssessment::NonCompliant(
-                            RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
-                                GroupModuleInternalApiCall::ModifyGid {
-                                    groupname: self.name.clone(),
-                                    gid: expected_gid,
-                                },
-                                privilege.clone(),
-                            ))])
-                            .unwrap(),
-                        ));
+                        )));
                     }
                 }
-
-                // Group exists: check members if specified
-                if let Some(expected_members) = &self.members {
-                    let current_members = match get_group_members(host_handler, &self.name).await {
-                        Ok(members) => members,
-                        Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
-                    };
-
-                    // Sort both lists for comparison (order doesn't matter for group members)
-                    let mut expected_sorted = expected_members.clone();
-                    let mut current_sorted = current_members.clone();
-                    expected_sorted.sort();
-                    current_sorted.sort();
-
-                    if expected_sorted != current_sorted {
-                        return Ok(AttributeComplianceAssessment::NonCompliant(
-                            RemediationsList::from(vec![Remediation::Group(GroupApiCall::from(
-                                GroupModuleInternalApiCall::ModifyMembers {
-                                    groupname: self.name.clone(),
-                                    members: expected_members.clone(),
-                                },
-                                privilege.clone(),
-                            ))])
-                            .unwrap(),
-                        ));
-                    }
-                }
-
-                Ok(AttributeComplianceAssessment::Compliant)
             }
+        }
+
+        if remediations.is_empty() {
+            Ok(AttributeComplianceAssessment::Compliant)
+        } else {
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(remediations)?,
+            ))
         }
     }
 }
@@ -415,8 +388,15 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
             ),
             GroupModuleInternalApiCall::ModifyMembers { groupname, members } => {
                 // Get current members to calculate differences
-                let current_members = match get_group_members(host_handler, groupname).await {
-                    Ok(m) => m,
+                let current_members = match get_group_info(host_handler, groupname).await {
+                    Ok(opt_group_info) => match opt_group_info {
+                        Some(group_info) => group_info.members,
+                        None => {
+                            return Ok(InternalApiCallOutcome::Failure(format!(
+                                "Failed to get current group members: group does not exist anymore"
+                            )));
+                        }
+                    },
                     Err(e) => {
                         return Ok(InternalApiCallOutcome::Failure(format!(
                             "Failed to get current group members: {}",
@@ -480,79 +460,54 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
     }
 }
 
-async fn group_exists<Handler: HostHandler>(
+struct Group {
+    name: String,
+    gid: u32,
+    members: Vec<String>,
+}
+
+async fn get_group_info<Handler: HostHandler>(
     host_handler: &mut Handler,
     groupname: &str,
-) -> Result<bool, String> {
+) -> Result<Option<Group>, String> {
     match host_handler
         .run_command(&format!("getent group {}", groupname), &Privilege::None)
         .await
     {
-        Ok(result) => Ok(result.return_code == 0),
+        Ok(result) => {
+            if result.return_code == 0 {
+                // Group exists
+                // Format: groupname:x:gid:members
+                let fields: Vec<&str> = result.stdout.trim().splitn(4, ':').collect();
+                if fields.len() < 4 {
+                    return Err(format!(
+                        "Unexpected getent group output for {}: {}",
+                        groupname, result.stdout
+                    ));
+                }
+                let gid = match fields[2].parse::<u32>() {
+                    Ok(gid) => gid,
+                    Err(e) => {
+                        return Err(format!("Invalid GID '{}': {}", fields[2], e));
+                    }
+                };
+                let members = fields[3]
+                    .split(',')
+                    .filter(|s| !s.trim().is_empty())
+                    .map(|s| s.trim().to_string())
+                    .collect();
+
+                Ok(Some(Group {
+                    name: groupname.to_string(),
+                    gid,
+                    members,
+                }))
+            } else {
+                // Group does not exist
+                Ok(None)
+            }
+        }
         Err(e) => Err(format!("Unable to check if group exists: {:?}", e)),
-    }
-}
-
-async fn get_group_gid<Handler: HostHandler>(
-    host_handler: &mut Handler,
-    groupname: &str,
-) -> Result<u32, String> {
-    match host_handler
-        .run_command(&format!("getent group {}", groupname), &Privilege::None)
-        .await
-    {
-        Ok(result) => {
-            if result.return_code != 0 {
-                return Err(format!("getent group failed for group {}", groupname));
-            }
-            // Format: groupname:x:gid:members
-            let fields: Vec<&str> = result.stdout.trim().splitn(4, ':').collect();
-            if fields.len() < 3 {
-                return Err(format!(
-                    "Unexpected getent group output for {}: {}",
-                    groupname, result.stdout
-                ));
-            }
-            fields[2]
-                .parse::<u32>()
-                .map_err(|e| format!("Invalid GID '{}': {}", fields[2], e))
-        }
-        Err(e) => Err(format!(
-            "Unable to get GID for group {}: {:?}",
-            groupname, e
-        )),
-    }
-}
-
-async fn get_group_members<Handler: HostHandler>(
-    host_handler: &mut Handler,
-    groupname: &str,
-) -> Result<Vec<String>, String> {
-    match host_handler
-        .run_command(&format!("getent group {}", groupname), &Privilege::None)
-        .await
-    {
-        Ok(result) => {
-            if result.return_code != 0 {
-                return Err(format!("getent group failed for group {}", groupname));
-            }
-            // Format: groupname:x:gid:members
-            let fields: Vec<&str> = result.stdout.trim().splitn(4, ':').collect();
-            if fields.len() < 4 {
-                // No members field, return empty vector
-                return Ok(Vec::new());
-            }
-            // Split members by comma and filter out empty strings
-            Ok(fields[3]
-                .split(',')
-                .filter(|s| !s.trim().is_empty())
-                .map(|s| s.trim().to_string())
-                .collect())
-        }
-        Err(e) => Err(format!(
-            "Unable to get members for group {}: {:?}",
-            groupname, e
-        )),
     }
 }
 
@@ -565,51 +520,18 @@ mod tests {
         let raw_attributes = "---
 - Name: developers
   State: !Present
-  Gid: 1500
+    Gid: 1500
+    Members:
+        - daniel
+        - chris
 
 - Name: oldgroup
   State: !Absent
         ";
 
-        let _attributes: Vec<GroupBlockExpectedState> =
+        let attributes: Vec<GroupBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
-    }
 
-    #[test]
-    fn check_rejects_absent_with_gid() {
-        let result = GroupBlockExpectedState::builder("testgroup")
-            .with_state(GroupExpectedState::Absent)
-            .with_gid(1500)
-            .build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_rejects_absent_with_system() {
-        let result = GroupBlockExpectedState::builder("testgroup")
-            .with_state(GroupExpectedState::Absent)
-            .with_system(true)
-            .build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_accepts_absent_with_local() {
-        let result = GroupBlockExpectedState::builder("testgroup")
-            .with_state(GroupExpectedState::Absent)
-            .with_local(true)
-            .build();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn check_accepts_present_with_all_properties() {
-        let result = GroupBlockExpectedState::builder("testgroup")
-            .with_state(GroupExpectedState::Present)
-            .with_gid(1500)
-            .with_system(false)
-            .with_local(false)
-            .build();
-        assert!(result.is_ok());
+        println!("{:#?}", attributes);
     }
 }
