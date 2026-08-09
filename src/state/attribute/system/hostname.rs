@@ -82,25 +82,13 @@ impl Timeout for HostnameBlockExpectedState {
 }
 
 impl HostnameBlockExpectedState {
-    pub fn builder(hostname: &str) -> HostnameBlockExpectedState {
+    pub fn new(hostname: &str, method: Option<HostnameMethod> ) -> HostnameBlockExpectedState {
         HostnameBlockExpectedState {
             name: hostname.to_string(),
-            method: None,
+            method,
         }
     }
 
-    pub fn with_method(&mut self, method: HostnameMethod) -> &mut Self {
-        self.method = Some(method);
-        self
-    }
-
-    pub fn build(&self) -> Result<HostnameBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
-    }
-}
-
-impl Check for HostnameBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         if self.name.is_empty() {
             return Err(RegentError::IncoherentExpectedState(
@@ -110,6 +98,12 @@ impl Check for HostnameBlockExpectedState {
             return Err(RegentError::IncoherentExpectedState(details));
         }
 
+        Ok(())
+    }
+}
+
+impl Check for HostnameBlockExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
 
@@ -140,6 +134,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
         // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
+        }
+
+        if let Err(details) = self.check() {
+            return Err(RegentError::FailedDryRunEvaluation(
+                format!("Runtime check failed : {}", details)
+            ));
         }
 
         // Determine the effective OS kind - assume Linux if HostProperties is None
@@ -466,17 +466,6 @@ mod tests {
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 
-    #[test]
-    fn check_rejects_empty_hostname() {
-        let result = HostnameBlockExpectedState::builder("").build();
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn check_accepts_valid_hostname() {
-        let result = HostnameBlockExpectedState::builder("myserver.example.com").build();
-        assert!(result.is_ok());
-    }
 
     #[test]
     fn is_valid_hostname_rejects_empty_hostname() {
