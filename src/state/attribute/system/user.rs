@@ -39,10 +39,10 @@
 //!     Detail: !User
 //!       Name: alice
 //!       State: !Present
-//!       Uid: 1001
-//!       Shell: /bin/bash
-//!       Home: /home/alice
-//!       Comment: Alice Smith
+//!         Uid: 1001
+//!         Shell: /bin/bash
+//!         Home: /home/alice
+//!         Comment: Alice Smith
 //! ```
 
 use crate::error::RegentError;
@@ -63,28 +63,22 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum UserExpectedState {
-    /// User should exist
-    Present,
     /// User should not exist
-    Absent,
+    Absent {
+        /// Whether to remove home directory when deleting user
+        remove_home: Option<bool>,
+    },
+    /// User should exist
+    #[serde(rename_all = "PascalCase")]
+    Present {
+        details: UserDetails
+    },
 }
 
-/// Configuration for a user account
-///
-/// Use the builder pattern to create and manage user accounts with various properties.
-/// When state is Present, you can specify user properties like UID, shell, home directory, etc.
-/// When state is Absent, the user will be removed (and optionally their home directory).
-///
-/// The `append` field controls whether supplementary groups are appended to existing groups
-/// or replaced entirely.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct UserBlockExpectedState {
-    /// Username
-    name: String,
-    /// Desired state of the user (defaults to Present if not specified)
-    state: Option<UserExpectedState>,
+pub struct UserDetails {
     /// User ID
     uid: Option<u32>,
     /// Primary group name
@@ -105,21 +99,11 @@ pub struct UserBlockExpectedState {
     system: Option<bool>,
     /// Whether to create home directory when creating user
     create_home: Option<bool>,
-    /// Whether to remove home directory when deleting user
-    remove_home: Option<bool>,
 }
 
-impl Timeout for UserBlockExpectedState {
-    fn default_timeout(&self) -> Duration {
-        Duration::from_secs(5)
-    }
-}
-
-impl UserBlockExpectedState {
-    pub fn builder(username: &str) -> UserBlockExpectedState {
-        UserBlockExpectedState {
-            name: username.to_string(),
-            state: None,
+impl UserDetails {
+    pub fn default() -> Self {
+        Self {
             uid: None,
             group: None,
             groups: None,
@@ -130,13 +114,7 @@ impl UserBlockExpectedState {
             password: None,
             system: None,
             create_home: None,
-            remove_home: None,
         }
-    }
-
-    pub fn with_state(&mut self, state: UserExpectedState) -> &mut Self {
-        self.state = Some(state);
-        self
     }
 
     pub fn with_uid(&mut self, uid: u32) -> &mut Self {
@@ -189,36 +167,64 @@ impl UserBlockExpectedState {
         self
     }
 
-    pub fn with_remove_home(&mut self, remove_home: bool) -> &mut Self {
-        self.remove_home = Some(remove_home);
-        self
+    pub fn finish(&mut self) -> Self {
+        self.clone()
+    }
+}
+
+/// Configuration for a user account
+///
+/// Use the builder pattern to create and manage user accounts with various properties.
+/// When state is Present, you can specify user properties like UID, shell, home directory, etc.
+/// When state is Absent, the user will be removed (and optionally their home directory).
+///
+/// The `append` field controls whether supplementary groups are appended to existing groups
+/// or replaced entirely.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
+pub struct UserBlockExpectedState {
+    /// Username
+    name: String,
+    /// Desired state of the user (defaults to Present if not specified)
+    state: UserExpectedState
+}
+
+impl Timeout for UserBlockExpectedState {
+    fn default_timeout(&self) -> Duration {
+        Duration::from_secs(5)
+    }
+}
+
+impl UserBlockExpectedState {
+    pub fn absent(&mut self, username: &str, remove_home: Option<bool>) -> UserBlockExpectedState {
+        UserBlockExpectedState {
+            name: username.to_string(),
+            state: UserExpectedState::Absent { remove_home }
+        }
     }
 
-    pub fn build(&self) -> Result<UserBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
+    pub fn present_with_defaults(username: &str) -> UserBlockExpectedState {
+        UserBlockExpectedState {
+            name: username.to_string(),
+            state: UserExpectedState::Present {
+                details: UserDetails::default()
+            },
+        }
+    }
+
+    pub fn present_with_details(username: &str, details: UserDetails) -> UserBlockExpectedState {
+        UserBlockExpectedState {
+            name: username.to_string(),
+            state: UserExpectedState::Present {
+                details
+            },
+        }
     }
 }
 
 impl Check for UserBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if let Some(UserExpectedState::Absent) = &self.state {
-            let has_incompatible = self.uid.is_some()
-                || self.group.is_some()
-                || self.groups.is_some()
-                || self.append.is_some()
-                || self.shell.is_some()
-                || self.home.is_some()
-                || self.comment.is_some()
-                || self.password.is_some()
-                || self.system.is_some()
-                || self.create_home.is_some();
-            if has_incompatible {
-                return Err(RegentError::IncoherentExpectedState(
-                    "User property specifications are incompatible with state Absent.".to_string(),
-                ));
-            }
-        }
         Ok(())
     }
 
@@ -260,8 +266,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                 init_system: InitSystem::Systemd,
             }));
 
-        let expected_state = self.state.as_ref().unwrap_or(&UserExpectedState::Present);
-
         // Check if user exists using OS-specific method
         let user_exists = match os_kind {
             #[cfg(feature = "windows")]
@@ -281,8 +285,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
             }
         };
 
-        match expected_state {
-            UserExpectedState::Absent => {
+        match &self.state {
+            UserExpectedState::Absent { remove_home } => {
                 if !user_exists {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
@@ -290,28 +294,28 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                     RemediationsList::from(vec![Remediation::User(UserApiCall::from(
                         UserModuleInternalApiCall::Delete {
                             username: self.name.clone(),
-                            remove_home: self.remove_home.unwrap_or(false),
+                            remove_home: remove_home.unwrap_or(false),
                         },
                         privilege.clone(),
                     ))])
                     .unwrap(),
                 ));
             }
-            UserExpectedState::Present => {
+            UserExpectedState::Present { details } => {
                 if !user_exists {
                     return Ok(AttributeComplianceAssessment::NonCompliant(
                         RemediationsList::from(vec![Remediation::User(UserApiCall::from(
                             UserModuleInternalApiCall::Add {
                                 username: self.name.clone(),
-                                uid: self.uid,
-                                group: self.group.clone(),
-                                groups: self.groups.clone(),
-                                shell: self.shell.clone(),
-                                home: self.home.clone(),
-                                comment: self.comment.clone(),
-                                password: self.password.clone(),
-                                system: self.system.unwrap_or(false),
-                                create_home: self.create_home.unwrap_or(true),
+                                uid: details.uid,
+                                group: details.group.clone(),
+                                groups: details.groups.clone(),
+                                shell: details.shell.clone(),
+                                home: details.home.clone(),
+                                comment: details.comment.clone(),
+                                password: details.password.clone(),
+                                system: details.system.unwrap_or(false),
+                                create_home: details.create_home.unwrap_or(true),
                             },
                             privilege.clone(),
                         ))])
@@ -337,38 +341,38 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                         let mut mod_shell: Option<String> = None;
                         let mut mod_home: Option<String> = None;
                         let mut mod_comment: Option<String> = None;
-                        let append = self.append.unwrap_or(true);
+                        let append = details.append.unwrap_or(true);
 
                         let passwd_entry = match get_passwd_entry(host_handler, &self.name).await {
                             Ok(entry) => entry,
                             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
                         };
 
-                        if let Some(expected_uid) = self.uid {
+                        if let Some(expected_uid) = details.uid {
                             if passwd_entry.uid != expected_uid {
                                 mod_uid = Some(expected_uid);
                             }
                         }
 
-                        if let Some(ref expected_shell) = self.shell {
-                            if &passwd_entry.shell != expected_shell {
+                        if let Some(expected_shell) = &details.shell {
+                            if passwd_entry.shell != *expected_shell {
                                 mod_shell = Some(expected_shell.clone());
                             }
                         }
 
-                        if let Some(ref expected_home) = self.home {
-                            if &passwd_entry.home != expected_home {
+                        if let Some(expected_home) = &details.home {
+                            if passwd_entry.home != *expected_home {
                                 mod_home = Some(expected_home.clone());
                             }
                         }
 
-                        if let Some(ref expected_comment) = self.comment {
-                            if &passwd_entry.comment != expected_comment {
+                        if let Some(expected_comment) = &details.comment {
+                            if passwd_entry.comment != *expected_comment {
                                 mod_comment = Some(expected_comment.clone());
                             }
                         }
 
-                        if let Some(ref expected_group) = self.group {
+                        if let Some(expected_group) = &details.group {
                             let current_group =
                                 match get_primary_group(host_handler, &self.name).await {
                                     Ok(g) => g,
@@ -379,7 +383,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                             }
                         }
 
-                        if let Some(ref expected_groups) = self.groups {
+                        if let Some(expected_groups) = &details.groups {
                             let current_supp_groups =
                                 match get_supplementary_groups(host_handler, &self.name).await {
                                     Ok(g) => g,
@@ -427,14 +431,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                             || mod_comment.is_some();
 
                         // Check if password needs modification (can't verify current password, so only if specified)
-                        let password_needs_modification = self.password.is_some();
+                        let password_needs_modification = details.password.is_some();
 
                         if needs_non_password_modification || password_needs_modification {
                             // If both password and other properties need modification, include both
                             // If only other properties need modification, don't include password
                             // If only password needs modification, only include password
                             let mod_password = if password_needs_modification {
-                                self.password.clone()
+                                details.password.clone()
                             } else {
                                 None
                             };
@@ -934,11 +938,12 @@ mod tests {
         let raw_attributes = "---
 - Name: alice
   State: !Present
-  Shell: /bin/bash
-  Comment: Alice Smith
-  Groups:
-    - sudo
-    - docker
+    Details:
+      Shell: /bin/bash
+      Comment: Alice Smith
+      Groups:
+        - sudo
+        - docker
 
 - Name: bob
   State: !Absent
@@ -949,30 +954,30 @@ mod tests {
     }
 
     #[test]
-    fn check_rejects_absent_with_properties() {
-        let result = UserBlockExpectedState::builder("testuser")
-            .with_state(UserExpectedState::Absent)
-            .with_shell("/bin/bash")
-            .build();
-        assert!(result.is_err());
-    }
+    fn yaml_and_rusty_api_matching() {
+        let raw_yaml_attribute = "---
+Name: alice
+State: !Present
+  Details:
+    Shell: /bin/bash
+    Comment: Alice Smith
+    Groups:
+      - sudo
+      - docker
+";
 
-    #[test]
-    fn check_accepts_absent_without_properties() {
-        let result = UserBlockExpectedState::builder("testuser")
-            .with_state(UserExpectedState::Absent)
-            .build();
-        assert!(result.is_ok());
-    }
+        let yaml_defined: UserBlockExpectedState =
+            yaml_serde::from_str(raw_yaml_attribute).unwrap();
+        
+        let rusty_defined = UserBlockExpectedState::present_with_details(
+            "alice",
+            UserDetails::default()
+                .with_shell("/bin/bash")
+                .with_comment("Alice Smith")
+                .with_groups(vec!["sudo".to_string(), "docker".to_string()])
+                .finish()
+        );
 
-    #[test]
-    fn check_accepts_present_with_properties() {
-        let result = UserBlockExpectedState::builder("testuser")
-            .with_state(UserExpectedState::Present)
-            .with_uid(1001)
-            .with_shell("/bin/bash")
-            .with_comment("Test User")
-            .build();
-        assert!(result.is_ok());
+        assert_eq!(yaml_defined, rusty_defined);
     }
 }
