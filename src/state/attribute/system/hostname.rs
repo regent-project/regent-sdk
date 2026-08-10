@@ -88,7 +88,9 @@ impl HostnameBlockExpectedState {
             method,
         }
     }
+}
 
+impl Check for HostnameBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         if self.name.is_empty() {
             return Err(RegentError::IncoherentExpectedState(
@@ -98,12 +100,6 @@ impl HostnameBlockExpectedState {
             return Err(RegentError::IncoherentExpectedState(details));
         }
 
-        Ok(())
-    }
-}
-
-impl Check for HostnameBlockExpectedState {
-    fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
 
