@@ -14,6 +14,29 @@ use tokio::time::{sleep, timeout as tokio_timeout};
 use tracing::{debug, error, info};
 
 use crate::error::RegentError;
+
+/// Timeout configuration for an attribute
+///
+/// This enum ensures that timeout configurations are mutually exclusive at compile time.
+/// Only one timeout source can be specified: a Duration, seconds, or milliseconds.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AttributeTimeout {
+    /// Use the default timeout from the attribute detail
+    Default,
+    /// Use a specific Duration
+    Duration(Duration),
+    /// Use seconds
+    Seconds(u64),
+    /// Use milliseconds
+    Milliseconds(u64),
+}
+
+impl Default for AttributeTimeout {
+    fn default() -> Self {
+        AttributeTimeout::Default
+    }
+}
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
@@ -64,9 +87,7 @@ pub struct Attribute {
     pub name: Option<String>,
     pub privilege: Privilege,
     detail: AttributeDetail,
-    timeout: Option<Duration>,
-    timeout_sec: Option<u64>,
-    timeout_ms: Option<u64>,
+    timeout: AttributeTimeout,
 }
 
 impl Attribute {
@@ -75,9 +96,7 @@ impl Attribute {
             privilege,
             detail,
             name,
-            timeout: None,
-            timeout_sec: None,
-            timeout_ms: None,
+            timeout: AttributeTimeout::Default,
         }
     }
 
@@ -187,26 +206,31 @@ impl Attribute {
     }
 
     pub fn timeout(&self) -> Result<Duration, RegentError> {
-        let duration = match self.timeout {
-            Some(duration) => duration,
-            None => match (self.timeout_sec, self.timeout_ms) {
-                (None, None) => self.detail.default_timeout(),
-                (Some(seconds), None) => Duration::from_secs(seconds),
-                (None, Some(milliseconds)) => Duration::from_millis(milliseconds),
-                (Some(_seconds), Some(_milliseconds)) => {
-                    return Err(RegentError::FailureToParseContent(format!(
-                        "TimeoutSec and TimeoutMs are mutually exclusive"
-                    )));
-                }
-            },
-        };
-        Ok(duration)
+        match &self.timeout {
+            AttributeTimeout::Default => Ok(self.detail.default_timeout()),
+            AttributeTimeout::Duration(duration) => Ok(*duration),
+            AttributeTimeout::Seconds(seconds) => Ok(Duration::from_secs(*seconds)),
+            AttributeTimeout::Milliseconds(milliseconds) => Ok(Duration::from_millis(*milliseconds)),
+        }
     }
 
     // Convenience methods for attributes building
 
+    /// Set a timeout using a Duration
     pub fn with_timeout(mut self, user_defined_timeout: Duration) -> Self {
-        self.timeout = Some(user_defined_timeout);
+        self.timeout = AttributeTimeout::Duration(user_defined_timeout);
+        self
+    }
+
+    /// Set a timeout using seconds
+    pub fn with_timeout_secs(mut self, seconds: u64) -> Self {
+        self.timeout = AttributeTimeout::Seconds(seconds);
+        self
+    }
+
+    /// Set a timeout using milliseconds
+    pub fn with_timeout_millis(mut self, milliseconds: u64) -> Self {
+        self.timeout = AttributeTimeout::Milliseconds(milliseconds);
         self
     }
 
