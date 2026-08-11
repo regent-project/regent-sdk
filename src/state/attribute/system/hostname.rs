@@ -82,7 +82,7 @@ impl Timeout for HostnameBlockExpectedState {
 }
 
 impl HostnameBlockExpectedState {
-    pub fn new(hostname: &str, method: Option<HostnameMethod> ) -> HostnameBlockExpectedState {
+    pub fn new(hostname: &str, method: Option<HostnameMethod>) -> HostnameBlockExpectedState {
         HostnameBlockExpectedState {
             name: hostname.to_string(),
             method,
@@ -133,9 +133,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedSt
         }
 
         if let Err(details) = self.check() {
-            return Err(RegentError::FailedDryRunEvaluation(
-                format!("Runtime check failed : {}", details)
-            ));
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "Runtime check failed : {}",
+                details
+            )));
         }
 
         // Determine the effective OS kind - assume Linux if HostProperties is None
@@ -461,7 +462,6 @@ mod tests {
         let _attributes: Vec<HostnameBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
     }
-
 
     #[test]
     fn is_valid_hostname_rejects_empty_hostname() {

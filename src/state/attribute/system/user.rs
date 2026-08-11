@@ -70,9 +70,7 @@ pub enum UserExpectedState {
     },
     /// User should exist
     #[serde(rename_all = "PascalCase")]
-    Present {
-        details: UserDetails
-    },
+    Present { details: UserDetails },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -187,7 +185,7 @@ pub struct UserBlockExpectedState {
     /// Username
     name: String,
     /// Desired state of the user (defaults to Present if not specified)
-    state: UserExpectedState
+    state: UserExpectedState,
 }
 
 impl Timeout for UserBlockExpectedState {
@@ -200,7 +198,7 @@ impl UserBlockExpectedState {
     pub fn absent(&mut self, username: &str, remove_home: Option<bool>) -> UserBlockExpectedState {
         UserBlockExpectedState {
             name: username.to_string(),
-            state: UserExpectedState::Absent { remove_home }
+            state: UserExpectedState::Absent { remove_home },
         }
     }
 
@@ -208,7 +206,7 @@ impl UserBlockExpectedState {
         UserBlockExpectedState {
             name: username.to_string(),
             state: UserExpectedState::Present {
-                details: UserDetails::default()
+                details: UserDetails::default(),
             },
         }
     }
@@ -216,9 +214,7 @@ impl UserBlockExpectedState {
     pub fn present_with_details(username: &str, details: UserDetails) -> UserBlockExpectedState {
         UserBlockExpectedState {
             name: username.to_string(),
-            state: UserExpectedState::Present {
-                details
-            },
+            state: UserExpectedState::Present { details },
         }
     }
 }
@@ -968,14 +964,14 @@ State: !Present
 
         let yaml_defined: UserBlockExpectedState =
             yaml_serde::from_str(raw_yaml_attribute).unwrap();
-        
+
         let rusty_defined = UserBlockExpectedState::present_with_details(
             "alice",
             UserDetails::default()
                 .with_shell("/bin/bash")
                 .with_comment("Alice Smith")
                 .with_groups(vec!["sudo".to_string(), "docker".to_string()])
-                .finish()
+                .finish(),
         );
 
         assert_eq!(yaml_defined, rusty_defined);
