@@ -39,6 +39,7 @@
 //!       Create: true
 //! ```
 
+use std::fmt::Display;
 use std::time::Duration;
 
 use crate::error::RegentError;
@@ -60,9 +61,67 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "PascalCase")]
 pub enum LineExpectedState {
     /// Line should exist in the file
-    Present,
+    #[serde(rename_all = "PascalCase")]
+    Present {
+        #[serde(default = "default_line_position")]
+        position: LinePosition,
+        /// When using InsertAfter/InsertBefore, match the first occurrence instead of the last.
+        firstmatch: Option<bool>,
+        /// Create the file if it does not exist (default: false).
+        create: Option<bool>,
+    },
     /// Line should not exist in the file
-    Absent,
+    #[serde(rename_all = "PascalCase")]
+    Absent {
+        /// Line must be absent but file must be exists anyway. If set to false, no error will be triggered when trying to remove a line from a non-existing file.
+        #[serde(default)] // -> false
+        file_must_exist_anyway: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum Line {
+    /// The exact line to insert, or the replacement when regexp/search_string matches.
+    Raw(Parameter<String>),
+    /// Regex that selects the line(s) to replace (last match) or delete. Mutually exclusive with SearchString.
+    Regexp(String),
+    #[serde(rename_all = "PascalCase")]
+    RegexpWithBackrefs {
+        /// The regex to search for. You must include capture groups using parentheses () so the line parameter can reference them.
+        regexp: String,
+        /// The content to insert. It must contain backreferences like \1, \2, or \g<1> to pull the captured text from the regexp match.
+        content_to_insert: String,
+    },
+    /// Fixed-string alternative to Regexp for matching whole lines. Mutually exclusive with Regexp.
+    SearchString(String),
+}
+
+impl Display for Line {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Line::Raw(_) => write!(f, "Line::Raw"),
+            Line::Regexp(_) => write!(f, "Line::Regexp"),
+            Line::RegexpWithBackrefs {
+                regexp,
+                content_to_insert,
+            } => write!(f, "Line::RegexpWithBackrefs"),
+            Line::SearchString(_) => write!(f, "Line::SearchString"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum LinePosition {
+    /// Insert the line after the last line matching this regex, or after "EOF" / "BOF". Mutually exclusive with InsertBefore.
+    InsertAfter(String),
+    /// Insert the line before the last line matching this regex, or before "BOF". Mutually exclusive with InsertAfter.
+    InsertBefore(String),
+}
+
+fn default_line_position() -> LinePosition {
+    LinePosition::InsertAfter("EOF".to_string())
 }
 
 /// Configuration for managing a line in a file
@@ -73,89 +132,163 @@ pub struct LineInFileBlockExpectedState {
     /// Absolute path to the managed file.
     file_path: String,
     /// Line to ensure is present or absent. Default state: Present.
-    state: Option<LineExpectedState>,
-    /// The exact line to insert, or the replacement when regexp/search_string matches.
-    line: Option<Parameter<String>>,
-    /// Regex that selects the line(s) to replace (last match) or delete. Mutually exclusive with SearchString.
-    regexp: Option<String>,
-    /// Fixed-string alternative to Regexp for matching whole lines. Mutually exclusive with Regexp.
-    search_string: Option<String>,
-    /// Insert the line after the last line matching this regex, or after "EOF" / "BOF". Mutually exclusive with InsertBefore.
-    insert_after: Option<String>,
-    /// Insert the line before the last line matching this regex, or before "BOF". Mutually exclusive with InsertAfter.
-    insert_before: Option<String>,
-    /// Use regexp capture groups (\\1, \\2, …) in Line as sed replacement. Requires Regexp.
-    backrefs: Option<bool>,
-    /// When using InsertAfter/InsertBefore, match the first occurrence instead of the last.
-    firstmatch: Option<bool>,
-    /// Create the file if it does not exist (default: false).
-    create: Option<bool>,
+    state: LineExpectedState,
+    line: Line,
 }
 
 impl LineInFileBlockExpectedState {
-    pub fn builder(file_path: &str) -> LineInFileBlockExpectedState {
+    // --- Absent State ---
+
+    /// Creates a block for a line that should **not** exist in the file.
+    /// - `file_path`: Path to the file.
+    /// - `line`: The line (or pattern) to ensure is absent.
+    /// - `file_must_exist_anyway`: If `true`, the file must exist (but the line must not).
+    ///   If `false`, the file may not exist (and the line is trivially absent).
+    pub fn absent(
+        file_path: &str,
+        line: Line,
+        file_must_exist_anyway: bool,
+    ) -> LineInFileBlockExpectedState {
         LineInFileBlockExpectedState {
             file_path: file_path.to_string(),
-            state: None,
-            line: None,
-            regexp: None,
-            search_string: None,
-            insert_after: None,
-            insert_before: None,
-            backrefs: None,
-            firstmatch: None,
-            create: None,
+            state: LineExpectedState::Absent { file_must_exist_anyway },
+            line,
         }
     }
 
-    pub fn with_state(&mut self, state: LineExpectedState) -> &mut Self {
-        self.state = Some(state);
-        self
+    // --- Present State ---
+
+    /// Creates a block for a line that should exist at the **top of the file**.
+    /// - `file_path`: Path to the file.
+    /// - `line`: The line to insert (or ensure exists).
+    /// - `create`: If `true`, the file will be created if it doesn’t exist.
+    pub fn present_at_top(
+        file_path: &str,
+        line: Line,
+        create: Option<bool>,
+    ) -> LineInFileBlockExpectedState {
+        LineInFileBlockExpectedState {
+            file_path: file_path.to_string(),
+            state: LineExpectedState::Present {
+                position: LinePosition::InsertBefore("BOF".to_string()),
+                firstmatch: None,
+                create,
+            },
+            line,
+        }
     }
 
-    pub fn with_line(&mut self, line: &str) -> &mut Self {
-        self.line = Some(Parameter::Clear(line.to_string()));
-        self
+    /// Creates a block for a line that should exist at the **bottom of the file**.
+    /// - `file_path`: Path to the file.
+    /// - `line`: The line to insert (or ensure exists).
+    /// - `create`: If `true`, the file will be created if it doesn’t exist.
+    pub fn present_at_bottom(
+        file_path: &str,
+        line: Line,
+        create: Option<bool>,
+    ) -> LineInFileBlockExpectedState {
+        LineInFileBlockExpectedState {
+            file_path: file_path.to_string(),
+            state: LineExpectedState::Present {
+                position: LinePosition::InsertAfter("EOF".to_string()),
+                firstmatch: None,
+                create,
+            },
+            line,
+        }
     }
 
-    pub fn with_regexp(&mut self, regexp: &str) -> &mut Self {
-        self.regexp = Some(regexp.to_string());
-        self
+    /// Creates a block for a line that should exist **after a specific pattern**.
+    /// - `file_path`: Path to the file.
+    /// - `line`: The line to insert (or ensure exists).
+    /// - `insert_after`: The pattern to match (e.g., a regex or literal string).
+    /// - `firstmatch`: If `true`, use the first match of `insert_after`. If `false`, use the last match.
+    /// - `create`: If `true`, the file will be created if it doesn’t exist.
+    pub fn present_after(
+        file_path: &str,
+        line: Line,
+        insert_after: &str,
+        firstmatch: Option<bool>,
+        create: Option<bool>,
+    ) -> LineInFileBlockExpectedState {
+        LineInFileBlockExpectedState {
+            file_path: file_path.to_string(),
+            state: LineExpectedState::Present {
+                position: LinePosition::InsertAfter(insert_after.to_string()),
+                firstmatch,
+                create,
+            },
+            line,
+        }
     }
 
-    pub fn with_search_string(&mut self, s: &str) -> &mut Self {
-        self.search_string = Some(s.to_string());
-        self
+    /// Creates a block for a line that should exist **before a specific pattern**.
+    /// - `file_path`: Path to the file.
+    /// - `line`: The line to insert (or ensure exists).
+    /// - `insert_before`: The pattern to match (e.g., a regex or literal string).
+    /// - `firstmatch`: If `true`, use the first match of `insert_before`. If `false`, use the last match.
+    /// - `create`: If `true`, the file will be created if it doesn’t exist.
+    pub fn present_before(
+        file_path: &str,
+        line: Line,
+        insert_before: &str,
+        firstmatch: Option<bool>,
+        create: Option<bool>,
+    ) -> LineInFileBlockExpectedState {
+        LineInFileBlockExpectedState {
+            file_path: file_path.to_string(),
+            state: LineExpectedState::Present {
+                position: LinePosition::InsertBefore(insert_before.to_string()),
+                firstmatch,
+                create,
+            },
+            line,
+        }
     }
 
-    pub fn with_insert_after(&mut self, pattern: &str) -> &mut Self {
-        self.insert_after = Some(pattern.to_string());
-        self
+    /// Creates a block for a line that should exist **somewhere in the file** (no position constraint).
+    /// - `file_path`: Path to the file.
+    /// - `line`: The line to ensure exists.
+    /// - `create`: If `true`, the file will be created if it doesn’t exist.
+    pub fn present_anywhere(
+        file_path: &str,
+        line: Line,
+        create: Option<bool>,
+    ) -> LineInFileBlockExpectedState {
+        LineInFileBlockExpectedState {
+            file_path: file_path.to_string(),
+            state: LineExpectedState::Present {
+                position: LinePosition::InsertAfter("EOF".to_string()), // Default to EOF
+                firstmatch: None,
+                create,
+            },
+            line,
+        }
     }
 
-    pub fn with_insert_before(&mut self, pattern: &str) -> &mut Self {
-        self.insert_before = Some(pattern.to_string());
-        self
+    // --- Helper Methods for Line Construction ---
+
+    /// Helper to create a `Line::Raw` from a string.
+    pub fn raw_line(content: Parameter<String>) -> Line {
+        Line::Raw(content)
     }
 
-    pub fn with_backrefs(&mut self, backrefs: bool) -> &mut Self {
-        self.backrefs = Some(backrefs);
-        self
+    /// Helper to create a `Line::Regexp` from a regex pattern.
+    pub fn regexp_line(pattern: &str) -> Line {
+        Line::Regexp(pattern.to_string())
     }
 
-    pub fn with_firstmatch(&mut self, firstmatch: bool) -> &mut Self {
-        self.firstmatch = Some(firstmatch);
-        self
+    /// Helper to create a `Line::RegexpWithBackrefs` from a regex and replacement.
+    pub fn regexp_with_backrefs_line(regexp: &str, content_to_insert: &str) -> Line {
+        Line::RegexpWithBackrefs {
+            regexp: regexp.to_string(),
+            content_to_insert: content_to_insert.to_string(),
+        }
     }
 
-    pub fn with_create(&mut self, create: bool) -> &mut Self {
-        self.create = Some(create);
-        self
-    }
-
-    pub fn build(&self) -> Result<LineInFileBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
+    /// Helper to create a `Line::SearchString` from a literal string.
+    pub fn search_string_line(pattern: &str) -> Line {
+        Line::SearchString(pattern.to_string())
     }
 }
 
@@ -164,26 +297,6 @@ impl Check for LineInFileBlockExpectedState {
         if self.file_path.is_empty() {
             return Err(RegentError::IncoherentExpectedState(
                 "FilePath cannot be empty.".to_string(),
-            ));
-        }
-        if self.regexp.is_some() && self.search_string.is_some() {
-            return Err(RegentError::IncoherentExpectedState(
-                "Regexp and SearchString are mutually exclusive.".to_string(),
-            ));
-        }
-        if self.insert_after.is_some() && self.insert_before.is_some() {
-            return Err(RegentError::IncoherentExpectedState(
-                "InsertAfter and InsertBefore are mutually exclusive.".to_string(),
-            ));
-        }
-        if self.backrefs.unwrap_or(false) && self.regexp.is_none() {
-            return Err(RegentError::IncoherentExpectedState(
-                "Backrefs requires Regexp.".to_string(),
-            ));
-        }
-        if self.line.is_none() && self.regexp.is_none() && self.search_string.is_none() {
-            return Err(RegentError::IncoherentExpectedState(
-                "At least one of Line, Regexp, or SearchString must be set.".to_string(),
             ));
         }
         Ok(())
@@ -212,7 +325,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify host compatibility (always passes for lineinfile)
+        // Early checks (unchanged)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -226,10 +339,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
             ));
         }
 
-        let state = self.state.as_ref().unwrap_or(&LineExpectedState::Present);
-        let backrefs = self.backrefs.unwrap_or(false);
-        let firstmatch = self.firstmatch.unwrap_or(false);
-
         let file_exists = host_handler
             .run_command(&format!("test -f {}", self.file_path), &Privilege::None)
             .await
@@ -237,137 +346,184 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
             .return_code
             == 0;
 
-        if !file_exists {
-            if self.create.unwrap_or(false) {
-                if let LineExpectedState::Absent = state {
-                    return Ok(AttributeComplianceAssessment::Compliant);
+        match &self.state {
+            LineExpectedState::Absent { file_must_exist_anyway } => {
+                match (file_exists, file_must_exist_anyway) {
+                    (false, true) => Err(RegentError::FailedDryRunEvaluation(format!(
+                        "File {} is expected to exist but it does not",
+                        self.file_path
+                    ))),
+                    (false, false) => Ok(AttributeComplianceAssessment::Compliant),
+                    (true, _) => assess_absence(self, host_handler, privilege, &self.line, optional_secret_provider).await,
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
-                        file_path: self.file_path.clone(),
-                        line_content: self.line.clone(),
-                        regexp: None,
-                        api_call: LineInFileModuleInternalApiCall::CreateFile,
-                        privilege: privilege.clone(),
-                    })])
-                    .unwrap(),
-                ));
             }
-            return Err(RegentError::FailedDryRunEvaluation(format!(
-                "{}: file not found (set Create: true to create it)",
-                self.file_path
-            )));
-        }
+            LineExpectedState::Present { position, firstmatch, create } => {
+                let create = create.unwrap_or(false);
+                let firstmatch = firstmatch.unwrap_or(false);
 
-        let line_content: Option<String> = match &self.line {
-            Some(param) => Some(
-                param
-                    .clone()
-                    .inner_raw(optional_secret_provider)
-                    .await
-                    .unwrap(),
-            ),
-            None => None,
-        };
-
-        match state {
-            LineExpectedState::Absent => {
-                assess_absent(self, host_handler, privilege, &line_content).await
-            }
-            LineExpectedState::Present => {
-                assess_present(
-                    self,
-                    host_handler,
-                    privilege,
-                    &line_content,
-                    backrefs,
-                    firstmatch,
-                )
-                .await
+                match (file_exists, create) {
+                    (true, _) => {
+                        assess_presence(
+                            self,
+                            host_handler,
+                            privilege,
+                            &self.line,
+                            firstmatch,
+                            optional_secret_provider,
+                        ).await
+                    }
+                    (false, true) => {
+                        // File does not exist and must be created
+                        match &self.line {
+                            Line::Raw(parameter_line) => {
+                                let line_content = parameter_line
+                                    .clone()
+                                    .inner_raw(optional_secret_provider)
+                                    .await?;
+                                Ok(AttributeComplianceAssessment::NonCompliant(
+                                    RemediationsList::from(vec![Remediation::LineInFile(
+                                        LineInFileApiCall {
+                                            file_path: self.file_path.clone(),
+                                            line: self.line.clone(),  // Preserve `Line`
+                                            api_call: LineInFileModuleInternalApiCall::CreateFile { line_content: line_content },
+                                            privilege: privilege.clone(),
+                                        },
+                                    )])
+                                    .unwrap(),
+                                ))
+                            }
+                            _ => Err(RegentError::FailedDryRunEvaluation(format!(
+                                "{}: file not found and cannot be created automatically. Only Line::Raw is supported for automatic file creation",
+                                self.file_path
+                            ))),
+                        }
+                    }
+                    (false, false) => Err(RegentError::FailedDryRunEvaluation(format!(
+                        "{}: file not found (set Create: true to create it)",
+                        self.file_path
+                    ))),
+                }
             }
         }
     }
 }
 
-async fn assess_absent<Handler: HostHandler>(
+async fn assess_absence<Handler: HostHandler>(
     block: &LineInFileBlockExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
-    line_content: &Option<String>,
+    line: &Line,  // Now uses `Line` directly
+    optional_secret_provider: &Option<SecretProvidersPool>,
 ) -> Result<AttributeComplianceAssessment, RegentError> {
-    if let Some(ref regexp) = block.regexp {
-        let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
-        if matches.is_empty() {
-            return Ok(AttributeComplianceAssessment::Compliant);
+    match line {
+        Line::Raw(parameter_line) => {
+            let content_to_search = parameter_line
+                .clone()
+                .inner_raw(optional_secret_provider)
+                .await?;
+            let matches = grep_exact_line(host_handler, &content_to_search, &block.file_path).await;
+            if matches.is_empty() {
+                return Ok(AttributeComplianceAssessment::Compliant);
+            }
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                    file_path: block.file_path.clone(),
+                    line: line.clone(),  // Preserve `Line`
+                    api_call: LineInFileModuleInternalApiCall::DeleteLines { line_numbers: matches },
+                    privilege: privilege.clone(),
+                })])
+                .unwrap(),
+            ))
         }
-        return Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
-                file_path: block.file_path.clone(),
-                line_content: None,
-                regexp: None,
-                api_call: LineInFileModuleInternalApiCall::DeleteByRegexp(regexp.clone()),
-                privilege: privilege.clone(),
-            })])
-            .unwrap(),
-        ));
-    }
-
-    // search_string or exact line: delete by line numbers
-    let needle = block.search_string.as_deref().or(line_content.as_deref());
-
-    if let Some(text) = needle {
-        let fixed = block.search_string.is_some() || block.regexp.is_none();
-        let matches = if fixed {
-            grep_exact_line(host_handler, text, &block.file_path).await
-        } else {
-            grep_lines(host_handler, text, &block.file_path, false).await
-        };
-        if matches.is_empty() {
-            return Ok(AttributeComplianceAssessment::Compliant);
+        Line::Regexp(regexp) => {
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            if matches.is_empty() {
+                return Ok(AttributeComplianceAssessment::Compliant);
+            }
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                    file_path: block.file_path.clone(),
+                    line: line.clone(),  // Preserve `Line`
+                    api_call: LineInFileModuleInternalApiCall::DeleteByRegexp { regexp: regexp.clone() },
+                    privilege: privilege.clone(),
+                })])
+                .unwrap(),
+            ))
         }
-        return Ok(AttributeComplianceAssessment::NonCompliant(
-            RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
-                file_path: block.file_path.clone(),
-                line_content: None,
-                regexp: None,
-                api_call: LineInFileModuleInternalApiCall::DeleteLines(matches),
-                privilege: privilege.clone(),
-            })])
-            .unwrap(),
-        ));
+        Line::RegexpWithBackrefs { regexp, content_to_insert } => {
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            if matches.is_empty() {
+                return Ok(AttributeComplianceAssessment::Compliant);
+            }
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                    file_path: block.file_path.clone(),
+                    line: line.clone(),  // Preserve `Line`
+                    api_call: LineInFileModuleInternalApiCall::DeleteByRegexp { regexp: regexp.clone() },
+                    privilege: privilege.clone(),
+                })])
+                .unwrap(),
+            ))
+        }
+        Line::SearchString(search_string) => {
+            let matches = grep_lines(host_handler, search_string, &block.file_path, false).await;
+            if matches.is_empty() {
+                return Ok(AttributeComplianceAssessment::Compliant);
+            }
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
+                    file_path: block.file_path.clone(),
+                    line: line.clone(),  // Preserve `Line`
+                    api_call: LineInFileModuleInternalApiCall::DeleteLines { line_numbers: matches },
+                    privilege: privilege.clone(),
+                })])
+                .unwrap(),
+            ))
+        }
     }
-
-    Ok(AttributeComplianceAssessment::Compliant)
 }
 
-async fn assess_present<Handler: HostHandler>(
+async fn assess_presence<Handler: HostHandler>(
     block: &LineInFileBlockExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
-    line_content: &Option<String>,
-    backrefs: bool,
+    line: &Line,  // Now uses `Line` directly
     firstmatch: bool,
+    optional_secret_provider: &Option<SecretProvidersPool>,
 ) -> Result<AttributeComplianceAssessment, RegentError> {
-    // ── regexp path ──────────────────────────────────────────────────────────
-    if let Some(ref regexp) = block.regexp {
-        let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
-
-        if !matches.is_empty() {
-            let target = if firstmatch {
-                *matches.first().unwrap()
-            } else {
-                *matches.last().unwrap()
-            };
-
-            if backrefs {
-                // Always replace: can't know if current value already equals the
-                // backref-expanded replacement without running sed.
+    match line {
+        Line::Raw(parameter_line) => {
+            let content_to_search = parameter_line
+                .clone()
+                .inner_raw(optional_secret_provider)
+                .await?;
+            let matches = grep_exact_line(host_handler, &content_to_search, &block.file_path).await;
+            if !matches.is_empty() {
+                return Ok(AttributeComplianceAssessment::Compliant);
+            }
+            // Fall through to insert
+        }
+        Line::Regexp(regexp) => {
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            if !matches.is_empty() {
+                return Ok(AttributeComplianceAssessment::Compliant);
+            }
+            // Fall through to insert
+        }
+        Line::RegexpWithBackrefs { regexp, content_to_insert } => {
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            if !matches.is_empty() {
+                let target = if firstmatch {
+                    *matches.first().unwrap()
+                } else {
+                    *matches.last().unwrap()
+                };
                 return Ok(AttributeComplianceAssessment::NonCompliant(
                     RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
                         file_path: block.file_path.clone(),
-                        line_content: block.line.clone(),
-                        regexp: Some(regexp.clone()),
+                        line: line.clone(),  // Preserve `Line`
                         api_call: LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
+                            line_content: content_to_insert.clone(),
                             line_number: target,
                             regexp: regexp.clone(),
                         },
@@ -376,88 +532,75 @@ async fn assess_present<Handler: HostHandler>(
                     .unwrap(),
                 ));
             }
-
-            if let Some(expected) = &line_content {
-                let current = get_line(host_handler, target, &block.file_path).await;
-                if current.as_deref() == Some(expected.as_str()) {
-                    return Ok(AttributeComplianceAssessment::Compliant);
-                }
-                return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
-                        file_path: block.file_path.clone(),
-                        line_content: block.line.clone(),
-                        regexp: None,
-                        api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
-                        privilege: privilege.clone(),
-                    })])
-                    .unwrap(),
-                ));
+            // Fall through to insert
+        }
+        Line::SearchString(search_string) => {
+            let matches = grep_exact_line(host_handler, search_string, &block.file_path).await;
+            if !matches.is_empty() {
+                return Ok(AttributeComplianceAssessment::Compliant);
             }
-
-            return Ok(AttributeComplianceAssessment::Compliant);
+            // Fall through to insert
         }
-
-        // No match
-        if backrefs {
-            // No match + backrefs → leave file unchanged (Ansible behaviour)
-            return Ok(AttributeComplianceAssessment::Compliant);
-        }
-        // Fall through to insert
     }
-    // ── search_string path ───────────────────────────────────────────────────
-    else if let Some(ref search) = block.search_string {
-        let matches = grep_exact_line(host_handler, search, &block.file_path).await;
 
-        if !matches.is_empty() {
-            if let Some(expected) = &line_content {
-                let target = if firstmatch {
-                    *matches.first().unwrap()
-                } else {
-                    *matches.last().unwrap()
-                };
-                let current = get_line(host_handler, target, &block.file_path).await;
-                if current.as_deref() == Some(expected.as_str()) {
-                    return Ok(AttributeComplianceAssessment::Compliant);
+    // Determine insert position
+    let line_content = get_line_content(line, optional_secret_provider).await?;
+    let insert_call = match &block.state {
+        LineExpectedState::Present { position, firstmatch, .. } => {
+            let firstmatch = firstmatch.unwrap_or(false);
+            match position {
+                LinePosition::InsertAfter(pattern) => {
+                    match pattern.as_str() {
+                        "BOF" => LineInFileModuleInternalApiCall::InsertTop { line_content: line_content.clone() },
+                        "EOF" | "" => LineInFileModuleInternalApiCall::InsertBottom { line_content: line_content.clone() },
+                        _ => {
+                            let matches = grep_lines(host_handler, pattern, &block.file_path, false).await;
+                            if matches.is_empty() {
+                                LineInFileModuleInternalApiCall::InsertBottom { line_content: line_content.clone() }
+                            } else {
+                                let n = if firstmatch {
+                                    *matches.first().unwrap()
+                                } else {
+                                    *matches.last().unwrap()
+                                };
+                                LineInFileModuleInternalApiCall::InsertAfterLine {
+                                    line_content: line_content.clone(),
+                                    line_number: n,
+                                }
+                            }
+                        }
+                    }
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(
-                    RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
-                        file_path: block.file_path.clone(),
-                        line_content: block.line.clone(),
-                        regexp: None,
-                        api_call: LineInFileModuleInternalApiCall::ReplaceLine(target),
-                        privilege: privilege.clone(),
-                    })])
-                    .unwrap(),
-                ));
+                LinePosition::InsertBefore(pattern) => {
+                    match pattern.as_str() {
+                        "BOF" => LineInFileModuleInternalApiCall::InsertTop { line_content: line_content.clone() },
+                        _ => {
+                            let matches = grep_lines(host_handler, pattern, &block.file_path, false).await;
+                            if matches.is_empty() {
+                                LineInFileModuleInternalApiCall::InsertBottom { line_content: line_content.clone() }
+                            } else {
+                                let n = if firstmatch {
+                                    *matches.first().unwrap()
+                                } else {
+                                    *matches.last().unwrap()
+                                };
+                                LineInFileModuleInternalApiCall::InsertBeforeLine {
+                                    line_content: line_content.clone(),
+                                    line_number: n,
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            return Ok(AttributeComplianceAssessment::Compliant);
         }
-        // Fall through to insert
-    }
-    // ── exact line path ──────────────────────────────────────────────────────
-    else if let Some(line) = &line_content {
-        let matches = grep_exact_line(host_handler, line, &block.file_path).await;
-        if !matches.is_empty() {
-            return Ok(AttributeComplianceAssessment::Compliant);
-        }
-        // Fall through to insert
-    }
-
-    // ── insert ───────────────────────────────────────────────────────────────
-    let insert_call = determine_insert_position(
-        host_handler,
-        &block.insert_after,
-        &block.insert_before,
-        firstmatch,
-        &block.file_path,
-    )
-    .await;
+        _ => LineInFileModuleInternalApiCall::InsertBottom { line_content: line_content.clone() },
+    };
 
     Ok(AttributeComplianceAssessment::NonCompliant(
         RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
             file_path: block.file_path.clone(),
-            line_content: block.line.clone(),
-            regexp: None,
+            line: line.clone(),  // Preserve `Line`
             api_call: insert_call,
             privilege: privilege.clone(),
         })])
@@ -465,54 +608,25 @@ async fn assess_present<Handler: HostHandler>(
     ))
 }
 
-async fn determine_insert_position<Handler: HostHandler>(
-    host_handler: &mut Handler,
-    insert_after: &Option<String>,
-    insert_before: &Option<String>,
-    firstmatch: bool,
-    file_path: &str,
-) -> LineInFileModuleInternalApiCall {
-    if let Some(pattern) = insert_after {
-        return match pattern.as_str() {
-            "BOF" => LineInFileModuleInternalApiCall::InsertTop,
-            "EOF" | "" => LineInFileModuleInternalApiCall::InsertBottom,
-            _ => {
-                let matches = grep_lines(host_handler, pattern, file_path, false).await;
-                if matches.is_empty() {
-                    LineInFileModuleInternalApiCall::InsertBottom
-                } else {
-                    let n = if firstmatch {
-                        *matches.first().unwrap()
-                    } else {
-                        *matches.last().unwrap()
-                    };
-                    LineInFileModuleInternalApiCall::InsertAfterLine(n)
-                }
-            }
-        };
+/// Helper function to extract line content from `Line` enum
+async fn get_line_content(
+    line: &Line,
+    optional_secret_provider: &Option<SecretProvidersPool>,
+) -> Result<String, RegentError> {
+    match line {
+        Line::Raw(parameter_line) => {
+            parameter_line
+                .clone()
+                .inner_raw(optional_secret_provider)
+                .await
+        }
+        Line::RegexpWithBackrefs { content_to_insert, .. } => Ok(content_to_insert.clone()),
+        Line::Regexp(regexp) => Ok(regexp.clone()),
+        Line::SearchString(search_string) => Ok(search_string.clone()),
     }
-
-    if let Some(pattern) = insert_before {
-        return match pattern.as_str() {
-            "BOF" => LineInFileModuleInternalApiCall::InsertTop,
-            _ => {
-                let matches = grep_lines(host_handler, pattern, file_path, false).await;
-                if matches.is_empty() {
-                    LineInFileModuleInternalApiCall::InsertBottom
-                } else {
-                    let n = if firstmatch {
-                        *matches.first().unwrap()
-                    } else {
-                        *matches.last().unwrap()
-                    };
-                    LineInFileModuleInternalApiCall::InsertBeforeLine(n)
-                }
-            }
-        };
-    }
-
-    LineInFileModuleInternalApiCall::InsertBottom
 }
+
+
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -616,50 +730,57 @@ fn escape_sed_replacement_backrefs(s: &str) -> String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum LineInFileModuleInternalApiCall {
-    InsertTop,
-    InsertBottom,
-    InsertAfterLine(u64),
-    InsertBeforeLine(u64),
-    ReplaceLine(u64),
-    ReplaceWithBackrefs { line_number: u64, regexp: String },
-    DeleteLines(Vec<u64>),
-    DeleteByRegexp(String),
-    CreateFile,
+    InsertTop {line_content: String},
+    InsertBottom {line_content: String},
+    InsertAfterLine {line_content: String, line_number: u64},
+    InsertBeforeLine {line_content: String, line_number: u64},
+    ReplaceLine {line_content: String, line_number: u64},
+    ReplaceWithBackrefs {line_content: String, line_number: u64, regexp: String},
+    DeleteLines {line_numbers: Vec<u64>},
+    DeleteByRegexp {regexp: String},
+    CreateFile {line_content: String},
 }
 
 impl std::fmt::Display for LineInFileModuleInternalApiCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LineInFileModuleInternalApiCall::InsertTop => write!(f, "insert line at top"),
-            LineInFileModuleInternalApiCall::InsertBottom => write!(f, "insert line at bottom"),
-            LineInFileModuleInternalApiCall::InsertAfterLine(n) => {
-                write!(f, "insert line after line {}", n)
+            LineInFileModuleInternalApiCall::InsertTop { line_content } => {
+                write!(f, "insert line at top: '{}'", line_content)
             }
-            LineInFileModuleInternalApiCall::InsertBeforeLine(n) => {
-                write!(f, "insert line before line {}", n)
+            LineInFileModuleInternalApiCall::InsertBottom { line_content } => {
+                write!(f, "insert line at bottom: '{}'", line_content)
             }
-            LineInFileModuleInternalApiCall::ReplaceLine(n) => write!(f, "replace line {}", n),
-            LineInFileModuleInternalApiCall::ReplaceWithBackrefs { line_number, .. } => {
-                write!(f, "replace line {} using backrefs", line_number)
+            LineInFileModuleInternalApiCall::InsertAfterLine { line_content, line_number } => {
+                write!(f, "insert line '{}' after line {}", line_content, line_number)
             }
-            LineInFileModuleInternalApiCall::DeleteLines(ns) => {
-                write!(f, "delete lines {:?}", ns)
+            LineInFileModuleInternalApiCall::InsertBeforeLine { line_content, line_number } => {
+                write!(f, "insert line '{}' before line {}", line_content, line_number)
             }
-            LineInFileModuleInternalApiCall::DeleteByRegexp(p) => {
-                write!(f, "delete lines matching /{}/", p)
+            LineInFileModuleInternalApiCall::ReplaceLine { line_content, line_number } => {
+                write!(f, "replace line {} with '{}'", line_number, line_content)
             }
-            LineInFileModuleInternalApiCall::CreateFile => write!(f, "create file with line"),
+            LineInFileModuleInternalApiCall::ReplaceWithBackrefs { line_content, line_number, regexp } => {
+                write!(f, "replace line {} using backrefs with regexp '{}' and content '{}'", line_number, regexp, line_content)
+            }
+            LineInFileModuleInternalApiCall::DeleteLines { line_numbers } => {
+                write!(f, "delete lines {:?}", line_numbers)
+            }
+            LineInFileModuleInternalApiCall::DeleteByRegexp { regexp } => {
+                write!(f, "delete lines matching /{}/", regexp)
+            }
+            LineInFileModuleInternalApiCall::CreateFile { line_content } => {
+                write!(f, "create file with line: '{}'", line_content)
+            }
         }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LineInFileApiCall {
-    file_path: String,
-    line_content: Option<Parameter<String>>,
-    regexp: Option<String>,
+    pub file_path: String,
+    pub line: Line,  // Preserve `Line` (which may contain `Parameter<String>`)
     pub api_call: LineInFileModuleInternalApiCall,
-    privilege: Privilege,
+    pub privilege: Privilege,
 }
 
 impl LineInFileApiCall {
@@ -700,92 +821,77 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
             self.check_host_compatibility(props)?;
         }
 
-        let line_content_raw = match &self.line_content {
-            Some(p) => Some(p.clone().inner_raw(optional_secret_provider).await.unwrap()),
-            None => None,
-        };
-
         let cmd: String = match &self.api_call {
-            LineInFileModuleInternalApiCall::InsertBottom => {
-                let l = line_content_raw.clone().unwrap_or_default();
+            LineInFileModuleInternalApiCall::InsertBottom { line_content } => {
                 format!(
                     "printf '%s\\n' '{}' >> {}",
-                    escape_sed_text(&l),
+                    escape_sed_text(line_content),
                     self.file_path
                 )
             }
-            LineInFileModuleInternalApiCall::InsertTop => {
-                let l = line_content_raw.clone().unwrap_or_default();
+            LineInFileModuleInternalApiCall::InsertTop { line_content } => {
                 let count = get_line_count(host_handler, &self.file_path, &self.privilege).await;
                 if count == 0 {
                     format!(
                         "printf '%s\\n' '{}' > {}",
-                        escape_sed_text(&l),
+                        escape_sed_text(line_content),
                         self.file_path
                     )
                 } else {
-                    format!("sed -i '1i\\{}' {}", escape_sed_text(&l), self.file_path)
+                    format!("sed -i '1i\\{}' {}", escape_sed_text(line_content), self.file_path)
                 }
             }
-            LineInFileModuleInternalApiCall::InsertAfterLine(n) => {
-                let l = line_content_raw.clone().unwrap_or_default();
+            LineInFileModuleInternalApiCall::InsertAfterLine { line_content, line_number } => {
                 format!(
                     "sed -i '{}a\\{}' {}",
-                    n,
-                    escape_sed_text(&l),
+                    line_number,
+                    escape_sed_text(&line_content),
                     self.file_path
                 )
             }
-            LineInFileModuleInternalApiCall::InsertBeforeLine(n) => {
-                let l = line_content_raw.clone().unwrap_or_default();
+            LineInFileModuleInternalApiCall::InsertBeforeLine { line_content, line_number } => {
                 format!(
                     "sed -i '{}i\\{}' {}",
-                    n,
-                    escape_sed_text(&l),
+                    line_number,
+                    escape_sed_text(line_content),
                     self.file_path
                 )
             }
-            LineInFileModuleInternalApiCall::ReplaceLine(n) => {
-                let l = line_content_raw.clone().unwrap_or_default();
+            LineInFileModuleInternalApiCall::ReplaceLine { line_content, line_number } => {
                 format!(
                     "sed -i '{}c\\{}' {}",
-                    n,
-                    escape_sed_text(&l),
+                    line_number,
+                    escape_sed_text(line_content),
                     self.file_path
                 )
             }
-            LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
-                line_number,
-                regexp,
-            } => {
-                let replacement = line_content_raw.clone().unwrap_or_default();
+            LineInFileModuleInternalApiCall::ReplaceWithBackrefs { line_content, line_number, regexp } => {
                 format!(
                     "sed -i '{} s/{}/{}/' {}",
                     line_number,
                     escape_sed_pattern(regexp),
-                    escape_sed_replacement_backrefs(&replacement),
+                    escape_sed_replacement_backrefs(line_content),
                     self.file_path
                 )
             }
-            LineInFileModuleInternalApiCall::DeleteLines(numbers) => {
-                let parts: Vec<String> = numbers.iter().map(|n| format!("{}d", n)).collect();
+            LineInFileModuleInternalApiCall::DeleteLines { line_numbers } => {
+                let parts: Vec<String> = line_numbers.iter().map(|n| format!("{}d", n)).collect();
                 format!("sed -i '{}' {}", parts.join(";"), self.file_path)
             }
-            LineInFileModuleInternalApiCall::DeleteByRegexp(pattern) => {
+            LineInFileModuleInternalApiCall::DeleteByRegexp { regexp } => {
                 format!(
                     "sed -i '/{}/d' {}",
-                    escape_sed_pattern(pattern),
+                    escape_sed_pattern(regexp),
                     self.file_path
                 )
             }
-            LineInFileModuleInternalApiCall::CreateFile => {
-                let l = line_content_raw.clone().unwrap_or_default();
-                if l.is_empty() {
+            LineInFileModuleInternalApiCall::CreateFile { line_content } => {
+                if line_content.is_empty() {
                     format!("touch {}", self.file_path)
                 } else {
                     format!(
                         "printf '%s\\n' '{}' > {}",
-                        escape_sed_text(&l),
+                        escape_sed_text(line_content),
                         self.file_path
                     )
                 }
@@ -803,7 +909,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 host_handler,
                 &self.file_path,
                 &self.api_call,
-                &line_content_raw.clone(),
                 &self.privilege,
             )
             .await;
@@ -830,43 +935,41 @@ async fn verify_file_state<Handler: HostHandler>(
     host_handler: &mut Handler,
     file_path: &str,
     api_call: &LineInFileModuleInternalApiCall,
-    line_content: &Option<String>,
     privilege: &Privilege,
 ) -> bool {
-    let line = line_content.as_deref().unwrap_or("");
 
     match api_call {
-        LineInFileModuleInternalApiCall::InsertBottom => {
-            // Verify the line exists at the end of the file
-            if let Some(content) = read_file_content(host_handler, file_path).await {
-                content
-                    .lines()
-                    .last()
-                    .map_or(false, |last_line| last_line.trim() == line.trim())
-            } else {
-                false
-            }
-        }
-        LineInFileModuleInternalApiCall::InsertTop => {
+        LineInFileModuleInternalApiCall::InsertTop { line_content } => {
             // Verify the line exists at the beginning of the file
-            if let Some(content) = read_file_content(host_handler, file_path).await {
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
                 content
                     .lines()
                     .next()
-                    .map_or(false, |first_line| first_line.trim() == line.trim())
+                    .map_or(false, |first_line| first_line.trim() == line_content.trim())
             } else {
                 false
             }
         }
-        LineInFileModuleInternalApiCall::InsertAfterLine(n) => {
+        LineInFileModuleInternalApiCall::InsertBottom { line_content } => {
+            // Verify the line exists at the end of the file
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
+                content
+                    .lines()
+                    .last()
+                    .map_or(false, |last_line| last_line.trim() == line_content.trim())
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::InsertAfterLine { line_content, line_number } => {
             // Verify the line exists after the specified line number
-            if let Some(content) = read_file_content(host_handler, file_path).await {
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
                 let lines: Vec<&str> = content.lines().collect();
-                let insert_pos = *n as usize;
+                let insert_pos = *line_number as usize;
                 if insert_pos < lines.len() {
                     let next_pos = insert_pos + 1;
                     if next_pos < lines.len() {
-                        return lines[next_pos].trim() == line.trim();
+                        return lines[next_pos].trim() == line_content.trim();
                     }
                 }
                 false
@@ -874,56 +977,51 @@ async fn verify_file_state<Handler: HostHandler>(
                 false
             }
         }
-        LineInFileModuleInternalApiCall::InsertBeforeLine(n) => {
+        LineInFileModuleInternalApiCall::InsertBeforeLine { line_content, line_number } => {
             // Verify the line exists before the specified line number
-            if let Some(content) = read_file_content(host_handler, file_path).await {
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
                 let lines: Vec<&str> = content.lines().collect();
-                let insert_pos = *n as usize;
+                let insert_pos = *line_number as usize;
                 if insert_pos > 0 && insert_pos <= lines.len() {
-                    return lines[insert_pos - 1].trim() == line.trim();
+                    return lines[insert_pos - 1].trim() == line_content.trim();
                 }
                 false
             } else {
                 false
             }
         }
-        LineInFileModuleInternalApiCall::ReplaceLine(n) => {
-            // Verify the line at position n matches the expected line
-            if let Some(content) = read_file_content(host_handler, file_path).await {
-                let lines: Vec<&str> = content.lines().collect();
-                let pos = *n as usize;
-                if pos > 0 && pos <= lines.len() {
-                    return lines[pos - 1].trim() == line.trim();
-                }
-                false
-            } else {
-                false
-            }
-        }
-        LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
-            line_number,
-            regexp,
-        } => {
-            // For backrefs, we need to check that the line matches the expected pattern
-            // This is complex to verify exactly, so we'll check the line exists
-            if let Some(content) = read_file_content(host_handler, file_path).await {
+        LineInFileModuleInternalApiCall::ReplaceLine { line_content, line_number } => {
+            // Verify the line at position `line_number` matches the expected line
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
                 let lines: Vec<&str> = content.lines().collect();
                 let pos = *line_number as usize;
                 if pos > 0 && pos <= lines.len() {
-                    // Line exists at the expected position
-                    return true;
+                    return lines[pos - 1].trim() == line_content.trim();
                 }
                 false
             } else {
                 false
             }
         }
-        LineInFileModuleInternalApiCall::DeleteLines(numbers) => {
+        LineInFileModuleInternalApiCall::ReplaceWithBackrefs { line_content, line_number, regexp } => {
+            // For backrefs, check that the line exists at the expected position
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
+                let lines: Vec<&str> = content.lines().collect();
+                let pos = *line_number as usize;
+                if pos > 0 && pos <= lines.len() {
+                    return lines[pos - 1].trim() == line_content.trim();
+                }
+                false
+            } else {
+                false
+            }
+        }
+        LineInFileModuleInternalApiCall::DeleteLines { line_numbers } => {
             // Verify the lines were actually deleted
-            if let Some(content) = read_file_content(host_handler, file_path).await {
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
                 let lines: Vec<&str> = content.lines().collect();
                 // Check that none of the deleted line numbers exist
-                for &n in numbers {
+                for &n in line_numbers {
                     let pos = n as usize;
                     if pos > 0 && pos <= lines.len() {
                         return false; // Line still exists
@@ -934,21 +1032,21 @@ async fn verify_file_state<Handler: HostHandler>(
                 false
             }
         }
-        LineInFileModuleInternalApiCall::DeleteByRegexp(pattern) => {
+        LineInFileModuleInternalApiCall::DeleteByRegexp { regexp } => {
             // Verify no lines matching the pattern exist
-            if let Some(content) = read_file_content(host_handler, file_path).await {
-                !content.lines().any(|line| line.contains(pattern.as_str()))
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
+                !content.lines().any(|line| line.contains(regexp.as_str()))
             } else {
                 false
             }
         }
-        LineInFileModuleInternalApiCall::CreateFile => {
-            // Verify the file exists
-            let test_result = host_handler
-                .run_command(&format!("test -f {}", file_path), &Privilege::None)
-                .await
-                .unwrap();
-            test_result.return_code == 0
+        LineInFileModuleInternalApiCall::CreateFile { line_content } => {
+            // Verify the file exists and contains the expected line
+            if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
+                content.lines().next().map_or(false, |first_line| first_line.trim() == line_content.trim())
+            } else {
+                false
+            }
         }
     }
 }
@@ -957,9 +1055,10 @@ async fn verify_file_state<Handler: HostHandler>(
 async fn read_file_content<Handler: HostHandler>(
     host_handler: &mut Handler,
     file_path: &str,
+    privilege: &Privilege,
 ) -> Option<String> {
     let result = host_handler
-        .run_command(&format!("cat {}", file_path), &Privilege::None)
+        .run_command(&format!("cat {}", file_path), privilege)
         .await
         .unwrap();
     if result.return_code == 0 {
@@ -968,6 +1067,8 @@ async fn read_file_content<Handler: HostHandler>(
         None
     }
 }
+
+use std::assert_matches;
 
 #[cfg(test)]
 mod tests {
@@ -1012,80 +1113,203 @@ mod tests {
         ";
         let _: Vec<LineInFileBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_present_raw() {
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+          Position: InsertAfter
+          FirstMatch: true
+          Create: false
+        Line: !Raw
+          "hello world"
+    "#;
 
-    #[test]
-    fn check_rejects_empty_file_path() {
-        let result = LineInFileBlockExpectedState::builder("").build();
-        assert!(result.is_err());
-    }
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_eq!(result.file_path, "/tmp/test.txt");
+    assert_matches!(
+        result.state,
+        LineExpectedState::Present {
+            position: LinePosition::InsertAfter(_),
+            firstmatch: Some(true),
+            create: Some(false),
+        }
+    );
+    assert_matches!(result.line, Line::Raw(_));
+}
 
-    #[test]
-    fn check_rejects_regexp_and_search_string_together() {
-        let result = LineInFileBlockExpectedState::builder("/etc/hosts")
-            .with_regexp("pattern")
-            .with_search_string("literal")
-            .build();
-        assert!(result.is_err());
-    }
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_absent() {
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Absent
+          FileMustExistAnyway: false
+        Line: !Raw
+          "hello world"
+    "#;
 
-    #[test]
-    fn check_rejects_insert_after_and_insert_before_together() {
-        let result = LineInFileBlockExpectedState::builder("/etc/hosts")
-            .with_line("foo")
-            .with_insert_after("^bar")
-            .with_insert_before("^baz")
-            .build();
-        assert!(result.is_err());
-    }
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_eq!(result.file_path, "/tmp/test.txt");
+    assert_matches!(
+        result.state,
+        LineExpectedState::Absent {
+            file_must_exist_anyway: false,
+        }
+    );
+    assert_matches!(result.line, Line::Raw(_));
+}
 
-    #[test]
-    fn check_rejects_backrefs_without_regexp() {
-        let result = LineInFileBlockExpectedState::builder("/etc/hosts")
-            .with_line("foo")
-            .with_backrefs(true)
-            .build();
-        assert!(result.is_err());
-    }
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_regexp() {
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+          Position: InsertBefore
+          FirstMatch: false
+          Create: true
+        Line: !Regexp
+          "^hello.*$"
+    "#;
 
-    #[test]
-    fn check_rejects_nothing_set() {
-        let result = LineInFileBlockExpectedState::builder("/etc/hosts").build();
-        assert!(result.is_err());
-    }
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_eq!(result.file_path, "/tmp/test.txt");
+    assert_matches!(
+        result.state,
+        LineExpectedState::Present {
+            position: LinePosition::InsertBefore(_),
+            firstmatch: Some(false),
+            create: Some(true),
+        }
+    );
+    assert_matches!(result.line, Line::Regexp(_));
+}
 
-    #[test]
-    fn check_accepts_valid_configurations() {
-        // line only
-        assert!(
-            LineInFileBlockExpectedState::builder("/f")
-                .with_line("hello")
-                .build()
-                .is_ok()
-        );
-        // regexp + line
-        assert!(
-            LineInFileBlockExpectedState::builder("/f")
-                .with_regexp("^foo")
-                .with_line("foo = 1")
-                .build()
-                .is_ok()
-        );
-        // regexp + line + backrefs
-        assert!(
-            LineInFileBlockExpectedState::builder("/f")
-                .with_regexp("^(foo).*")
-                .with_line("\\1 = 1")
-                .with_backrefs(true)
-                .build()
-                .is_ok()
-        );
-        // regexp absent
-        assert!(
-            LineInFileBlockExpectedState::builder("/f")
-                .with_regexp("^foo")
-                .with_state(LineExpectedState::Absent)
-                .build()
-                .is_ok()
-        );
-    }
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_regexp_with_backrefs() {
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+        Line: !RegexpWithBackrefs
+          Regexp: "^hello (\\w+)$"
+          ContentToInsert: "hi \\1"
+    "#;
+
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_eq!(result.file_path, "/tmp/test.txt");
+    assert_matches!(result.state, LineExpectedState::Present { .. });
+    assert_matches!(
+        result.line,
+        Line::RegexpWithBackrefs {
+            regexp: _,
+            content_to_insert: _,
+        }
+    );
+}
+
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_search_string() {
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+        Line: !SearchString
+          "hello world"
+    "#;
+
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_eq!(result.file_path, "/tmp/test.txt");
+    assert_matches!(result.state, LineExpectedState::Present { .. });
+    assert_matches!(result.line, Line::SearchString(_));
+}
+
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_position_bof() {
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+          Position: !InsertBefore
+            BOF
+        Line: !Raw
+          "hello world"
+    "#;
+
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_matches!(
+        result.state,
+        LineExpectedState::Present {
+            position: LinePosition::InsertBefore(_),
+            ..
+        }
+    );
+}
+
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_position_eof() {
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+          Position: EOF
+        Line: !Raw
+          "hello world"
+    "#;
+
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_matches!(
+        result.state,
+        LineExpectedState::Present {
+            position: LinePosition::InsertAfter(_),
+            ..
+        }
+    );
+}
+
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_minimal() {
+    // Test minimal YAML (all optional fields omitted)
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        Line:
+          Raw: "hello world"
+    "#;
+
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_eq!(result.file_path, "/tmp/test.txt");
+    assert_matches!(result.state, LineExpectedState::Present { .. });
+    assert_matches!(result.line, Line::Raw(_));
+}
+
+#[test]
+fn test_deserialize_line_in_file_block_expected_state_invalid() {
+    // Test invalid YAML (e.g., unknown fields)
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+            UnknownField: true
+        Line: !Raw
+          "hello world"
+    "#;
+
+    let result = yaml_serde::from_str::<LineInFileBlockExpectedState>(yaml);
+    assert!(result.is_err()); // Should fail due to unknown field
+}
+
+#[test]
+fn test_line_in_file_block_expected_state_defaults() {
+    // Test default values for optional fields
+    let yaml = r#"
+        FilePath: /tmp/test.txt
+        State: !Present
+        Line: !Raw
+          "hello world"
+    "#;
+
+    let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+    assert_matches!(
+        result.state,
+        LineExpectedState::Present {
+            position: _,
+            firstmatch: None,
+            create: None,
+        }
+    );
+}
 }
