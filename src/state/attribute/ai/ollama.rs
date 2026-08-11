@@ -171,7 +171,10 @@ impl OllamaBlockExpectedState {
         OllamaBlockExpectedState::PresentWithModels { models }
     }
 
-    pub fn present_with_config_and_models(api_config: OllamaApiConfig, models: Vec<OllamaModel>) -> OllamaBlockExpectedState {
+    pub fn present_with_config_and_models(
+        api_config: OllamaApiConfig,
+        models: Vec<OllamaModel>,
+    ) -> OllamaBlockExpectedState {
         OllamaBlockExpectedState::PresentWithConfigAndModels { api_config, models }
     }
 }

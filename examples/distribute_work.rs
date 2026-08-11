@@ -39,10 +39,8 @@ fn create_a_regent_task() -> String {
     );
 
     // Describe the expected state
-    let apache_expected_state = PacmanBlockExpectedState::builder()
-        .with_package_state("apache", PackageExpectedState::Present)
-        .build()
-        .unwrap();
+    let apache_expected_state =
+        PacmanBlockExpectedState::package_state("apache", PackageExpectedState::Present);
 
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::pacman(

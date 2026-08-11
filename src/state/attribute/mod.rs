@@ -210,7 +210,9 @@ impl Attribute {
             AttributeTimeout::Default => Ok(self.detail.default_timeout()),
             AttributeTimeout::Duration(duration) => Ok(*duration),
             AttributeTimeout::Seconds(seconds) => Ok(Duration::from_secs(*seconds)),
-            AttributeTimeout::Milliseconds(milliseconds) => Ok(Duration::from_millis(*milliseconds)),
+            AttributeTimeout::Milliseconds(milliseconds) => {
+                Ok(Duration::from_millis(*milliseconds))
+            }
         }
     }
 
