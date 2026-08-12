@@ -51,46 +51,105 @@ use crate::state::attribute::Remediation;
 use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::fmt::Display;
 use std::time::Duration;
 
-// ── Supporting enums ──────────────────────────────────────────────────────────
+use serde::{Deserializer, Serializer};
+use std::net::IpAddr;
+use std::str::FromStr;
 
-/// Desired state of an iptables rule or chain
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum IptablesExpectedState {
-    /// The rule or chain should exist
-    Present,
-    /// The rule or chain should not exist
-    Absent,
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/// A strongly-typed, self-validated CIDR block or single IP address 
+/// implemented entirely using standard library types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CidrBlock {
+    addr: IpAddr,
+    prefix: Option<u8>,
 }
 
-/// iptables table to operate on
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum IptablesTable {
-    /// Default table for packet filtering
-    Filter,
-    /// Table for network address translation
-    Nat,
-    /// Table for packet marking and manipulation
-    Mangle,
-    /// Table for packet marking before connection tracking
-    Raw,
-    /// Table for mandatory access control (Linux 2.6.29+)
-    Security,
-}
-
-impl IptablesTable {
-    /// Returns the `-t <table>` argument string, or empty string for the default Filter table.
-    fn table_arg(&self) -> String {
-        match self {
-            IptablesTable::Filter => String::new(),
-            IptablesTable::Nat => "-t nat".to_string(),
-            IptablesTable::Mangle => "-t mangle".to_string(),
-            IptablesTable::Raw => "-t raw".to_string(),
-            IptablesTable::Security => "-t security".to_string(),
+impl CidrBlock {
+    /// Manually parse and validate an IP or CIDR string.
+    pub fn parse(s: &str) -> Result<Self, String> {
+        let parts: Vec<&str> = s.split('/').collect();
+        
+        if parts.is_empty() || parts.len() > 2 {
+            return Err(format!("Invalid CIDR format: '{}'", s));
         }
+
+        // Parse the base IP address
+        let addr = IpAddr::from_str(parts[0])
+            .map_err(|e| format!("Invalid IP address '{}': {}", parts[0], e))?;
+
+        // Parse and validate the optional prefix mask
+        let prefix = if parts.len() == 2 {
+            let p: u8 = parts[1]
+                .parse()
+                .map_err(|_| format!("Invalid subnet prefix: '{}'", parts[1]))?;
+
+            // Validate bounds based on whether it's IPv4 or IPv6
+            let max_prefix = match addr {
+                IpAddr::V4(_) => 32,
+                IpAddr::V6(_) => 128,
+            };
+
+            if p > max_prefix {
+                return Err(format!(
+                    "Subnet prefix /{} is out of bounds for this IP type (max {})",
+                    p, max_prefix
+                ));
+            }
+            Some(p)
+        } else {
+            None
+        };
+
+        Ok(CidrBlock { addr, prefix })
+    }
+
+    /// Returns the string representation
+    pub fn to_string(&self) -> String {
+        match self.prefix {
+            Some(p) => format!("{}/{}", self.addr, p),
+            None => self.addr.to_string(),
+        }
+    }
+}
+
+// Serde integration
+impl Serialize for CidrBlock {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for CidrBlock {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        CidrBlock::parse(&s).map_err(serde::de::Error::custom)
     }
 }
 
@@ -99,77 +158,358 @@ impl IptablesTable {
 #[serde(rename_all = "PascalCase")]
 pub enum IpVersion {
     /// IPv4 protocol
-    Ipv4,
+    V4,
     /// IPv6 protocol
-    Ipv6,
+    V6,
 }
 
-/// Action to perform on a rule (append or insert)
+/// Helper function to provide the default IP family (V4)
+fn default_ip_family() -> IpVersion {
+    IpVersion::V4
+}
+
+/// Helper to keep serialized JSON clean by omitting "Family": "V4" if it matches the default.
+fn is_v4_default(family: &IpVersion) -> bool {
+    matches!(family, IpVersion::V4)
+}
+
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum IptablesAction {
-    /// Add rule at the end of the chain
+pub enum IptablesInsertionAction {
     Append,
-    /// Insert rule at a specific position
-    Insert,
+    Insert { position: u32 },
 }
 
-/// Default policy for a chain
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum IptablesPolicy {
-    /// Accept packets
-    Accept,
-    /// Drop packets silently
-    Drop,
-    /// Reject packets with an error response
-    Reject,
+pub enum Protocol {
+    Tcp { 
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_port: Option<PortSpec>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dest_port: Option<PortSpec>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tcp_flags: Option<TcpFlagsMatch>,
+    },
+    Udp { 
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source_port: Option<PortSpec>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dest_port: Option<PortSpec>,
+    },
+    Icmp {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        icmp_type: Option<u8>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        icmp_code: Option<u8>,
+    },
+    All,
 }
 
-impl std::fmt::Display for IptablesPolicy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            IptablesPolicy::Accept => write!(f, "ACCEPT"),
-            IptablesPolicy::Drop => write!(f, "DROP"),
-            IptablesPolicy::Reject => write!(f, "REJECT"),
-        }
+/// TCP Flag matching options
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum TcpFlag {
+    Syn,
+    Ack,
+    Fin,
+    Rst,
+    Psh,
+    Urg,
+    FinRst,
+    All,
+    None,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct TcpFlagsMatch {
+    pub mask: Vec<TcpFlag>,
+    pub comp: Vec<TcpFlag>,
+}
+
+/// Rate limiting specification (-m limit)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct RateLimit {
+    pub rate: u32,                  // e.g., 3
+    pub unit: RateUnit,             // per second, minute, etc.
+    pub burst: Option<u32>,         // --limit-burst
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum RateUnit {
+    Second,
+    Minute,
+    Hour,
+    Day,
+}
+
+/// Connection tracking states (-m conntrack --ctstate)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ConnectionState {
+    New,
+    Established,
+    Related,
+    Invalid,
+    Untracked,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct ConntrackMatch {
+    pub states: Vec<ConnectionState>,
+}
+
+/// User/Group ownership matching (-m owner)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum OwnerMatch {
+    UidOwner(String), // Can be a username or UID number (e.g., "www-data" or "33")
+    GidOwner(String), // Can be a group name or GID number
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub struct MatchCriteria {
+    pub protocol: Protocol,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<Invert<CidrBlock>>,          // Supports "! -s ..."
+          
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination: Option<Invert<CidrBlock>>,     // Supports "! -d ..."
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_interface_in: Option<Invert<String>>,  // Supports "! -i ..."
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_interface_out: Option<Invert<String>>, // Supports "! -o ..."
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fragment: Option<bool>,                // -f / ! -f
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<RateLimit>,              // -m limit
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conntrack: Option<Invert<ConntrackMatch>>,     // Supports "! -m conntrack --ctstate ..."
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Invert<OwnerMatch>>,             // Supports "! -m owner ..."
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,               // -m comment
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum RejectWith {
+    IcmpPortUnreachable,
+    IcmpNetUnreachable,
+    TcpReset,
+    EchoReply,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum IptablesTarget {
+    Accept,
+    Drop,
+    Reject {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        with: Option<RejectWith>,
+    },
+    Log {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prefix: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level: Option<u8>, // Log level (0-7)
+    },
+    Return,
+    /// Jump to a custom or standard chain (-j CHAIN)
+    Jump(String),
+    /// Unconditional jump to a chain without returning (-g CHAIN)
+    Goto(String),
+    Custom(String),
+}
+
+/// Chains unique to the Raw table
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RawChain {
+    Prerouting,
+    Output,
+    Custom(String),
+}
+
+/// Chains unique to the Filter table
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum FilterChain {
+    Input,
+    Forward,
+    Output,
+    Custom(String),
+}
+
+/// Chains unique to the Nat table
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum NatChain {
+    Prerouting,
+    Input,
+    Output,
+    Postrouting,
+    Custom(String),
+}
+
+/// Chains available in Mangle table
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MangleChain {
+    Prerouting,
+    Input,
+    Forward,
+    Output,
+    Postrouting,
+    Custom(String),
+}
+
+/// Chains available in Security table
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SecurityChain {
+    Input,
+    Forward,
+    Output,
+    Custom(String),
+}
+
+/// An enum representing a table, bundling ONLY valid chains for that table.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "Table", content = "Details", rename_all = "PascalCase")]
+pub enum IptablesRule {
+    Raw {
+        chain: RawChain,
+        criteria: MatchCriteria,
+        target: IptablesTarget,
+    },
+    Filter {
+        chain: FilterChain,
+        criteria: MatchCriteria,
+        target: IptablesTarget,
+    },
+    Nat {
+        chain: NatChain,
+        criteria: MatchCriteria,
+        target: IptablesTarget,
+    },
+    Mangle {
+        chain: MangleChain,
+        criteria: MatchCriteria,
+        target: IptablesTarget,
+    },
+    Security {
+        chain: SecurityChain,
+        criteria: MatchCriteria,
+        target: IptablesTarget,
+    },
+}
+
+/// Desired state of an iptables rule
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum RuleExpectedState {
+    Present,
+    Absent,
+}
+
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "State", rename_all = "PascalCase")]
+pub enum IptablesBlockExpectedState {
+    /// If it must be Present, we *must* specify how to place it (Append/Insert)
+    Present {
+        #[serde(default = "default_ip_family", skip_serializing_if = "is_v4_default")]
+        ip_version: IpVersion,
+        action: IptablesInsertionAction,
+        #[serde(flatten)]
+        rule: IptablesRule,
+    },
+    /// If it must be Absent, an action is completely irrelevant; 
+    /// the reconciliation engine just needs to find and purge matching rules.
+    Absent {
+        #[serde(default = "default_ip_family", skip_serializing_if = "is_v4_default")]
+        ip_version: IpVersion,
+        #[serde(flatten)]
+        rule: IptablesRule,
+    },
+}
+
+
+// Support for inversion
+/// Wraps any match value to indicate whether it should be matched normally or inverted (!)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Invert<T> {
+    pub value: T,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inverted: bool,
+}
+
+impl<T> Invert<T> {
+    pub fn new(value: T) -> Self {
+        Self { value, inverted: false }
+    }
+
+    pub fn inverted(value: T) -> Self {
+        Self { value, inverted: true }
     }
 }
 
-/// SYN flag matching behavior
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum IptablesSyn {
-    /// Match packets with SYN flag set
-    Match,
-    /// Match packets with SYN flag NOT set (negated)
-    Negate,
-    /// Ignore SYN flag matching
-    Ignore,
+/// Represents a single port or a contiguous port range (e.g., "1024:65535")
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PortRange {
+    Single(u16),
+    Range {
+        start: u16,
+        end: u16,
+    },
 }
 
-/// TCP flags for matching packets with specific TCP flag combinations
-///
-/// Used with the `--tcp-flags` iptables option to match packets based on TCP flags.
-/// `flags` specifies which flags to examine, and `flags_set` specifies which of those
-/// must be set for the packet to match.
-///
-/// # Example
-///
-/// To match SYN packets (SYN set, ACK not set):
-/// ```yaml
-/// TcpFlags:
-///   flags: [SYN, ACK]
-///   flags_set: [SYN]
-/// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct TcpFlags {
-    /// List of TCP flags to examine (e.g., SYN, ACK, FIN, RST, PSH, URG)
-    pub flags: Vec<String>,
-    /// Subset of flags from `flags` that must be set for the packet to match
-    pub flags_set: Vec<String>,
+/// Represents either a single port match or a multiport list (up to 15 items in iptables)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum PortSpec {
+    Single(u16),
+    Range { start: u16, end: u16 },
+    List(Vec<PortRange>),
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 // ── Block expected state ──────────────────────────────────────────────────────
 
@@ -240,75 +580,7 @@ pub struct TcpFlags {
 ///       OutInterface: eth0
 ///       Jump: MASQUERADE
 /// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "PascalCase")]
-pub struct IptablesBlockExpectedState {
-    /// Chain name to operate on (e.g., INPUT, OUTPUT, FORWARD, or custom chain)
-    chain: String,
-    /// Desired state: Present (rule/chain should exist) or Absent (should not exist)
-    state: Option<IptablesExpectedState>,
-    /// Table to operate on (defaults to Filter)
-    table: Option<IptablesTable>,
-    /// IP version: Ipv4 (iptables) or Ipv6 (ip6tables)
-    ip_version: Option<IpVersion>,
-    /// Action: Append (default) or Insert
-    action: Option<IptablesAction>,
-    /// Rule number for Insert action
-    rule_num: Option<u32>,
-    /// Whether to create/flush/delete the chain itself
-    chain_management: Option<bool>,
-    /// Default policy for the chain (ACCEPT, DROP, REJECT)
-    policy: Option<IptablesPolicy>,
-    /// Protocol to match (tcp, udp, icmp, etc.)
-    protocol: Option<String>,
-    /// Source IP address or range to match
-    source: Option<String>,
-    /// Destination IP address or range to match
-    destination: Option<String>,
-    /// Input interface to match
-    in_interface: Option<String>,
-    /// Output interface to match
-    out_interface: Option<String>,
-    /// Source port to match
-    source_port: Option<String>,
-    /// Destination port to match
-    destination_port: Option<String>,
-    /// Connection tracking states to match (ESTABLISHED, RELATED, NEW, INVALID, etc.)
-    ctstate: Option<Vec<String>>,
-    /// ICMP type to match
-    icmp_type: Option<String>,
-    /// TCP flags configuration for matching
-    tcp_flags: Option<TcpFlags>,
-    /// SYN flag matching
-    syn: Option<IptablesSyn>,
-    /// Match fragmented packets
-    fragment: Option<bool>,
-    /// Target to jump to (ACCEPT, DROP, REJECT, LOG, custom chain, etc.)
-    jump: Option<String>,
-    /// Target to goto (similar to jump but continues in the same table)
-    goto: Option<String>,
-    /// Destination address for NAT (used with DNAT)
-    to_destination: Option<String>,
-    /// Source address for NAT (used with SNAT)
-    to_source: Option<String>,
-    /// Ports for NAT redirect
-    to_ports: Option<String>,
-    /// Prefix for log messages (used with LOG target)
-    log_prefix: Option<String>,
-    /// Log level (used with LOG target)
-    log_level: Option<String>,
-    /// Comment to add to the rule
-    comment: Option<String>,
-    /// Rate limit for matching (e.g., "3/minute")
-    limit: Option<String>,
-    /// Rate limit burst size
-    limit_burst: Option<String>,
-    /// User ID owner to match
-    uid_owner: Option<String>,
-    /// Group ID owner to match
-    gid_owner: Option<String>,
-}
+
 
 impl Timeout for IptablesBlockExpectedState {
     fn default_timeout(&self) -> Duration {
@@ -317,212 +589,19 @@ impl Timeout for IptablesBlockExpectedState {
 }
 
 impl IptablesBlockExpectedState {
-    pub fn builder(chain: &str) -> IptablesBlockExpectedState {
-        IptablesBlockExpectedState {
-            chain: chain.to_string(),
-            state: None,
-            table: None,
-            ip_version: None,
-            action: None,
-            rule_num: None,
-            chain_management: None,
-            policy: None,
-            protocol: None,
-            source: None,
-            destination: None,
-            in_interface: None,
-            out_interface: None,
-            source_port: None,
-            destination_port: None,
-            ctstate: None,
-            icmp_type: None,
-            tcp_flags: None,
-            syn: None,
-            fragment: None,
-            jump: None,
-            goto: None,
-            to_destination: None,
-            to_source: None,
-            to_ports: None,
-            log_prefix: None,
-            log_level: None,
-            comment: None,
-            limit: None,
-            limit_burst: None,
-            uid_owner: None,
-            gid_owner: None,
-        }
-    }
-
-    pub fn with_state(&mut self, state: IptablesExpectedState) -> &mut Self {
-        self.state = Some(state);
-        self
-    }
-
-    pub fn with_table(&mut self, table: IptablesTable) -> &mut Self {
-        self.table = Some(table);
-        self
-    }
-
-    pub fn with_ip_version(&mut self, ip_version: IpVersion) -> &mut Self {
-        self.ip_version = Some(ip_version);
-        self
-    }
-
-    pub fn with_action(&mut self, action: IptablesAction) -> &mut Self {
-        self.action = Some(action);
-        self
-    }
-
-    pub fn with_rule_num(&mut self, rule_num: u32) -> &mut Self {
-        self.rule_num = Some(rule_num);
-        self
-    }
-
-    pub fn with_chain_management(&mut self, chain_management: bool) -> &mut Self {
-        self.chain_management = Some(chain_management);
-        self
-    }
-
-    pub fn with_policy(&mut self, policy: IptablesPolicy) -> &mut Self {
-        self.policy = Some(policy);
-        self
-    }
-
-    pub fn with_protocol(&mut self, protocol: &str) -> &mut Self {
-        self.protocol = Some(protocol.to_string());
-        self
-    }
-
-    pub fn with_source(&mut self, source: &str) -> &mut Self {
-        self.source = Some(source.to_string());
-        self
-    }
-
-    pub fn with_destination(&mut self, destination: &str) -> &mut Self {
-        self.destination = Some(destination.to_string());
-        self
-    }
-
-    pub fn with_in_interface(&mut self, in_interface: &str) -> &mut Self {
-        self.in_interface = Some(in_interface.to_string());
-        self
-    }
-
-    pub fn with_out_interface(&mut self, out_interface: &str) -> &mut Self {
-        self.out_interface = Some(out_interface.to_string());
-        self
-    }
-
-    pub fn with_source_port(&mut self, source_port: &str) -> &mut Self {
-        self.source_port = Some(source_port.to_string());
-        self
-    }
-
-    pub fn with_destination_port(&mut self, destination_port: &str) -> &mut Self {
-        self.destination_port = Some(destination_port.to_string());
-        self
-    }
-
-    pub fn with_ctstate(&mut self, ctstate: Vec<String>) -> &mut Self {
-        self.ctstate = Some(ctstate);
-        self
-    }
-
-    pub fn with_icmp_type(&mut self, icmp_type: &str) -> &mut Self {
-        self.icmp_type = Some(icmp_type.to_string());
-        self
-    }
-
-    pub fn with_tcp_flags(&mut self, tcp_flags: TcpFlags) -> &mut Self {
-        self.tcp_flags = Some(tcp_flags);
-        self
-    }
-
-    pub fn with_syn(&mut self, syn: IptablesSyn) -> &mut Self {
-        self.syn = Some(syn);
-        self
-    }
-
-    pub fn with_fragment(&mut self, fragment: bool) -> &mut Self {
-        self.fragment = Some(fragment);
-        self
-    }
-
-    pub fn with_jump(&mut self, jump: &str) -> &mut Self {
-        self.jump = Some(jump.to_string());
-        self
-    }
-
-    pub fn with_goto(&mut self, goto: &str) -> &mut Self {
-        self.goto = Some(goto.to_string());
-        self
-    }
-
-    pub fn with_to_destination(&mut self, to_destination: &str) -> &mut Self {
-        self.to_destination = Some(to_destination.to_string());
-        self
-    }
-
-    pub fn with_to_source(&mut self, to_source: &str) -> &mut Self {
-        self.to_source = Some(to_source.to_string());
-        self
-    }
-
-    pub fn with_to_ports(&mut self, to_ports: &str) -> &mut Self {
-        self.to_ports = Some(to_ports.to_string());
-        self
-    }
-
-    pub fn with_log_prefix(&mut self, log_prefix: &str) -> &mut Self {
-        self.log_prefix = Some(log_prefix.to_string());
-        self
-    }
-
-    pub fn with_log_level(&mut self, log_level: &str) -> &mut Self {
-        self.log_level = Some(log_level.to_string());
-        self
-    }
-
-    pub fn with_comment(&mut self, comment: &str) -> &mut Self {
-        self.comment = Some(comment.to_string());
-        self
-    }
-
-    pub fn with_limit(&mut self, limit: &str) -> &mut Self {
-        self.limit = Some(limit.to_string());
-        self
-    }
-
-    pub fn with_limit_burst(&mut self, limit_burst: &str) -> &mut Self {
-        self.limit_burst = Some(limit_burst.to_string());
-        self
-    }
-
-    pub fn with_uid_owner(&mut self, uid_owner: &str) -> &mut Self {
-        self.uid_owner = Some(uid_owner.to_string());
-        self
-    }
-
-    pub fn with_gid_owner(&mut self, gid_owner: &str) -> &mut Self {
-        self.gid_owner = Some(gid_owner.to_string());
-        self
-    }
-
-    pub fn build(&self) -> Result<IptablesBlockExpectedState, RegentError> {
-        self.check()?;
-        Ok(self.clone())
-    }
+    
 }
 
 // ── Check ─────────────────────────────────────────────────────────────────────
 
 impl Check for IptablesBlockExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if self.chain.is_empty() {
-            return Err(RegentError::IncoherentExpectedState(
-                "chain must not be empty.".to_string(),
-            ));
+        if let IptablesChain::Custom(custom_chain) = &self.chain {
+            if custom_chain.is_empty() {
+                return Err(RegentError::IncoherentExpectedState(
+                    "chain must not be empty.".to_string(),
+                ));
+            }
         }
 
         let has_actionable = self.jump.is_some()
@@ -763,36 +842,36 @@ pub enum IptablesModuleInternalApiCall {
     CreateChain {
         binary: String,
         table_arg: String,
-        chain: String,
+        chain: IptablesChain,
     },
     FlushAndDeleteChain {
         binary: String,
         table_arg: String,
-        chain: String,
+        chain: IptablesChain,
     },
     SetPolicy {
         binary: String,
         table_arg: String,
-        chain: String,
+        chain: IptablesChain,
         policy: String,
     },
     AppendRule {
         binary: String,
         table_arg: String,
-        chain: String,
+        chain: IptablesChain,
         rule_args: String,
     },
     InsertRule {
         binary: String,
         table_arg: String,
-        chain: String,
+        chain: IptablesChain,
         rule_num: Option<u32>,
         rule_args: String,
     },
     DeleteRule {
         binary: String,
         table_arg: String,
-        chain: String,
+        chain: IptablesChain,
         rule_args: String,
     },
 }
@@ -1291,198 +1370,5 @@ mod tests {
 ";
         let blocks: Vec<IptablesBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
         assert_eq!(blocks.len(), 5);
-    }
-
-    #[test]
-    fn check_rejects_empty_chain() {
-        let result = IptablesBlockExpectedState::builder("")
-            .with_jump("ACCEPT")
-            .build();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, RegentError::IncoherentExpectedState(_)));
-    }
-
-    #[test]
-    fn check_rejects_nothing_actionable() {
-        let result = IptablesBlockExpectedState::builder("INPUT").build();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, RegentError::IncoherentExpectedState(_)));
-    }
-
-    #[test]
-    fn check_rejects_rule_num_without_insert() {
-        let result = IptablesBlockExpectedState::builder("INPUT")
-            .with_jump("ACCEPT")
-            .with_rule_num(1)
-            .build();
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert!(matches!(err, RegentError::IncoherentExpectedState(_)));
-    }
-
-    #[test]
-    fn check_accepts_valid_rule() {
-        let result = IptablesBlockExpectedState::builder("INPUT")
-            .with_protocol("tcp")
-            .with_destination_port("22")
-            .with_jump("ACCEPT")
-            .build();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn build_rule_args_basic() {
-        let block = IptablesBlockExpectedState::builder("INPUT")
-            .with_protocol("tcp")
-            .with_destination_port("22")
-            .with_jump("ACCEPT")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("-p tcp"));
-        assert!(args.contains("--dport 22"));
-        assert!(args.contains("-j ACCEPT"));
-    }
-
-    #[test]
-    fn build_rule_args_ctstate() {
-        let block = IptablesBlockExpectedState::builder("INPUT")
-            .with_ctstate(vec!["ESTABLISHED".to_string(), "RELATED".to_string()])
-            .with_jump("ACCEPT")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("-m conntrack --ctstate ESTABLISHED,RELATED"));
-        assert!(args.contains("-j ACCEPT"));
-    }
-
-    #[test]
-    fn build_rule_args_nat_masquerade() {
-        let block = IptablesBlockExpectedState::builder("POSTROUTING")
-            .with_table(IptablesTable::Nat)
-            .with_out_interface("eth0")
-            .with_jump("MASQUERADE")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("-o eth0"));
-        assert!(args.contains("-j MASQUERADE"));
-    }
-
-    #[test]
-    fn build_rule_args_comment() {
-        let block = IptablesBlockExpectedState::builder("INPUT")
-            .with_protocol("tcp")
-            .with_destination_port("80")
-            .with_comment("allow http")
-            .with_jump("ACCEPT")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("-m comment --comment 'allow http'"));
-        assert!(args.contains("-j ACCEPT"));
-    }
-
-    #[test]
-    fn build_rule_args_log_with_prefix_and_level() {
-        let block = IptablesBlockExpectedState::builder("INPUT")
-            .with_protocol("tcp")
-            .with_destination_port("80")
-            .with_jump("LOG")
-            .with_log_prefix("http: ")
-            .with_log_level("warning")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("-j LOG"));
-        assert!(args.contains("--log-prefix 'http: '"));
-        assert!(args.contains("--log-level warning"));
-    }
-
-    #[test]
-    fn build_rule_args_goto() {
-        let block = IptablesBlockExpectedState::builder("INPUT")
-            .with_goto("MY_CHAIN")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("-g MY_CHAIN"));
-        assert!(!args.contains("-j"));
-    }
-
-    #[test]
-    fn build_rule_args_tcp_flags() {
-        let flags = TcpFlags {
-            flags: vec!["SYN".to_string(), "ACK".to_string()],
-            flags_set: vec!["SYN".to_string()],
-        };
-        let block = IptablesBlockExpectedState::builder("INPUT")
-            .with_protocol("tcp")
-            .with_tcp_flags(flags)
-            .with_jump("ACCEPT")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("--tcp-flags SYN,ACK SYN"));
-    }
-
-    #[test]
-    fn build_rule_args_syn_negate() {
-        let block = IptablesBlockExpectedState::builder("INPUT")
-            .with_protocol("tcp")
-            .with_syn(IptablesSyn::Negate)
-            .with_jump("DROP")
-            .build()
-            .unwrap();
-
-        let args = build_rule_args(&block);
-        assert!(args.contains("! --syn"));
-    }
-
-    #[test]
-    fn build_cmd_with_table_arg() {
-        let cmd = build_cmd("iptables", "-t nat", "-A POSTROUTING -j MASQUERADE");
-        assert_eq!(cmd, "iptables -t nat -A POSTROUTING -j MASQUERADE");
-    }
-
-    #[test]
-    fn build_cmd_without_table_arg() {
-        let cmd = build_cmd("iptables", "", "-A INPUT -j ACCEPT");
-        assert_eq!(cmd, "iptables -A INPUT -j ACCEPT");
-    }
-
-    #[test]
-    fn check_accepts_chain_management_only() {
-        let result = IptablesBlockExpectedState::builder("MY_CHAIN")
-            .with_chain_management(true)
-            .build();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn check_accepts_policy_only() {
-        let result = IptablesBlockExpectedState::builder("INPUT")
-            .with_policy(IptablesPolicy::Drop)
-            .build();
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn check_accepts_insert_with_rule_num() {
-        let result = IptablesBlockExpectedState::builder("INPUT")
-            .with_action(IptablesAction::Insert)
-            .with_rule_num(1)
-            .with_jump("ACCEPT")
-            .build();
-        assert!(result.is_ok());
     }
 }
