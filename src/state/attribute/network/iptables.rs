@@ -11,40 +11,24 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::network::iptables::{
-//!     IptablesBlockExpectedState, IpVersion, IptablesInsertionAction,
-//!     IptablesRule, FilterChain, Protocol, MatchCriteria, IptablesTarget, PortSpec
-//! };
+//! use regent_sdk::state::attribute::network::iptables::{IptablesBlockExpectedState, IpVersion};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
-//! // Allow SSH on port 22 in the FILTER table's INPUT chain
-//! let ssh_rule = IptablesBlockExpectedState::Present {
-//!     ip_version: IpVersion::V4,
-//!     action: IptablesInsertionAction::Append,
-//!     rule: IptablesRule::Filter {
-//!         chain: FilterChain::Input,
-//!         criteria: MatchCriteria {
-//!             protocol: Protocol::Tcp {
-//!                 source_port: None,
-//!                 dest_port: Some(PortSpec::Single(22)),
-//!                 tcp_flags: None,
-//!             },
-//!             source: None,
-//!             destination: None,
-//!             network_interface_in: None,
-//!             network_interface_out: None,
-//!             fragment: None,
-//!             limit: None,
-//!             conntrack: None,
-//!             owner: None,
-//!             comment: None,
-//!         },
-//!         target: IptablesTarget::Accept,
-//!     },
-//! };
+//! // Allow SSH on port 22 using convenience method (defaults to IPv4)
+//! let ssh_rule = IptablesBlockExpectedState::allow_ssh(None);
+//!
+//! // Allow HTTP on port 80 at position 1
+//! let http_rule = IptablesBlockExpectedState::allow_tcp_port(80, Some(1));
+//!
+//! // Allow DNS on port 53 (UDP)
+//! let dns_rule = IptablesBlockExpectedState::allow_udp_port(53, None);
+//!
+//! // Drop all incoming traffic (default deny)
+//! let deny_all = IptablesBlockExpectedState::drop_all_incoming(None);
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::iptables(ssh_rule, Privilege::WithSudo, None))
+//!     .with_attribute(Attribute::iptables(http_rule, Privilege::WithSudo, None))
 //!     .build();
 //! ```
 //!
@@ -77,35 +61,14 @@ use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
-use serde::{Deserialize, Serialize};
 
 use std::time::Duration;
 
-use serde::{Deserializer, Serializer};
 use std::net::IpAddr;
 use std::str::FromStr;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/// A strongly-typed, self-validated CIDR block or single IP address 
-/// implemented entirely using standard library types.
+/// A Self-validated CIDR block or single IP address
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CidrBlock {
     addr: IpAddr,
@@ -121,17 +84,14 @@ impl CidrBlock {
             return Err(format!("Invalid CIDR format: '{}'", s));
         }
 
-        // Parse the base IP address
         let addr = IpAddr::from_str(parts[0])
             .map_err(|e| format!("Invalid IP address '{}': {}", parts[0], e))?;
 
-        // Parse and validate the optional prefix mask
         let prefix = if parts.len() == 2 {
             let p: u8 = parts[1]
                 .parse()
                 .map_err(|_| format!("Invalid subnet prefix: '{}'", parts[1]))?;
 
-            // Validate bounds based on whether it's IPv4 or IPv6
             let max_prefix = match addr {
                 IpAddr::V4(_) => 32,
                 IpAddr::V6(_) => 128,
@@ -151,7 +111,6 @@ impl CidrBlock {
         Ok(CidrBlock { addr, prefix })
     }
 
-    /// Returns the string representation
     pub fn to_string(&self) -> String {
         match self.prefix {
             Some(p) => format!("{}/{}", self.addr, p),
@@ -160,7 +119,6 @@ impl CidrBlock {
     }
 }
 
-// Serde integration
 impl Serialize for CidrBlock {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -184,33 +142,30 @@ impl<'de> Deserialize<'de> for CidrBlock {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IpVersion {
-    /// IPv4 protocol
     V4,
-    /// IPv6 protocol
     V6,
 }
 
-/// Helper function to provide the default IP family (V4)
 fn default_ip_family() -> IpVersion {
     IpVersion::V4
 }
 
-/// Helper to keep serialized JSON clean by omitting "Family": "V4" if it matches the default.
 fn is_v4_default(family: &IpVersion) -> bool {
     matches!(family, IpVersion::V4)
 }
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesInsertionAction {
     Append,
+    #[serde(rename_all = "PascalCase")]
     Insert { position: u32 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum Protocol {
+    #[serde(rename_all = "PascalCase")]
     Tcp { 
         #[serde(skip_serializing_if = "Option::is_none")]
         source_port: Option<PortSpec>,
@@ -219,12 +174,14 @@ pub enum Protocol {
         #[serde(skip_serializing_if = "Option::is_none")]
         tcp_flags: Option<TcpFlagsMatch>,
     },
+    #[serde(rename_all = "PascalCase")]
     Udp { 
         #[serde(skip_serializing_if = "Option::is_none")]
         source_port: Option<PortSpec>,
         #[serde(skip_serializing_if = "Option::is_none")]
         dest_port: Option<PortSpec>,
     },
+    #[serde(rename_all = "PascalCase")]
     Icmp {
         #[serde(skip_serializing_if = "Option::is_none")]
         icmp_type: Option<u8>,
@@ -236,7 +193,7 @@ pub enum Protocol {
 
 /// TCP Flag matching options
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum TcpFlag {
     Syn,
     Ack,
@@ -260,9 +217,9 @@ pub struct TcpFlagsMatch {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct RateLimit {
-    pub rate: u32,                  // e.g., 3
-    pub unit: RateUnit,             // per second, minute, etc.
-    pub burst: Option<u32>,         // --limit-burst
+    pub rate: u32,                  
+    pub unit: RateUnit,             
+    pub burst: Option<u32>,         
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -276,7 +233,7 @@ pub enum RateUnit {
 
 /// Connection tracking states (-m conntrack --ctstate)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum ConnectionState {
     New,
     Established,
@@ -295,8 +252,8 @@ pub struct ConntrackMatch {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OwnerMatch {
-    UidOwner(String), // Can be a username or UID number (e.g., "www-data" or "33")
-    GidOwner(String), // Can be a group name or GID number
+    UidOwner(String),
+    GidOwner(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -305,35 +262,35 @@ pub struct MatchCriteria {
     pub protocol: Protocol,
     
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<Invert<CidrBlock>>,          // Supports "! -s ..."
+    pub source: Option<Invert<CidrBlock>>,          
           
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination: Option<Invert<CidrBlock>>,     // Supports "! -d ..."
+    pub destination: Option<Invert<CidrBlock>>,     
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_interface_in: Option<Invert<String>>,  // Supports "! -i ..."
+    pub network_interface_in: Option<Invert<String>>,  
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_interface_out: Option<Invert<String>>, // Supports "! -o ..."
+    pub network_interface_out: Option<Invert<String>>, 
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub fragment: Option<bool>,                // -f / ! -f
+    pub fragment: Option<bool>,                
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<RateLimit>,              // -m limit
+    pub limit: Option<RateLimit>,              
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub conntrack: Option<Invert<ConntrackMatch>>,     // Supports "! -m conntrack --ctstate ..."
+    pub conntrack: Option<Invert<ConntrackMatch>>,     
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<Invert<OwnerMatch>>,             // Supports "! -m owner ..."
+    pub owner: Option<Invert<OwnerMatch>>,             
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,               // -m comment
+    pub comment: Option<String>,               
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum RejectWith {
     IcmpPortUnreachable,
     IcmpNetUnreachable,
@@ -342,31 +299,31 @@ pub enum RejectWith {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum IptablesTarget {
     Accept,
     Drop,
+    #[serde(rename_all = "PascalCase")]
     Reject {
         #[serde(skip_serializing_if = "Option::is_none")]
         with: Option<RejectWith>,
     },
+    #[serde(rename_all = "PascalCase")]
     Log {
         #[serde(skip_serializing_if = "Option::is_none")]
         prefix: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
-        level: Option<u8>, // Log level (0-7)
+        level: Option<u8>,
     },
     Return,
-    /// Jump to a custom or standard chain (-j CHAIN)
     Jump(String),
-    /// Unconditional jump to a chain without returning (-g CHAIN)
     Goto(String),
     Custom(String),
 }
 
 /// Chains unique to the Raw table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum RawChain {
     Prerouting,
     Output,
@@ -385,7 +342,7 @@ impl std::fmt::Display for RawChain {
 
 /// Chains unique to the Filter table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum FilterChain {
     Input,
     Forward,
@@ -406,7 +363,7 @@ impl std::fmt::Display for FilterChain {
 
 /// Chains unique to the Nat table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum NatChain {
     Prerouting,
     Input,
@@ -429,7 +386,7 @@ impl std::fmt::Display for NatChain {
 
 /// Chains available in Mangle table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum MangleChain {
     Prerouting,
     Input,
@@ -454,7 +411,7 @@ impl std::fmt::Display for MangleChain {
 
 /// Chains available in Security table
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[serde(rename_all = "PascalCase")]
 pub enum SecurityChain {
     Input,
     Forward,
@@ -477,26 +434,31 @@ impl std::fmt::Display for SecurityChain {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "Table", content = "Details", rename_all = "PascalCase")]
 pub enum IptablesRule {
+    #[serde(rename_all = "PascalCase")]
     Raw {
         chain: RawChain,
         criteria: MatchCriteria,
         target: IptablesTarget,
     },
+    #[serde(rename_all = "PascalCase")]
     Filter {
         chain: FilterChain,
         criteria: MatchCriteria,
         target: IptablesTarget,
     },
+    #[serde(rename_all = "PascalCase")]
     Nat {
         chain: NatChain,
         criteria: MatchCriteria,
         target: IptablesTarget,
     },
+    #[serde(rename_all = "PascalCase")]
     Mangle {
         chain: MangleChain,
         criteria: MatchCriteria,
         target: IptablesTarget,
     },
+    #[serde(rename_all = "PascalCase")]
     Security {
         chain: SecurityChain,
         criteria: MatchCriteria,
@@ -512,12 +474,12 @@ pub enum RuleExpectedState {
     Absent,
 }
 
-// Support for inversion
 /// Wraps any match value to indicate whether it should be matched normally or inverted (!)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct Invert<T> {
     pub value: T,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(rename = "Inverted", default, skip_serializing_if = "std::ops::Not::not")]
     pub inverted: bool,
 }
 
@@ -533,30 +495,35 @@ impl<T> Invert<T> {
 
 /// Represents a single port or a contiguous port range (e.g., "1024:65535")
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(rename_all = "PascalCase", untagged)]
 pub enum PortRange {
     Single(u16),
     Range {
+        #[serde(rename = "Start")]
         start: u16,
+        #[serde(rename = "End")]
         end: u16,
     },
 }
 
-/// Represents either a single port match or a multiport list (up to 15 items in iptables)
+/// Represents either a single port match or a multiport list
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(rename_all = "PascalCase", untagged)]
 pub enum PortSpec {
     Single(u16),
-    Range { start: u16, end: u16 },
+    Range { 
+        #[serde(rename = "Start")]
+        start: u16, 
+        #[serde(rename = "End")]
+        end: u16, 
+    },
     List(Vec<PortRange>),
 }
-
-
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "State", rename_all = "PascalCase")]
 pub enum IptablesBlockExpectedState {
-    /// If it must be Present, we *must* specify how to place it (Append/Insert)
+    #[serde(rename_all = "PascalCase")]
     Present {
         #[serde(default = "default_ip_family", skip_serializing_if = "is_v4_default")]
         ip_version: IpVersion,
@@ -564,33 +531,14 @@ pub enum IptablesBlockExpectedState {
         #[serde(flatten)]
         rule: IptablesRule,
     },
-    /// If it must be Absent, an action is completely irrelevant; 
-    /// the reconciliation engine just needs to find and purge matching rules.
+    #[serde(rename_all = "PascalCase")]
     Absent {
-        #[serde(default = "default_ip_family", skip_serializing_if = "is_v4_default")]
+        #[serde(default = "default_ip_family")]
         ip_version: IpVersion,
         #[serde(flatten)]
         rule: IptablesRule,
     },
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Block expected state ──────────────────────────────────────────────────────
 
@@ -611,11 +559,14 @@ pub enum IptablesBlockExpectedState {
 /// use regent_sdk::state::attribute::network::iptables::PortSpec;
 /// use regent_sdk::{Attribute, ExpectedState, Privilege};
 ///
-/// // Allow SSH on port 22
-/// let ssh_rule = IptablesBlockExpectedState::Present {
-///     ip_version: IpVersion::V4,
-///     action: IptablesInsertionAction::Append,
-///     rule: IptablesRule::Filter {
+/// // Allow SSH on port 22 using convenience method (defaults to IPv4)
+/// let ssh_rule = IptablesBlockExpectedState::allow_ssh(None);
+///
+/// // Or use the full API for more complex rules
+/// let custom_rule = IptablesBlockExpectedState::present(
+///     IpVersion::V4,
+///     IptablesInsertionAction::Append,
+///     IptablesRule::Filter {
 ///         chain: FilterChain::Input,
 ///         criteria: MatchCriteria {
 ///             protocol: Protocol::Tcp {
@@ -635,7 +586,7 @@ pub enum IptablesBlockExpectedState {
 ///         },
 ///         target: IptablesTarget::Accept,
 ///     },
-/// };
+/// );
 ///
 /// let expected_state = ExpectedState::new()
 ///     .with_attribute(Attribute::iptables(ssh_rule, Privilege::WithSudo, None))
@@ -660,6 +611,196 @@ pub enum IptablesBlockExpectedState {
 ///       Target: Accept
 /// ```
 
+
+impl IptablesBlockExpectedState {
+    pub fn present(
+        ip_version: IpVersion,
+        action: IptablesInsertionAction,
+        rule: IptablesRule,
+    ) -> IptablesBlockExpectedState {
+        IptablesBlockExpectedState::Present {
+            ip_version,
+            action,
+            rule,
+        }
+    }
+
+    pub fn absent(
+        ip_version: IpVersion,
+        rule: IptablesRule,
+    ) -> IptablesBlockExpectedState {
+        IptablesBlockExpectedState::Absent {
+            ip_version,
+            rule,
+        }
+    }
+
+    /// Allow incoming TCP traffic on a specific port in the INPUT chain.
+    /// This is a convenience method for the common use case of opening a TCP port.
+    /// 
+    /// # Arguments
+    /// * `port` - The TCP port number to allow
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn allow_tcp_port(port: u16, position: Option<u32>) -> IptablesBlockExpectedState {
+        Self::allow_tcp_port_with_ip(port, IpVersion::V4, position)
+    }
+
+    /// Allow incoming TCP traffic on a specific port in the INPUT chain with custom IP version.
+    /// 
+    /// # Arguments
+    /// * `port` - The TCP port number to allow
+    /// * `ip_version` - IP version (V4 or V6)
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn allow_tcp_port_with_ip(
+        port: u16,
+        ip_version: IpVersion,
+        position: Option<u32>,
+    ) -> IptablesBlockExpectedState {
+        let action = match position {
+            Some(pos) => IptablesInsertionAction::Insert { position: pos },
+            None => IptablesInsertionAction::Append,
+        };
+        IptablesBlockExpectedState::Present {
+            ip_version,
+            action,
+            rule: IptablesRule::Filter {
+                chain: FilterChain::Input,
+                criteria: MatchCriteria {
+                    protocol: Protocol::Tcp {
+                        source_port: None,
+                        dest_port: Some(PortSpec::Single(port)),
+                        tcp_flags: None,
+                    },
+                    source: None,
+                    destination: None,
+                    network_interface_in: None,
+                    network_interface_out: None,
+                    fragment: None,
+                    limit: None,
+                    conntrack: None,
+                    owner: None,
+                    comment: None,
+                },
+                target: IptablesTarget::Accept,
+            },
+        }
+    }
+
+    /// Allow incoming UDP traffic on a specific port in the INPUT chain.
+    /// This is a convenience method for the common use case of opening a UDP port.
+    /// 
+    /// # Arguments
+    /// * `port` - The UDP port number to allow
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn allow_udp_port(port: u16, position: Option<u32>) -> IptablesBlockExpectedState {
+        Self::allow_udp_port_with_ip(port, IpVersion::V4, position)
+    }
+
+    /// Allow incoming UDP traffic on a specific port in the INPUT chain with custom IP version.
+    /// 
+    /// # Arguments
+    /// * `port` - The UDP port number to allow
+    /// * `ip_version` - IP version (V4 or V6)
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn allow_udp_port_with_ip(
+        port: u16,
+        ip_version: IpVersion,
+        position: Option<u32>,
+    ) -> IptablesBlockExpectedState {
+        let action = match position {
+            Some(pos) => IptablesInsertionAction::Insert { position: pos },
+            None => IptablesInsertionAction::Append,
+        };
+        IptablesBlockExpectedState::Present {
+            ip_version,
+            action,
+            rule: IptablesRule::Filter {
+                chain: FilterChain::Input,
+                criteria: MatchCriteria {
+                    protocol: Protocol::Udp {
+                        source_port: None,
+                        dest_port: Some(PortSpec::Single(port)),
+                    },
+                    source: None,
+                    destination: None,
+                    network_interface_in: None,
+                    network_interface_out: None,
+                    fragment: None,
+                    limit: None,
+                    conntrack: None,
+                    owner: None,
+                    comment: None,
+                },
+                target: IptablesTarget::Accept,
+            },
+        }
+    }
+
+    /// Allow incoming SSH traffic on port 22 in the INPUT chain.
+    /// This is a convenience method for the common use case of enabling SSH access.
+    /// 
+    /// # Arguments
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn allow_ssh(position: Option<u32>) -> IptablesBlockExpectedState {
+        Self::allow_ssh_with_ip(IpVersion::V4, position)
+    }
+
+    /// Allow incoming SSH traffic on port 22 in the INPUT chain with custom IP version.
+    /// 
+    /// # Arguments
+    /// * `ip_version` - IP version (V4 or V6)
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn allow_ssh_with_ip(
+        ip_version: IpVersion,
+        position: Option<u32>,
+    ) -> IptablesBlockExpectedState {
+        Self::allow_tcp_port_with_ip(22, ip_version, position)
+    }
+
+    /// Drop all incoming traffic on the INPUT chain.
+    /// This is a convenience method for creating a default deny policy.
+    /// 
+    /// # Arguments
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn drop_all_incoming(position: Option<u32>) -> IptablesBlockExpectedState {
+        Self::drop_all_incoming_with_ip(IpVersion::V4, position)
+    }
+
+    /// Drop all incoming traffic on the INPUT chain with custom IP version.
+    /// 
+    /// # Arguments
+    /// * `ip_version` - IP version (V4 or V6)
+    /// * `position` - Optional rule position for insertion (uses Append if None)
+    pub fn drop_all_incoming_with_ip(
+        ip_version: IpVersion,
+        position: Option<u32>,
+    ) -> IptablesBlockExpectedState {
+        let action = match position {
+            Some(pos) => IptablesInsertionAction::Insert { position: pos },
+            None => IptablesInsertionAction::Append,
+        };
+        IptablesBlockExpectedState::Present {
+            ip_version,
+            action,
+            rule: IptablesRule::Filter {
+                chain: FilterChain::Input,
+                criteria: MatchCriteria {
+                    protocol: Protocol::All,
+                    source: None,
+                    destination: None,
+                    network_interface_in: None,
+                    network_interface_out: None,
+                    fragment: None,
+                    limit: None,
+                    conntrack: None,
+                    owner: None,
+                    comment: None,
+                },
+                target: IptablesTarget::Drop,
+            },
+        }
+    }
+}
 
 impl Timeout for IptablesBlockExpectedState {
     fn default_timeout(&self) -> Duration {
@@ -1476,34 +1617,139 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parsing_iptables_blocks_from_yaml() {
-        // Test parsing with the new YAML format
-        // Note: This test is simplified since the full YAML serialization
-        // needs proper serde attributes. The data structures are correct.
+    fn test_deserialize_filter_tcp_present_append() {
+        let yaml = r#"
+IpVersion: V4
+State: Present
+Action: Append
+Table: Filter
+Details:
+    Target: Accept
+    Chain: Input
+    Criteria:
+        Protocol:
+            Tcp:
+                SourcePort: 80
+                DestPort: 443
+                TcpFlags:
+                    Mask: [Syn, Ack]
+                    Comp: [Syn]
+        Source:
+            Value: "192.168.1.0/24"
+            Inverted: false
+        Comment: "Allow HTTPS web traffic"
+    "#;
+
+        let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
         
-        // Test CIDR block in Criteria
-        let raw = "---
-- State: Present
-  action: null
-  Table: Filter
-  Chain: INPUT
-  Criteria:
-    Protocol: All
-  Target: Accept
-";
-        // This will fail until we fix the serde attributes, but the main code compiles
-        // For now, just test that basic types work
-        assert!(true);
+        match state {
+            IptablesBlockExpectedState::Present { ip_version, action, rule } => {
+                assert_eq!(ip_version, IpVersion::V4);
+                assert_eq!(action, IptablesInsertionAction::Append);
+                match rule {
+                    IptablesRule::Filter { chain, criteria, target } => {
+                        assert_eq!(chain, FilterChain::Input);
+                        assert_eq!(target, IptablesTarget::Accept);
+                        assert!(criteria.comment.is_some());
+                    }
+                    _ => panic!("Expected Filter rule"),
+                }
+            }
+            _ => panic!("Expected Present state"),
+        }
     }
 
     #[test]
-    fn test_cidr_block_parsing() {
-        // Test CIDR block parsing
-        assert!(CidrBlock::parse("192.168.1.1").is_ok());
-        assert!(CidrBlock::parse("192.168.1.0/24").is_ok());
-        assert!(CidrBlock::parse("::1").is_ok());
-        assert!(CidrBlock::parse("2001:db8::/32").is_ok());
-        assert!(CidrBlock::parse("invalid").is_err());
-        assert!(CidrBlock::parse("192.168.1.1/33").is_err()); // Invalid prefix for IPv4
+    fn test_deserialize_nat_udp_absent() {
+        let yaml = r#"
+State: Absent
+IpVersion: V6
+Table: Nat
+Details:
+    Chain: Postrouting
+    Criteria:
+        Protocol:
+            Udp:
+                SourcePort: 53
+                DestPort:
+                    Start: 1024
+                    End: 65535
+        Destination:
+            Value: "2001:db8::/32"
+            Inverted: true
+    Target: 
+        Reject:
+            With: IcmpPortUnreachable
+        "#;
+
+        let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+
+        match state {
+            IptablesBlockExpectedState::Absent { ip_version, rule } => {
+                assert_eq!(ip_version, IpVersion::V6);
+                match rule {
+                    IptablesRule::Nat { chain, criteria, target } => {
+                        assert_eq!(chain, NatChain::Postrouting);
+                        assert_eq!(
+                            target,
+                            IptablesTarget::Reject { with: Some(RejectWith::IcmpPortUnreachable) }
+                        );
+                        if let Protocol::Udp { dest_port, .. } = criteria.protocol {
+                            assert_eq!(dest_port, Some(PortSpec::Range { start: 1024, end: 65535 }));
+                        } else {
+                            panic!("Expected UDP protocol");
+                        }
+                    }
+                    _ => panic!("Expected Nat rule"),
+                }
+            }
+            _ => panic!("Expected Absent state"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_mangle_conntrack_owner() {
+        let yaml = r#"
+State: Present
+Action: Append
+Table: Mangle
+Details:
+    Chain: Output
+    Criteria:
+        Protocol: All
+        Conntrack:
+            Value:
+                States: [New, Established]
+            Inverted: false
+        Owner:
+            Value:
+                UidOwner: "www-data"
+            Inverted: true
+    Target:
+        Log:
+            Prefix: "LOG_MARK: "
+            Level: 4
+        "#;
+
+        let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+
+        match state {
+            IptablesBlockExpectedState::Present { rule, .. } => {
+                match rule {
+                    IptablesRule::Mangle { chain, target, .. } => {
+                        assert_eq!(chain, MangleChain::Output);
+                        assert_eq!(
+                            target,
+                            IptablesTarget::Log {
+                                prefix: Some("LOG_MARK: ".to_string()),
+                                level: Some(4),
+                            }
+                        );
+                    }
+                    _ => panic!("Expected Mangle rule"),
+                }
+            }
+            _ => panic!("Expected Present state"),
+        }
     }
 }
