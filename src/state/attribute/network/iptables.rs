@@ -146,6 +146,15 @@ pub enum IpVersion {
     V6,
 }
 
+impl std::fmt::Display for IpVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IpVersion::V4 => write!(f, "iptables"),
+            IpVersion::V6 => write!(f, "ip6tables"),
+        }
+    }
+}
+
 fn default_ip_family() -> IpVersion {
     IpVersion::V4
 }
@@ -191,6 +200,17 @@ pub enum Protocol {
     All,
 }
 
+impl std::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Protocol::Tcp { .. } => write!(f, "tcp"),
+            Protocol::Udp { .. } => write!(f, "udp"),
+            Protocol::Icmp { .. } => write!(f, "icmp"),
+            Protocol::All => write!(f, "all"),
+        }
+    }
+}
+
 /// TCP Flag matching options
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -204,6 +224,22 @@ pub enum TcpFlag {
     FinRst,
     All,
     None,
+}
+
+impl std::fmt::Display for TcpFlag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TcpFlag::Syn => write!(f, "SYN"),
+            TcpFlag::Ack => write!(f, "ACK"),
+            TcpFlag::Fin => write!(f, "FIN"),
+            TcpFlag::Rst => write!(f, "RST"),
+            TcpFlag::Psh => write!(f, "PSH"),
+            TcpFlag::Urg => write!(f, "URG"),
+            TcpFlag::FinRst => write!(f, "FIN,RST"),
+            TcpFlag::All => write!(f, "ALL"),
+            TcpFlag::None => write!(f, "NONE"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -231,6 +267,17 @@ pub enum RateUnit {
     Day,
 }
 
+impl std::fmt::Display for RateUnit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RateUnit::Second => write!(f, "/second"),
+            RateUnit::Minute => write!(f, "/minute"),
+            RateUnit::Hour => write!(f, "/hour"),
+            RateUnit::Day => write!(f, "/day"),
+        }
+    }
+}
+
 /// Connection tracking states (-m conntrack --ctstate)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -240,6 +287,18 @@ pub enum ConnectionState {
     Related,
     Invalid,
     Untracked,
+}
+
+impl std::fmt::Display for ConnectionState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConnectionState::New => write!(f, "NEW"),
+            ConnectionState::Established => write!(f, "ESTABLISHED"),
+            ConnectionState::Related => write!(f, "RELATED"),
+            ConnectionState::Invalid => write!(f, "INVALID"),
+            ConnectionState::Untracked => write!(f, "UNTRACKED"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -254,6 +313,15 @@ pub struct ConntrackMatch {
 pub enum OwnerMatch {
     UidOwner(String),
     GidOwner(String),
+}
+
+impl std::fmt::Display for OwnerMatch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OwnerMatch::UidOwner(uid) => write!(f, "--uid-owner {}", uid),
+            OwnerMatch::GidOwner(gid) => write!(f, "--gid-owner {}", gid),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -296,6 +364,17 @@ pub enum RejectWith {
     IcmpNetUnreachable,
     TcpReset,
     EchoReply,
+}
+
+impl std::fmt::Display for RejectWith {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RejectWith::IcmpPortUnreachable => write!(f, "icmp-port-unreachable"),
+            RejectWith::IcmpNetUnreachable => write!(f, "icmp-net-unreachable"),
+            RejectWith::TcpReset => write!(f, "tcp-reset"),
+            RejectWith::EchoReply => write!(f, "echo-reply"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -506,6 +585,15 @@ pub enum PortRange {
     },
 }
 
+impl std::fmt::Display for PortRange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PortRange::Single(port) => write!(f, "{}", port),
+            PortRange::Range { start, end } => write!(f, "{}:{}", start, end),
+        }
+    }
+}
+
 /// Represents either a single port match or a multiport list
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", untagged)]
@@ -518,6 +606,19 @@ pub enum PortSpec {
         end: u16, 
     },
     List(Vec<PortRange>),
+}
+
+impl std::fmt::Display for PortSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PortSpec::Single(port) => write!(f, "{}", port),
+            PortSpec::Range { start, end } => write!(f, "{}:{}", start, end),
+            PortSpec::List(ports) => {
+                let port_strs: Vec<String> = ports.iter().map(|p| p.to_string()).collect();
+                write!(f, "{}", port_strs.join(","))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -886,11 +987,8 @@ fn get_chain_name(rule: &IptablesRule) -> String {
 }
 
 /// Helper function to convert IpVersion to a string for Display
-fn ip_version_to_str(ip_version: &IpVersion) -> &'static str {
-    match ip_version {
-        IpVersion::V4 => "iptables",
-        IpVersion::V6 => "ip6tables",
-    }
+fn ip_version_to_str(ip_version: &IpVersion) -> String {
+    ip_version.to_string()
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedState {
@@ -927,7 +1025,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
 
         // Check if the rule exists
         let check_rule_cmd = build_cmd(
-            binary,
+            &binary,
             &table_arg,
             &format!("-C {} {}", chain_name, rule_args),
         );
@@ -1365,27 +1463,12 @@ fn build_cmd(binary: &str, table_arg: &str, flags: &str) -> String {
 /// then the target (jump/goto) with its options at the end.
 /// Helper function to convert Protocol to iptables protocol string
 fn protocol_to_str(proto: &Protocol) -> String {
-    match proto {
-        Protocol::Tcp { .. } => "tcp",
-        Protocol::Udp { .. } => "udp",
-        Protocol::Icmp { .. } => "icmp",
-        Protocol::All => "all",
-    }.to_string()
+    proto.to_string()
 }
 
 /// Helper function to convert PortSpec to iptables port string
 fn port_spec_to_str(port: &PortSpec) -> String {
-    match port {
-        PortSpec::Single(p) => p.to_string(),
-        PortSpec::Range { start, end } => format!("{}:{}", start, end),
-        PortSpec::List(ports) => {
-            let port_strs: Vec<String> = ports.iter().map(|p| match p {
-                PortRange::Single(s) => s.to_string(),
-                PortRange::Range { start, end } => format!("{}:{}", start, end),
-            }).collect();
-            format!("{}", port_strs.join(","))
-        }
-    }
+    port.to_string()
 }
 
 /// Helper function to convert TcpFlag to iptables flag string
@@ -1584,13 +1667,7 @@ fn target_to_str(target: &IptablesTarget) -> String {
         IptablesTarget::Accept => "-j ACCEPT".to_string(),
         IptablesTarget::Drop => "-j DROP".to_string(),
         IptablesTarget::Reject { with: Some(reject_with) } => {
-            let reject_type = match reject_with {
-                RejectWith::IcmpPortUnreachable => "icmp-port-unreachable",
-                RejectWith::IcmpNetUnreachable => "icmp-net-unreachable",
-                RejectWith::TcpReset => "tcp-reset",
-                RejectWith::EchoReply => "echo-reply",
-            };
-            format!("-j REJECT --reject-with {}", reject_type)
+            format!("-j REJECT --reject-with {}", reject_with)
         }
         IptablesTarget::Reject { with: None } => "-j REJECT".to_string(),
         IptablesTarget::Log { prefix: Some(p), level: Some(l) } => {
