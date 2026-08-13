@@ -11,21 +11,24 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
+//! use regent_sdk::state::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState, ServiceAction};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Ensure httpd service is running and enabled
-//! let httpd = ServiceBlockExpectedState::state_and_enabled(
+//! let httpd = ServiceBlockExpectedState::state(
 //!     "httpd",
 //!     ServiceExpectedState::Started,
 //!     true
 //! );
 //!
 //! // Just manage service state (running/stopped)
-//! let nginx = ServiceBlockExpectedState::state_only("nginx", ServiceExpectedState::Started);
+//! let nginx = ServiceBlockExpectedState::state("nginx", ServiceExpectedState::Started, false);
 //!
 //! // Just manage whether service is enabled at boot
-//! let mysql = ServiceBlockExpectedState::enabled_only("mysql", true);
+//! let mysql = ServiceBlockExpectedState::enabled("mysql", true);
+//!
+//! // Manage unconditional action (restart)
+//! let redis = ServiceBlockExpectedState::restarted("redis");
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::service(httpd, Privilege::WithSudo, None))
@@ -83,15 +86,12 @@ use std::time::Duration;
 /// Desired run-state of the service
 ///
 /// - `Started`  / `Stopped`  — idempotent: only act if the service is not already in the target state.
-/// - `Restarted`/ `Reloaded` — unconditional: always emit the corresponding systemctl command.
 ///
 /// # Serialization
 ///
 /// This enum is serialized/deserialized in lowercase:
 /// - `Started` → `"started"`
 /// - `Stopped` → `"stopped"`
-/// - `Restarted` → `"restarted"`
-/// - `Reloaded` → `"reloaded"`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ServiceExpectedState {
@@ -99,6 +99,20 @@ pub enum ServiceExpectedState {
     Started,
     /// Service should be stopped
     Stopped,
+}
+
+/// Desired action to run on the service
+///
+/// - `Restarted`/ `Reloaded` — unconditional: always emit the corresponding systemctl command.
+///
+/// # Serialization
+///
+/// This enum is serialized/deserialized in lowercase:
+/// - `Restarted` → `"restarted"`
+/// - `Reloaded` → `"reloaded"`
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ServiceAction {
     /// Service should be restarted (unconditional action)
     Restarted,
     /// Service should be reloaded (unconditional action)
@@ -107,12 +121,18 @@ pub enum ServiceExpectedState {
 
 /// Configuration for a system service
 ///
-/// This enum represents the desired state for a system service, supporting three configurations:
-/// - `StateOnly`: Manage only the service's running state (started/stopped/restarted/reloaded)
-/// - `EnabledOnly`: Manage only whether the service starts at boot
-/// - `StateAndEnabled`: Manage both the running state and boot enablement
+/// This enum represents the desired state for a system service, supporting configurations:
+/// - `State`: Manage the service's running state (started/stopped) and/or boot enablement
+/// - `Action`: Manage unconditional actions (restart/reload)
 ///
 /// # YAML Representation
+///
+/// ## State with enabled:
+/// ```yaml
+/// Name: httpd
+/// State: started
+/// Enabled: true
+/// ```
 ///
 /// ## State only:
 /// ```yaml
@@ -126,38 +146,34 @@ pub enum ServiceExpectedState {
 /// Enabled: true
 /// ```
 ///
-/// ## State and enabled:
+/// ## Action only:
 /// ```yaml
-/// Name: httpd
-/// State: started
-/// Enabled: true
+/// Name: nginx
+/// Action: restarted
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(untagged)]
 pub enum ServiceBlockExpectedState {
-    /// Manage only the service's running state
-    StateOnly {
+    /// Manage the service's running state and/or boot enablement
+    /// 
+    /// Note: The `enabled` field is only present in this variant to respect the semantics
+    /// that enabled state is managed alongside running state.
+    State {
         /// Name of the service
         name: String,
-        /// Desired running state of the service
-        state: ServiceExpectedState,
-    },
-    /// Manage only whether the service is enabled at boot
-    EnabledOnly {
-        /// Name of the service
-        name: String,
+        /// Desired running state of the service (optional - can be omitted for enabled-only config)
+        #[serde(default)]
+        state: Option<ServiceExpectedState>,
         /// Whether the service should be enabled at boot
         enabled: bool,
     },
-    /// Manage both the service's running state and boot enablement
-    StateAndEnabled {
+    /// Manage unconditional actions (restart/reload)
+    Action {
         /// Name of the service
         name: String,
-        /// Desired running state of the service
-        state: ServiceExpectedState,
-        /// Whether the service should be enabled at boot
-        enabled: bool,
+        /// Action to perform on the service
+        action: ServiceAction,
     },
 }
 
@@ -168,30 +184,32 @@ impl Timeout for ServiceBlockExpectedState {
 }
 
 impl ServiceBlockExpectedState {
-    pub fn state_only(name: &str, state: ServiceExpectedState) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::StateOnly {
+    /// Create a state configuration with running state and boot enablement
+    pub fn state(name: &str, state: ServiceExpectedState, enabled: bool) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::State {
             name: name.to_string(),
-            state,
+            state: Some(state),
+            enabled
         }
     }
 
-    pub fn enabled_only(name: &str, enabled: bool) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::EnabledOnly {
+    /// Create an enabled-only configuration (no state management, only enablement)
+    pub fn enabled(name: &str, enabled: bool) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::State {
             name: name.to_string(),
-            enabled,
+            state: None,
+            enabled
         }
     }
 
-    pub fn state_and_enabled(
-        name: &str,
-        state: ServiceExpectedState,
-        enabled: bool,
-    ) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::StateAndEnabled {
-            name: name.to_string(),
-            state,
-            enabled,
-        }
+    /// Create a restarted action configuration
+    pub fn restarted(name: &str) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::Action { name: name.to_string(), action: ServiceAction::Restarted }
+    }
+
+    /// Create a reloaded action configuration
+    pub fn reloaded(name: &str) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::Action { name: name.to_string(), action: ServiceAction::Reloaded }
     }
 }
 
@@ -286,84 +304,107 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         let mut remediations: Vec<Remediation> = Vec::new();
 
         match &self {
-            Self::StateOnly { name, state } => {
+            Self::State { name, state, enabled } => {
+                // Handle state (started/stopped) with optional enabled
                 match os_kind {
                     #[cfg(feature = "windows")]
                     OsKind::Windows(_) => {
-                        match &state {
-                            ServiceExpectedState::Started => {
-                                let active = windows_service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if !active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Start(name.clone()),
-                                        privilege.clone(),
-                                    )));
+                        // Handle state if present
+                        if let Some(state) = state {
+                            match state {
+                                ServiceExpectedState::Started => {
+                                    let active = windows_service_is_active(host_handler, &name)
+                                        .await
+                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                    if !active {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Start(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
+                                }
+                                ServiceExpectedState::Stopped => {
+                                    let active = windows_service_is_active(host_handler, &name)
+                                        .await
+                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                    if active {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Stop(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
                                 }
                             }
-                            ServiceExpectedState::Stopped => {
-                                let active = windows_service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Stop(name.clone()),
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                            ServiceExpectedState::Restarted => {
-                                // Unconditional — always restart.
+                        }
+                        // Handle enabled
+                        if *enabled {
+                            let is_enabled = windows_service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if !is_enabled {
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Restart(name.clone()),
+                                    ServiceModuleInternalApiCall::Enable(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
-                            ServiceExpectedState::Reloaded => {
-                                // Unconditional — always reload.
+                        } else {
+                            let is_enabled = windows_service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if is_enabled {
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Reload(name.clone()),
+                                    ServiceModuleInternalApiCall::Disable(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
                         }
                     }
                     OsKind::Linux(_) => {
-                        match &state {
-                            ServiceExpectedState::Started => {
-                                let active = service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if !active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Start(name.clone()),
-                                        privilege.clone(),
-                                    )));
+                        // Handle state if present
+                        if let Some(state) = state {
+                            match state {
+                                ServiceExpectedState::Started => {
+                                    let active = service_is_active(host_handler, &name)
+                                        .await
+                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                    if !active {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Start(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
+                                }
+                                ServiceExpectedState::Stopped => {
+                                    let active = service_is_active(host_handler, &name)
+                                        .await
+                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                                    if active {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Stop(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
                                 }
                             }
-                            ServiceExpectedState::Stopped => {
-                                let active = service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Stop(name.clone()),
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                            ServiceExpectedState::Restarted => {
-                                // Unconditional — always restart.
+                        }
+                        // Handle enabled
+                        if *enabled {
+                            let is_enabled = service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if !is_enabled {
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Restart(name.clone()),
+                                    ServiceModuleInternalApiCall::Enable(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
-                            ServiceExpectedState::Reloaded => {
-                                // Unconditional — always reload.
+                        } else {
+                            let is_enabled = service_is_enabled(host_handler, &name)
+                                .await
+                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
+                            if is_enabled {
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Reload(name.clone()),
+                                    ServiceModuleInternalApiCall::Disable(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
@@ -377,185 +418,41 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                     }
                 }
             }
-            Self::EnabledOnly { name, enabled } => match os_kind {
-                #[cfg(feature = "windows")]
-                OsKind::Windows(_) => {
-                    if *enabled {
-                        let is_enabled = windows_service_is_enabled(host_handler, &name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if !is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Enable(name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    } else {
-                        let is_enabled = windows_service_is_enabled(host_handler, &name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Disable(name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                }
-                OsKind::Linux(_) => {
-                    if *enabled {
-                        let is_enabled = service_is_enabled(host_handler, &name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if !is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Enable(name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    } else {
-                        let is_enabled = service_is_enabled(host_handler, &name)
-                            .await
-                            .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                        if is_enabled {
-                            remediations.push(Remediation::Service(ServiceApiCall::from(
-                                ServiceModuleInternalApiCall::Disable(name.clone()),
-                                privilege.clone(),
-                            )));
-                        }
-                    }
-                }
-                OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
-                    return Err(RegentError::FailedDryRunEvaluation(format!(
-                        "Service management is not supported on {:?}",
-                        os_kind
-                    )));
-                }
-            },
-            Self::StateAndEnabled {
-                name,
-                state,
-                enabled,
-            } => {
+            Self::Action { name, action } => {
+                // Handle unconditional actions (restart/reload)
                 match os_kind {
                     #[cfg(feature = "windows")]
                     OsKind::Windows(_) => {
-                        match &state {
-                            ServiceExpectedState::Started => {
-                                let active = windows_service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if !active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Start(name.clone()),
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                            ServiceExpectedState::Stopped => {
-                                let active = windows_service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Stop(name.clone()),
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                            ServiceExpectedState::Restarted => {
+                        match &action {
+                            ServiceAction::Restarted => {
                                 // Unconditional — always restart.
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
                                     ServiceModuleInternalApiCall::Restart(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
-                            ServiceExpectedState::Reloaded => {
+                            ServiceAction::Reloaded => {
                                 // Unconditional — always reload.
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
                                     ServiceModuleInternalApiCall::Reload(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        }
-                        if *enabled {
-                            let is_enabled = windows_service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if !is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Enable(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        } else {
-                            let is_enabled = windows_service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Disable(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
                         }
                     }
                     OsKind::Linux(_) => {
-                        match &state {
-                            ServiceExpectedState::Started => {
-                                let active = service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if !active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Start(name.clone()),
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                            ServiceExpectedState::Stopped => {
-                                let active = service_is_active(host_handler, &name)
-                                    .await
-                                    .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                if active {
-                                    remediations.push(Remediation::Service(ServiceApiCall::from(
-                                        ServiceModuleInternalApiCall::Stop(name.clone()),
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                            ServiceExpectedState::Restarted => {
+                        match &action {
+                            ServiceAction::Restarted => {
                                 // Unconditional — always restart.
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
                                     ServiceModuleInternalApiCall::Restart(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
-                            ServiceExpectedState::Reloaded => {
+                            ServiceAction::Reloaded => {
                                 // Unconditional — always reload.
                                 remediations.push(Remediation::Service(ServiceApiCall::from(
                                     ServiceModuleInternalApiCall::Reload(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        }
-                        if *enabled {
-                            let is_enabled = service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if !is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Enable(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        } else {
-                            let is_enabled = service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Disable(name.clone()),
                                     privilege.clone(),
                                 )));
                             }
@@ -894,10 +791,10 @@ mod tests {
   Enabled: false
 
 - Name: nginx
-  State: restarted
+  Action: restarted
 
 - Name: nginx
-  State: reloaded
+  Action: reloaded
 
 - Name: nginx
   Enabled: true
