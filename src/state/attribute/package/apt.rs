@@ -35,7 +35,7 @@
 //!     Privilege: !WithSudo
 //!     Detail: !Apt
 //!       Package: apache2
-//!       State: present
+//!       State: Present
 //! ```
 //!
 //! For a full system upgrade:
@@ -82,7 +82,7 @@ impl std::fmt::Display for AptModuleInternalApiCall {
 
 /// Desired state of a package
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum PackageExpectedState {
     /// Package should be installed
     Present,
@@ -102,7 +102,7 @@ pub enum PackageExpectedState {
 /// ## Package management:
 /// ```yaml
 /// Package: nginx
-/// State: present  # or "absent" to remove
+/// State: Present  # or Absent to remove
 /// ```
 ///
 /// ## Full system upgrade:
@@ -450,10 +450,10 @@ mod tests {
 - SystemUpToDate
 
 - Package: apache2
-  State: present
+  State: Present
 
 - Package: apache2
-  State: absent
+  State: Absent
     ";
 
         let attributes: Vec<AptBlockExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
@@ -488,14 +488,14 @@ Package: apache2
         // Test that Package with empty State fails
         let raw_attribute = "---
 Package:
-State: absent
+State: Absent
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
 
         // Test that unknown keys are rejected
         let raw_attribute = "---
 Package: apache2
-State: absent
+State: Absent
 unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());

@@ -35,8 +35,9 @@
 //!     Privilege: !WithSudo
 //!     Detail: !AptRepo
 //!       Filename: docker
-//!       State: !Present
-//!       Repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"
+//!       State: Present
+//!       Format:
+//!         Repo: "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"
 //!       UpdateCache: true
 //! ```
 
@@ -106,18 +107,22 @@ pub struct AptRepoBlockExpectedState {
     /// Whether to run apt-get update after adding/removing repositories
     #[serde(default)]
     cache_up_to_date: bool,
-    format: AptRepoFormat,
+    #[serde(default)]
+    format: Option<AptRepoFormat>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[serde(untagged)]
 pub enum AptRepoFormat {
+    #[serde(rename_all = "PascalCase")]
     Legacy {
-        /// Legacy one-liner format → writes to <filename>.list
+        /// Legacy one-liner format → writes to a `.list` file
         repo: String,
     },
+    #[serde(rename_all = "PascalCase")]
     Deb822 {
-        /// Repository types for deb822 format → writes to <filename>.sources
+        /// Repository types for deb822 format → writes to a `.sources` file
         types: Vec<AptRepoType>,
         /// URIs for deb822 format
         uris: Vec<String>,
@@ -151,9 +156,9 @@ impl AptRepoBlockExpectedState {
             filename: filename.to_string(),
             state,
             cache_up_to_date,
-            format: AptRepoFormat::Legacy {
+            format: Some(AptRepoFormat::Legacy {
                 repo: repo.to_string(),
-            },
+            }),
         }
     }
 
@@ -173,7 +178,7 @@ impl AptRepoBlockExpectedState {
             filename: filename.to_string(),
             state,
             cache_up_to_date,
-            format: AptRepoFormat::Deb822 {
+            format: Some(AptRepoFormat::Deb822 {
                 types,
                 uris,
                 suites,
@@ -181,7 +186,7 @@ impl AptRepoBlockExpectedState {
                 signed_by,
                 enabled,
                 architectures,
-            },
+            }),
         }
     }
 }
@@ -240,7 +245,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                 }
             }
             AptRepoExpectedState::Present => {
-                let expected_content = match &self.format {
+                let format = self.format.as_ref().expect("Format must be provided for Present state");
+                let expected_content = match format {
                     AptRepoFormat::Legacy { repo } => build_legacy_content(&repo),
                     AptRepoFormat::Deb822 {
                         types: _,
@@ -250,7 +256,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                         signed_by: _,
                         enabled: _,
                         architectures: _,
-                    } => build_deb822_content(&self.format),
+                    } => build_deb822_content(format),
                 };
 
                 if current_content.is_some() {
@@ -517,11 +523,12 @@ mod tests {
     fn parsing_apt_repo_legacy_from_yaml() {
         let raw = "---
 - Filename: docker
-  Format: !Legacy
+  State: Present
+  Format:
     Repo: 'deb https://download.docker.com/linux/ubuntu focal stable'
 
 - Filename: docker
-  State: !Absent
+  State: Absent
         ";
         let _attrs: Vec<AptRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
@@ -530,9 +537,10 @@ mod tests {
     fn parsing_apt_repo_deb822_from_yaml() {
         let raw = "---
 - Filename: docker
-  Format: !Deb822
+  State: Present
+  Format:
     Types:
-      - !Deb
+      - Deb
     Uris:
       - https://download.docker.com/linux/ubuntu
     Suites:

@@ -2,12 +2,14 @@
 //!
 //! A **multi-paradigm configuration management system as a library**.
 //!
-//! Regent SDK provides an Ansible-like engine for declarative infrastructure management,
+//! Regent SDK provides an engine for declarative configuration management,
 //! allowing you to define expected system states and automatically assess/remedy compliance.
+//! Because it's an engine, you still have to embed it in something else, such as a all-in-one CLI tool,
+//! a distributed system wich a control node and workers, a monitoring system which feeds a web interface
+//! in real time with systems status, an agent which regularly fetches a remote git repository and applies
+//! configuration on its localhost... whatever suits your needs and specific constraints !
 //!
-//! *Note: While inspired by Ansible, Regent does not aim to reproduce its API or behaviors.
-//! Also, as a multi-paradigm library, you're free to implement agent/agent-less,
-//! autonomous/centralized, push/pull models — whatever fits your use case.*
+//! *Note: While inspired by Ansible in several ways, Regent does not aim to reproduce its API or behaviors.
 //!
 //! ## Core Concepts
 //!
@@ -21,8 +23,8 @@
 //!
 //! Enable the following Cargo features for additional capabilities:
 //!
-//! - `aws-secretsmanager`: Enable AWS Secrets Manager support via [`SecretProvider::aws_secretsmanager`]
-//! - `gcp-secretmanager`: Enable Google Cloud Secret Manager support via [`SecretProvider::gcp_secretmanager`]
+//! - `aws-secretsmanager`: Enable AWS Secrets Manager support via `SecretProvider::aws_secretsmanager`
+//! - `gcp-secretmanager`: Enable Google Cloud Secret Manager support via `SecretProvider::gcp_secretmanager`
 //! - `windows`: Enable Windows support, including Windows OS detection, command execution, and service management
 //!
 //! ## Capabilities
@@ -31,8 +33,8 @@
 //! - **Multi-Protocol Host Management**: Connect to hosts via [`Ssh2HostHandler`] or [`LocalHostHandler`]
 //! - **Comprehensive Resource Modules**: Manage packages, services, users, groups, cron jobs, files, iptables, and more
 //! - **Secret Management**: Secure secret retrieval from multiple providers using [`SecretProvidersPoolBuilder`]
-//! - **Task Distribution**: Serializable tasks for distributed workload execution using [`RegentTask`]
-//! - **Compliance Engine**: Automatic assessment and remediation via [`assess_compliance`] and [`reach_compliance`]
+//! - **Task Distribution**: Serializable tasks for distributed workload execution using [`RegentTask`] and [`Job`]
+//! - **Compliance Engine**: Automatic assessment and remediation via [`ManagedHost::assess_compliance`] and [`ManagedHost::reach_compliance`]
 //! - **Idempotent Operations**: All operations are designed to be idempotent
 //! - **Templating Support**: Variable substitution using Tera templates
 //!
@@ -41,11 +43,9 @@
 //! The primary workflow with Regent's Rust API:
 //!
 //! ```no_run
-//! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//! use regent_sdk::{Attribute, ConnectionMethod, ExpectedState, ManagedHostBuilder, Privilege};
+//! use regent_sdk::{SecretProvider, SecretProvidersPoolBuilder, TargetUser};
 //! use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
-//! use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
-//! use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-//! use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -59,7 +59,7 @@
 //!     let mut managed_host = ManagedHostBuilder::new(
 //!         "web-server-01",
 //!         "192.168.1.100:22",
-//!         Some(ConnectionMethod::Localhost(TargetUser::CurrentUser)),
+//!         Some(ConnectionMethod::Localhost(TargetUser::current_user())),
 //!     )
 //!     .build(Some(secrets_pool))
 //!     .await
@@ -68,11 +68,7 @@
 //!     managed_host.connect().unwrap();
 //!
 //!     // 3. Define the expected state using attributes
-//!     let nginx_service = ServiceBlockExpectedState::builder("nginx")
-//!         .with_state(ServiceExpectedState::Started)
-//!         .with_enabled(true)
-//!         .build()
-//!         .unwrap();
+//!     let nginx_service = ServiceBlockExpectedState::state("nginx", ServiceExpectedState::Started, true);
 //!
 //!     let expected_state = ExpectedState::new()
 //!         .with_attribute(Attribute::service(
@@ -122,14 +118,14 @@
 //! - **Local**: Files and environment variables
 //! - **Cloud**: AWS Secrets Manager, Google Cloud Secret Manager (enable via features)
 //!
-//! See [`SecretProvidersPoolBuilder`] for configuration.
+//! See [`SecretProvidersPoolBuilder`] for configuration options.
 //!
 //! ## Task Distribution
 //!
 //! Create serializable tasks for distributed execution:
 //!
 //! ```no_run
-//! use regent_sdk::task::{RegentTask, Job};
+//! use regent_sdk::{Job, RegentTask};
 //!
 //! let task = RegentTask::from(managed_host_builder, expected_state, Job::Assess);
 //! let serialized = serde_json::to_string(&task).unwrap();
@@ -147,9 +143,12 @@ pub mod task;
 pub use error::RegentError;
 pub use hosts::handlers::localhost::{LocalHostHandler, WhichUser};
 pub use hosts::handlers::ssh2::{Ssh2AuthMethod, Ssh2HostHandler};
+pub use hosts::handlers::{ConnectionMethod, TargetUser};
 pub use hosts::inventory::Inventory;
-pub use hosts::managed_host::ManagedHost;
+pub use hosts::managed_host::{ManagedHost, ManagedHostBuilder};
 pub use hosts::privilege::Privilege;
+pub use secrets::{SecretProvider, SecretProvidersPoolBuilder};
 pub use state::ExpectedState;
 pub use state::attribute;
 pub use state::attribute::Attribute;
+pub use task::{Job, RegentTask};

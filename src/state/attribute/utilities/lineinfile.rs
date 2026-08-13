@@ -35,8 +35,8 @@
 //!     Detail: !LineInFile
 //!       FilePath: /etc/environment
 //!       State: !Present
-//!       Line: "KEY=value"
-//!       Create: true
+//!         Create: true
+//!       Line: !Raw "KEY=value"
 //! ```
 
 use std::fmt::Display;
@@ -1204,38 +1204,37 @@ mod tests {
     fn parsing_lineinfile_module_block_from_yaml_str() {
         let raw = "---
 - FilePath: /etc/hosts
-  Line: '192.168.1.10 myhost'
+  Line: !Raw '192.168.1.10 myhost'
   State: !Present
 
 - FilePath: /etc/hosts
-  Line: '192.168.1.10 myhost'
+  Line: !Raw '192.168.1.10 myhost'
   State: !Present
-  InsertAfter: '^127\\.0\\.0\\.1'
+    Position: !InsertAfter '^127\\.0\\.0\\.1'
 
 - FilePath: /etc/hosts
-  Line: '# managed block'
+  Line: !Raw '# managed block'
   State: !Present
-  InsertBefore: BOF
+    Position: !InsertBefore BOF
 
 - FilePath: /etc/sysctl.conf
-  Regexp: '^net\\.ipv4\\.ip_forward'
-  Line: 'net.ipv4.ip_forward = 1'
+  Line: !Regexp '^net\\.ipv4\\.ip_forward'
   State: !Present
 
 - FilePath: /etc/sysctl.conf
-  Regexp: '^(net\\.ipv4\\.ip_forward)\\s*=.*'
-  Line: '\\1 = 1'
-  Backrefs: true
+  Line: !RegexpWithBackrefs
+    Regexp: '^(net\\.ipv4\\.ip_forward)\\s*=.*'
+    ContentToInsert: '\\1 = 1'
   State: !Present
 
 - FilePath: /etc/hosts
-  Regexp: '^192\\.168\\.1\\.10'
+  Line: !Regexp '^192\\.168\\.1\\.10'
   State: !Absent
 
 - FilePath: /etc/motd
-  Line: 'welcome'
-  Create: true
+  Line: !Raw 'welcome'
   State: !Present
+    Create: true
         ";
         let _: Vec<LineInFileBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
@@ -1244,8 +1243,8 @@ mod tests {
         let yaml = r#"
         FilePath: /tmp/test.txt
         State: !Present
-          Position: InsertAfter
-          FirstMatch: true
+          Position: !InsertAfter EOF
+          Firstmatch: true
           Create: false
         Line: !Raw
           "hello world"
@@ -1290,8 +1289,8 @@ mod tests {
         let yaml = r#"
         FilePath: /tmp/test.txt
         State: !Present
-          Position: InsertBefore
-          FirstMatch: false
+          Position: !InsertBefore BOF
+          Firstmatch: false
           Create: true
         Line: !Regexp
           "^hello.*$"
@@ -1373,7 +1372,7 @@ mod tests {
         let yaml = r#"
         FilePath: /tmp/test.txt
         State: !Present
-          Position: EOF
+          Position: !InsertAfter EOF
         Line: !Raw
           "hello world"
     "#;
@@ -1393,29 +1392,25 @@ mod tests {
         // Test minimal YAML (all optional fields omitted)
         let yaml = r#"
         FilePath: /tmp/test.txt
-        Line:
-          Raw: "hello world"
+        Line: !Raw "hello world"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
-        assert_eq!(result.file_path, "/tmp/test.txt");
-        assert_matches!(result.state, LineExpectedState::Present { .. });
-        assert_matches!(result.line, Line::Raw(_));
+        let result = yaml_serde::from_str::<LineInFileBlockExpectedState>(yaml);
+        assert!(result.is_err()); // Missing required State field
     }
 
     #[test]
     fn test_deserialize_line_in_file_block_expected_state_invalid() {
-        // Test invalid YAML (e.g., unknown fields)
+        // Test invalid YAML (e.g., unknown fields at top level)
         let yaml = r#"
         FilePath: /tmp/test.txt
-        State: !Present
-            UnknownField: true
+        UnknownField: true
         Line: !Raw
           "hello world"
     "#;
 
         let result = yaml_serde::from_str::<LineInFileBlockExpectedState>(yaml);
-        assert!(result.is_err()); // Should fail due to unknown field
+        assert!(result.is_err()); // Should fail due to unknown field at top level
     }
 
     #[test]

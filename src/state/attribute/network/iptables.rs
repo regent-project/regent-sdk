@@ -6,6 +6,14 @@
 //!
 //! **Compatible OS:** Linux (all distributions)
 //!
+//! # Serialization Behavior
+//!
+//! All enums in this module use `#[serde(rename_all = "PascalCase")]` for YAML serialization,
+//! producing human-readable PascalCase format (e.g., `Input`, `Tcp`, `Output`).
+//! However, they implement `std::fmt::Display` to output iptables-native format when generating
+//! shell commands (e.g., `INPUT`, `tcp`, `OUTPUT`, `tcp-reset`). This ensures YAML remains
+//! user-friendly while generated iptables commands use the correct syntax.
+//!
 //! # Examples
 //!
 //! ## Rust API
@@ -139,6 +147,9 @@ impl<'de> Deserialize<'de> for CidrBlock {
 }
 
 /// IP version for iptables commands
+///
+/// Serializes to YAML as `V4` or `V6`.
+/// Displays as `iptables` or `ip6tables` for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IpVersion {
@@ -163,6 +174,9 @@ fn is_v4_default(family: &IpVersion) -> bool {
     matches!(family, IpVersion::V4)
 }
 
+/// Action for inserting a rule into a chain
+///
+/// Serializes to YAML as `Append` or `Insert` with a `Position` field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesInsertionAction {
@@ -171,6 +185,10 @@ pub enum IptablesInsertionAction {
     Insert { position: u32 },
 }
 
+/// Network protocol for iptables rule matching
+///
+/// Serializes to YAML as `Tcp`, `Udp`, `Icmp`, or `All`.
+/// Displays as `tcp`, `udp`, `icmp`, or `all` for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum Protocol {
@@ -212,6 +230,10 @@ impl std::fmt::Display for Protocol {
 }
 
 /// TCP Flag matching options
+///
+/// Serializes to YAML as `Syn`, `Ack`, `Fin`, `Rst`, `Psh`, `Urg`, `FinRst`, `All`, or `None`.
+/// Displays as `SYN`, `ACK`, `FIN`, `RST`, `PSH`, `URG`, `FIN,RST`, `ALL`, or `NONE` for command
+/// generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum TcpFlag {
@@ -242,6 +264,9 @@ impl std::fmt::Display for TcpFlag {
     }
 }
 
+/// TCP flags match specification (-m tcp --tcp-flags)
+///
+/// `mask` specifies which flags to check, and `comp` specifies which of those must be set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct TcpFlagsMatch {
@@ -250,6 +275,8 @@ pub struct TcpFlagsMatch {
 }
 
 /// Rate limiting specification (-m limit)
+///
+/// Serializes to YAML with `Rate`, `Unit`, and optional `Burst` fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct RateLimit {
@@ -258,6 +285,11 @@ pub struct RateLimit {
     pub burst: Option<u32>,         
 }
 
+/// Rate unit for limit matching (-m limit)
+///
+/// Serializes to YAML as `Second`, `Minute`, `Hour`, or `Day`.
+/// Displays as `/second`, `/minute`, `/hour`, or `/day` for command generation via
+/// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum RateUnit {
@@ -279,6 +311,10 @@ impl std::fmt::Display for RateUnit {
 }
 
 /// Connection tracking states (-m conntrack --ctstate)
+///
+/// Serializes to YAML as `New`, `Established`, `Related`, `Invalid`, or `Untracked`.
+/// Displays as `NEW`, `ESTABLISHED`, `RELATED`, `INVALID`, or `UNTRACKED` for command
+/// generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ConnectionState {
@@ -301,6 +337,7 @@ impl std::fmt::Display for ConnectionState {
     }
 }
 
+/// Connection tracking match specification (-m conntrack --ctstate)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct ConntrackMatch {
@@ -308,6 +345,10 @@ pub struct ConntrackMatch {
 }
 
 /// User/Group ownership matching (-m owner)
+///
+/// Serializes to YAML as `UidOwner("username")` or `GidOwner("groupname")`.
+/// Displays as `--uid-owner username` or `--gid-owner groupname` for command generation via
+/// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OwnerMatch {
@@ -324,6 +365,10 @@ impl std::fmt::Display for OwnerMatch {
     }
 }
 
+/// Match criteria for iptables rules
+///
+/// Contains all possible matching criteria for an iptables rule. All fields are optional
+/// and use `Invert` wrapper for fields that support negation with `!` in iptables syntax.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct MatchCriteria {
@@ -357,6 +402,11 @@ pub struct MatchCriteria {
     pub comment: Option<String>,               
 }
 
+/// Rejection types for the REJECT target (--reject-with)
+///
+/// Serializes to YAML as `IcmpPortUnreachable`, `IcmpNetUnreachable`, `TcpReset`, or `EchoReply`.
+/// Displays as `icmp-port-unreachable`, `icmp-net-unreachable`, `tcp-reset`, or `echo-reply`
+/// for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum RejectWith {
@@ -377,6 +427,10 @@ impl std::fmt::Display for RejectWith {
     }
 }
 
+/// Target action for an iptables rule (-j, -g)
+///
+/// Serializes to YAML as `Accept`, `Drop`, `Reject`, `Log`, `Return`, `Jump`, `Goto`, or `Custom`.
+/// The `Reject` and `Log` variants support additional options.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum IptablesTarget {
@@ -401,6 +455,10 @@ pub enum IptablesTarget {
 }
 
 /// Chains unique to the Raw table
+///
+/// Serializes to YAML as `Prerouting`, `Output`, or `Custom("name")`.
+/// Displays as `PREROUTING`, `OUTPUT`, or custom name for command generation via
+/// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum RawChain {
@@ -420,6 +478,10 @@ impl std::fmt::Display for RawChain {
 }
 
 /// Chains unique to the Filter table
+///
+/// Serializes to YAML as `Input`, `Forward`, `Output`, or `Custom("name")`.
+/// Displays as `INPUT`, `FORWARD`, `OUTPUT`, or custom name for command generation via
+/// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum FilterChain {
@@ -441,6 +503,10 @@ impl std::fmt::Display for FilterChain {
 }
 
 /// Chains unique to the Nat table
+///
+/// Serializes to YAML as `Prerouting`, `Input`, `Output`, `Postrouting`, or `Custom("name")`.
+/// Displays as `PREROUTING`, `INPUT`, `OUTPUT`, `POSTROUTING`, or custom name for command
+/// generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum NatChain {
@@ -464,6 +530,11 @@ impl std::fmt::Display for NatChain {
 }
 
 /// Chains available in Mangle table
+///
+/// Serializes to YAML as `Prerouting`, `Input`, `Forward`, `Output`, `Postrouting`, or
+/// `Custom("name")`.
+/// Displays as `PREROUTING`, `INPUT`, `FORWARD`, `OUTPUT`, `POSTROUTING`, or custom name
+/// for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum MangleChain {
@@ -489,6 +560,10 @@ impl std::fmt::Display for MangleChain {
 }
 
 /// Chains available in Security table
+///
+/// Serializes to YAML as `Input`, `Forward`, `Output`, or `Custom("name")`.
+/// Displays as `INPUT`, `FORWARD`, `OUTPUT`, or custom name for command generation via
+/// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum SecurityChain {
@@ -510,6 +585,8 @@ impl std::fmt::Display for SecurityChain {
 }
 
 /// An enum representing a table, bundling ONLY valid chains for that table.
+///
+/// Serializes to YAML with a `Table` tag and `Details` content using PascalCase for all fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "Table", content = "Details", rename_all = "PascalCase")]
 pub enum IptablesRule {
@@ -546,6 +623,8 @@ pub enum IptablesRule {
 }
 
 /// Desired state of an iptables rule
+///
+/// Serializes to YAML as `Present` or `Absent`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum RuleExpectedState {
@@ -554,6 +633,9 @@ pub enum RuleExpectedState {
 }
 
 /// Wraps any match value to indicate whether it should be matched normally or inverted (!)
+///
+/// Serializes to YAML as `{ Value: ..., Inverted: true/false }` when inverted is true,
+/// or just the inner value when inverted is false (due to `skip_serializing_if`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Invert<T> {
@@ -573,6 +655,9 @@ impl<T> Invert<T> {
 }
 
 /// Represents a single port or a contiguous port range (e.g., "1024:65535")
+///
+/// Serializes to YAML as a single number or `{ Start: ..., End: ... }`.
+/// Displays as `port` or `start:end` for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", untagged)]
 pub enum PortRange {
@@ -595,6 +680,10 @@ impl std::fmt::Display for PortRange {
 }
 
 /// Represents either a single port match or a multiport list
+///
+/// Serializes to YAML as a single number, a range object, or a list of port ranges.
+/// Displays as a comma-separated list of ports/ranges for command generation via
+/// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", untagged)]
 pub enum PortSpec {
@@ -621,6 +710,10 @@ impl std::fmt::Display for PortSpec {
     }
 }
 
+/// Desired state for an iptables/ip6tables rule
+///
+/// Serializes to YAML with a `State` tag (`Present` or `Absent`) and uses PascalCase for all
+/// fields. The `IpVersion` defaults to V4 and is omitted when V4.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "State", rename_all = "PascalCase")]
 pub enum IptablesBlockExpectedState {
@@ -648,6 +741,10 @@ pub enum IptablesBlockExpectedState {
 /// Use the new strongly-typed API to create firewall rules with various matching criteria
 /// and actions.
 ///
+/// All types in this module serialize to YAML using PascalCase naming convention for
+/// user-friendliness, while implementing `Display` to output the correct iptables command
+/// syntax (e.g., chain names in UPPERCASE, reject types in lowercase-with-hyphens).
+///
 /// # Examples
 ///
 /// ## Rust API
@@ -664,55 +761,6 @@ pub enum IptablesBlockExpectedState {
 /// let ssh_rule = IptablesBlockExpectedState::allow_ssh(None);
 ///
 /// // Or use the full API for more complex rules
-/// let custom_rule = IptablesBlockExpectedState::present(
-///     IpVersion::V4,
-///     IptablesInsertionAction::Append,
-///     IptablesRule::Filter {
-///         chain: FilterChain::Input,
-///         criteria: MatchCriteria {
-///             protocol: Protocol::Tcp {
-///                 source_port: None,
-///                 dest_port: Some(PortSpec::Single(22)),
-///                 tcp_flags: None,
-///             },
-///             source: None,
-///             destination: None,
-///             network_interface_in: None,
-///             network_interface_out: None,
-///             fragment: None,
-///             limit: None,
-///             conntrack: None,
-///             owner: None,
-///             comment: None,
-///         },
-///         target: IptablesTarget::Accept,
-///     },
-/// );
-///
-/// let expected_state = ExpectedState::new()
-///     .with_attribute(Attribute::iptables(ssh_rule, Privilege::WithSudo, None))
-///     .build();
-/// ```
-///
-/// ## YAML API
-///
-/// ```yaml
-/// Attributes:
-///   - Name: Allow SSH on port 22
-///     Privilege: !WithSudo
-///     Detail: !Iptables
-///       State: Present
-///       IpVersion: V4
-///       Action: Append
-///       Table: Filter
-///       Chain: INPUT
-///       Criteria:
-///         Protocol: Tcp
-///         DestinationPort: 22
-///       Target: Accept
-/// ```
-
-
 impl IptablesBlockExpectedState {
     pub fn present(
         ip_version: IpVersion,
@@ -1828,5 +1876,151 @@ Details:
             }
             _ => panic!("Expected Present state"),
         }
+    }
+
+    #[test]
+    fn test_yaml_vs_rust_api_equivalence_ssh() {
+        // YAML representation
+        let yaml = r#"
+State: Present
+IpVersion: V4
+Action: Append
+Table: Filter
+Details:
+    Chain: Input
+    Criteria:
+        Protocol:
+            Tcp:
+                DestPort: 22
+    Target: Accept
+"#;
+        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+
+        // Rust API representation
+        let rust_state = IptablesBlockExpectedState::allow_ssh(None);
+
+        assert_eq!(yaml_state, rust_state);
+    }
+
+    #[test]
+    fn test_yaml_vs_rust_api_equivalence_http() {
+        // YAML representation
+        let yaml = r#"
+State: Present
+IpVersion: V4
+Action: Append
+Table: Filter
+Details:
+    Chain: Input
+    Criteria:
+        Protocol:
+            Tcp:
+                DestPort: 80
+    Target: Accept
+"#;
+        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+
+        // Rust API representation
+        let rust_state = IptablesBlockExpectedState::allow_tcp_port(80, None);
+
+        assert_eq!(yaml_state, rust_state);
+    }
+
+    #[test]
+    fn test_yaml_vs_rust_api_equivalence_drop_all() {
+        // YAML representation
+        let yaml = r#"
+State: Present
+IpVersion: V4
+Action: Append
+Table: Filter
+Details:
+    Chain: Input
+    Criteria:
+        Protocol: All
+    Target: Drop
+"#;
+        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+
+        // Rust API representation
+        let rust_state = IptablesBlockExpectedState::drop_all_incoming(None);
+
+        assert_eq!(yaml_state, rust_state);
+    }
+
+    #[test]
+    fn test_yaml_vs_rust_api_equivalence_udp() {
+        // YAML representation
+        let yaml = r#"
+State: Present
+IpVersion: V4
+Action: Append
+Table: Filter
+Details:
+    Chain: Input
+    Criteria:
+        Protocol:
+            Udp:
+                DestPort: 53
+    Target: Accept
+"#;
+        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+
+        // Rust API representation
+        let rust_state = IptablesBlockExpectedState::allow_udp_port(53, None);
+
+        assert_eq!(yaml_state, rust_state);
+    }
+
+    #[test]
+    fn test_yaml_vs_rust_api_equivalence_complex_rule() {
+        // YAML representation of a more complex rule
+        let yaml = r#"
+State: Present
+IpVersion: V4
+Action:
+    Insert:
+        Position: 1
+Table: Filter
+Details:
+    Chain: Input
+    Criteria:
+        Protocol:
+            Tcp:
+                DestPort: 443
+        Source:
+            Value: "192.168.1.0/24"
+            Inverted: false
+    Target: Accept
+"#;
+        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+
+        // Rust API representation
+        let rust_state = IptablesBlockExpectedState::present(
+            IpVersion::V4,
+            IptablesInsertionAction::Insert { position: 1 },
+            IptablesRule::Filter {
+                chain: FilterChain::Input,
+                criteria: MatchCriteria {
+                    protocol: Protocol::Tcp {
+                        source_port: None,
+                        dest_port: Some(PortSpec::Single(443)),
+                        tcp_flags: None,
+                    },
+                    source: Some(Invert::new(CidrBlock::parse("192.168.1.0/24").unwrap())),
+                    destination: None,
+                    network_interface_in: None,
+                    network_interface_out: None,
+                    fragment: None,
+                    limit: None,
+                    conntrack: None,
+                    owner: None,
+                    comment: None,
+                },
+                target: IptablesTarget::Accept,
+            },
+        );
+
+        assert_eq!(yaml_state, rust_state);
     }
 }

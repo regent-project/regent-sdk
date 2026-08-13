@@ -68,7 +68,7 @@
 //!   - Name: Docker CE repository must be present
 //!     Privilege: !WithSudo
 //!     Detail: !DnfRepo
-//!       Present:
+//!       !Present
 //!         Name: docker-ce
 //!         Source: !Baseurl
 //!           - "https://download.docker.com/linux/centos/7/x86_64/stable"
@@ -82,14 +82,14 @@
 //!   - Name: Docker CE repository must be absent
 //!     Privilege: !WithSudo
 //!     Detail: !DnfRepo
-//!       Absent:
+//!       !Absent
 //!         Name: docker-ce
 //!
 //!   # Absent with custom file path
 //!   - Name: Remove old repository file
 //!     Privilege: !WithSudo
 //!     Detail: !DnfRepo
-//!       Absent:
+//!       !Absent
 //!         Name: docker-ce
 //!         File: custom-repo
 //! ```
@@ -170,9 +170,9 @@ pub enum DnfRepoSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-#[serde(untagged)]
 pub enum DnfRepoBlockExpectedState {
     /// Repository should be present with full configuration
+    #[serde(rename_all = "PascalCase")]
     Present {
         /// Repository name (used as INI section header)
         name: String,
@@ -206,6 +206,7 @@ pub enum DnfRepoBlockExpectedState {
     /// Repository should be absent (removed)
     /// Only name and optional file are available - other settings don't make sense
     /// for a repository that should not exist
+    #[serde(rename_all = "PascalCase")]
     Absent {
         /// Repository name (used to identify the repository to remove)
         name: String,
@@ -747,7 +748,7 @@ mod tests {
     #[test]
     fn parsing_dnf_repo_present_from_yaml() {
         let raw = "---
-- Present:
+- !Present
     Name: docker-ce-stable
     Description: Docker CE Stable
     Source: !Baseurl
@@ -757,7 +758,7 @@ mod tests {
       - https://download.docker.com/linux/centos/gpg
     Enabled: true
 
-- Absent:
+- !Absent
     Name: epel
         ";
         let attrs: Vec<DnfRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
@@ -779,7 +780,7 @@ mod tests {
     #[test]
     fn parsing_dnf_repo_absent_from_yaml() {
         let raw = "---
-- Absent:
+- !Absent
     Name: epel
     File: custom-repo
         ";

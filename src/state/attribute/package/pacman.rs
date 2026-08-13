@@ -35,7 +35,7 @@
 //!     Privilege: !WithSudo
 //!     Detail: !Pacman
 //!       Package: nginx
-//!       State: present
+//!       State: Present
 //! ```
 //!
 //! For a full system upgrade:
@@ -102,7 +102,7 @@ pub enum PackageExpectedState {
 /// ## Package management:
 /// ```yaml
 /// Package: nginx
-/// State: present  # or "absent" to remove
+/// State: Present  # or "Absent" to remove
 /// ```
 ///
 /// ## Full system upgrade:
@@ -393,10 +393,10 @@ mod tests {
     fn parsing_pacman_module_block_from_yaml_str() {
         let raw_attributes = "---
 - Package: apache
-  State: present
+  State: Present
 
 - Package: apache
-  State: absent
+  State: Absent
 
 - SystemUpgrade
     ";
@@ -434,14 +434,14 @@ Package: apache
         // Test that Package with empty State fails
         let raw_attribute = "---
 Package:
-State: absent
+State: Absent
     ";
         assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
 
         // Test that unknown keys are rejected
         let raw_attribute = "---
 Package: apache
-State: absent
+State: Absent
 unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());

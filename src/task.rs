@@ -9,7 +9,7 @@
 //!
 //! Regent SDK implements idempotency at two distinct levels:
 //!
-//! - **Attribute-level idempotency**: Each [`crate::state::attribute::Attribute`] is designed to be
+//! - **Attribute-level idempotency**: Each `Attribute` is designed to be
 //!   idempotent when applied to a host. For example, a service attribute that ensures nginx is
 //!   running will only start the service if it's not already running, and will not cause errors
 //!   if applied multiple times. This is the core idempotency of the configuration management system.

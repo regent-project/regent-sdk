@@ -166,7 +166,7 @@ impl Attribute {
         }
     }
 
-    /// Result because the assessment might fail. If it succeeds, it will return either None (AKA already compliant) or Some(Vec<Remediation>) (AKA what shall be done to reach the expected state).
+    /// Result because the assessment might fail. If it succeeds, it will return either None (AKA already compliant) or Some(Vec of Remediation) (AKA what shall be done to reach the expected state).
     pub async fn assess<Handler: HostHandler>(
         &self,
         host_handler: &mut Handler,

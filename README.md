@@ -77,10 +77,9 @@ Attributes:
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      Line:
-        SecRef: arn:aws:secretsmanager:eu-central-1:658712556498:secret:MY_TOKEN_CONTENT-xyz
+      Line: !Raw !Secret arn:aws:secretsmanager:eu-central-1:658712556498:secret:MY_TOKEN_CONTENT-xyz
       State: !Present
-      Position: !Top
+        Position: !InsertBefore BOF
 "#;
 
     let expected_state = ExpectedState::from_raw_yaml(expected_state).unwrap();
@@ -114,10 +113,7 @@ async fn main() {
     managed_host.connect().await.unwrap();
 
     // Define expected state programmatically
-    let apache_expected_state = AptBlockExpectedState::builder()
-        .with_package_state("apache2", PackageExpectedState::Present)
-        .build()
-        .unwrap();
+    let apache_expected_state = AptBlockExpectedState::package_state("apache2", PackageExpectedState::Present);
 
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::apt(

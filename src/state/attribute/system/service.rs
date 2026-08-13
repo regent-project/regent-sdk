@@ -43,7 +43,7 @@
 //!     Privilege: !WithSudo
 //!     Detail: !Service
 //!       Name: httpd
-//!       State: started
+//!       State: Started
 //!       Enabled: true
 //! ```
 //!
@@ -55,7 +55,7 @@
 //!     Privilege: !WithSudo
 //!     Detail: !Service
 //!       Name: nginx
-//!       State: stopped
+//!       State: Stopped
 //! ```
 //!
 //! For enabled-only configuration:
@@ -89,11 +89,11 @@ use std::time::Duration;
 ///
 /// # Serialization
 ///
-/// This enum is serialized/deserialized in lowercase:
-/// - `Started` → `"started"`
-/// - `Stopped` → `"stopped"`
+/// This enum is serialized/deserialized in PascalCase:
+/// - `Started` → `"Started"`
+/// - `Stopped` → `"Stopped"`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceExpectedState {
     /// Service should be running
     Started,
@@ -107,11 +107,11 @@ pub enum ServiceExpectedState {
 ///
 /// # Serialization
 ///
-/// This enum is serialized/deserialized in lowercase:
-/// - `Restarted` → `"restarted"`
-/// - `Reloaded` → `"reloaded"`
+/// This enum is serialized/deserialized in PascalCase:
+/// - `Restarted` → `"Restarted"`
+/// - `Reloaded` → `"Reloaded"`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "PascalCase")]
 pub enum ServiceAction {
     /// Service should be restarted (unconditional action)
     Restarted,
@@ -130,14 +130,14 @@ pub enum ServiceAction {
 /// ## State with enabled:
 /// ```yaml
 /// Name: httpd
-/// State: started
+/// State: Started
 /// Enabled: true
 /// ```
 ///
 /// ## State only:
 /// ```yaml
 /// Name: nginx
-/// State: started
+/// State: Started
 /// ```
 ///
 /// ## Enabled only:
@@ -149,7 +149,7 @@ pub enum ServiceAction {
 /// ## Action only:
 /// ```yaml
 /// Name: nginx
-/// Action: restarted
+/// Action: Restarted
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
@@ -783,18 +783,18 @@ mod tests {
     fn parsing_service_module_block_from_yaml_str() {
         let raw = "---
 - Name: nginx
-  State: started
+  State: Started
   Enabled: true
 
 - Name: nginx
-  State: stopped
+  State: Stopped
   Enabled: false
 
 - Name: nginx
-  Action: restarted
+  Action: Restarted
 
 - Name: nginx
-  Action: reloaded
+  Action: Reloaded
 
 - Name: nginx
   Enabled: true

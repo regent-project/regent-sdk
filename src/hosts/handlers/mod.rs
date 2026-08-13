@@ -129,13 +129,13 @@ pub enum ConnectionMethod {
 ///
 /// # Methods
 ///
-/// - [`connect`]: Establish a connection to the host
-/// - [`is_connected`]: Check if currently connected
-/// - [`disconnect`]: Close the connection
-/// - [`is_this_command_available`]: Check if a command exists on the host
-/// - [`run_command`]: Execute a command on the host
-/// - [`run_windows_command`]: Execute a Windows command (available when the `windows` feature is enabled)
-/// - [`get_file`]: Retrieve a file from the host
+/// - `connect`: Establish a connection to the host
+/// - `is_connected`: Check if currently connected
+/// - `disconnect`: Close the connection
+/// - `is_this_command_available`: Check if a command exists on the host
+/// - `run_command`: Execute a command on the host
+/// - `run_windows_command`: Execute a Windows command (available when the `windows` feature is enabled)
+/// - `get_file`: Retrieve a file from the host
 ///
 /// # Example
 ///

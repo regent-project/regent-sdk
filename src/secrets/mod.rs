@@ -533,7 +533,7 @@ impl SecretReference {
 /// Builder for creating [`SecretProvidersPool`] instances.
 ///
 /// This builder allows you to configure multiple secret providers and set a default.
-/// Use the builder pattern to add providers and then call [`build`] to create the pool.
+/// Use the builder pattern to add providers and then call [`SecretProvidersPoolBuilder::build()`] to create the pool.
 ///
 /// # Example
 ///
@@ -599,7 +599,7 @@ impl SecretProvidersPoolBuilder {
 
     /// Add a secret provider and set it as the default.
     ///
-    /// This is a convenience method that combines [`add_provider`] and [`set_default`].
+    /// This is a convenience method that combines `add_provider` and `set_default`.
     ///
     /// # Arguments
     ///
@@ -631,7 +631,7 @@ impl SecretProvidersPoolBuilder {
 
     /// Set the default provider by name.
     ///
-    /// The provider must have been previously added with [`add_provider`].
+    /// The provider must have been previously added with `add_provider`.
     ///
     /// # Arguments
     ///

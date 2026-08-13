@@ -102,7 +102,7 @@ pub enum PackageExpectedState {
 /// ## Package management:
 /// ```yaml
 /// Package: httpd
-/// State: present  # or "absent" to remove
+/// State: Present  # or "Absent" to remove
 /// ```
 ///
 /// ## Full system upgrade:
@@ -442,18 +442,18 @@ mod tests {
     fn parsing_yumdnf_module_block_from_yaml_str() {
         let raw_attributes = "---
 - Package: httpd
-  State: !Present
+  State: Present
 
 - Package: httpd
-  State: !Absent
+  State: Absent
 
-- !SystemUpToDate
+- SystemUpToDate
     ";
 
         let attributes: Vec<YumDnfBlockExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
         assert_eq!(
-            attributes[1],
+            attributes[0],
             YumDnfBlockExpectedState::PackageState {
                 package: "httpd".to_string(),
                 state: PackageExpectedState::Present
@@ -473,24 +473,23 @@ mod tests {
 
     #[test]
     fn rejecting_incorrect_yumdnf_module_block_from_yaml_str() {
+        // Missing State field - should fail deserialization
         let raw_attribute = "---
 Package: httpd
     ";
-        let yaml_part = yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute);
-        assert!(yaml_part.is_ok());
-        assert!(yaml_part.unwrap().check().is_err());
+        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
+        // Missing Package field - should fail deserialization
         let raw_attribute = "---
 Package:
-State: !Absent
+State: Absent
     ";
-        let yaml_part = yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute);
-        assert!(yaml_part.is_ok());
-        assert!(yaml_part.unwrap().check().is_err());
+        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
 
+        // Unknown key - should fail deserialization
         let raw_attribute = "---
 Package: httpd
-State: !Absent
+State: Absent
 unknown_key: unknown_value
     ";
         assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());

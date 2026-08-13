@@ -9,7 +9,7 @@
 //! The state management system is built around several key concepts:
 //!
 //! - **[`ExpectedState`]**: The root container for infrastructure definitions
-//! - **[`Attribute`]**: Individual resource definitions (packages, services, files, etc.)
+//! - **[`attribute::Attribute`]**: Individual resource definitions (packages, services, files, etc.)
 //! - **[`attribute::AttributeDetail`]**: Enum of all supported resource types
 //! - **[`compliance`]**: Types for compliance assessment and status reporting
 //!

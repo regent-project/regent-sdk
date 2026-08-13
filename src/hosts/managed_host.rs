@@ -392,9 +392,9 @@ impl ManagedHostBuilder {
 /// # Lifecycle
 ///
 /// 1. Create using [`ManagedHostBuilder::build()`]
-/// 2. Connect using [`connect()`]
+/// 2. Connect using [`ManagedHost::connect()`]
 /// 3. Execute operations (assess/reach compliance)
-/// 4. Disconnect using [`disconnect()`]
+/// 4. Disconnect using [`ManagedHost::disconnect()`]
 ///
 /// # Example
 ///
