@@ -245,7 +245,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                 }
             }
             AptRepoExpectedState::Present => {
-                let format = self.format.as_ref().expect("Format must be provided for Present state");
+                let format = self
+                    .format
+                    .as_ref()
+                    .expect("Format must be provided for Present state");
                 let expected_content = match format {
                     AptRepoFormat::Legacy { repo } => build_legacy_content(&repo),
                     AptRepoFormat::Deb822 {

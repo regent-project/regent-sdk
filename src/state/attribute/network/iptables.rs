@@ -72,9 +72,9 @@ use crate::state::compliance::AttributeComplianceAssessment;
 
 use std::time::Duration;
 
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::net::IpAddr;
 use std::str::FromStr;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// A Self-validated CIDR block or single IP address
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,7 +87,7 @@ impl CidrBlock {
     /// Manually parse and validate an IP or CIDR string.
     pub fn parse(s: &str) -> Result<Self, String> {
         let parts: Vec<&str> = s.split('/').collect();
-        
+
         if parts.is_empty() || parts.len() > 2 {
             return Err(format!("Invalid CIDR format: '{}'", s));
         }
@@ -182,7 +182,9 @@ fn is_v4_default(family: &IpVersion) -> bool {
 pub enum IptablesInsertionAction {
     Append,
     #[serde(rename_all = "PascalCase")]
-    Insert { position: u32 },
+    Insert {
+        position: u32,
+    },
 }
 
 /// Network protocol for iptables rule matching
@@ -193,7 +195,7 @@ pub enum IptablesInsertionAction {
 #[serde(rename_all = "PascalCase")]
 pub enum Protocol {
     #[serde(rename_all = "PascalCase")]
-    Tcp { 
+    Tcp {
         #[serde(skip_serializing_if = "Option::is_none")]
         source_port: Option<PortSpec>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -202,7 +204,7 @@ pub enum Protocol {
         tcp_flags: Option<TcpFlagsMatch>,
     },
     #[serde(rename_all = "PascalCase")]
-    Udp { 
+    Udp {
         #[serde(skip_serializing_if = "Option::is_none")]
         source_port: Option<PortSpec>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -280,9 +282,9 @@ pub struct TcpFlagsMatch {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct RateLimit {
-    pub rate: u32,                  
-    pub unit: RateUnit,             
-    pub burst: Option<u32>,         
+    pub rate: u32,
+    pub unit: RateUnit,
+    pub burst: Option<u32>,
 }
 
 /// Rate unit for limit matching (-m limit)
@@ -373,33 +375,33 @@ impl std::fmt::Display for OwnerMatch {
 #[serde(rename_all = "PascalCase")]
 pub struct MatchCriteria {
     pub protocol: Protocol,
-    
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<Invert<CidrBlock>>,          
-          
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub destination: Option<Invert<CidrBlock>>,     
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_interface_in: Option<Invert<String>>,  
+    pub source: Option<Invert<CidrBlock>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub network_interface_out: Option<Invert<String>>, 
+    pub destination: Option<Invert<CidrBlock>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub fragment: Option<bool>,                
+    pub network_interface_in: Option<Invert<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<RateLimit>,              
+    pub network_interface_out: Option<Invert<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub conntrack: Option<Invert<ConntrackMatch>>,     
+    pub fragment: Option<bool>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub owner: Option<Invert<OwnerMatch>>,             
+    pub limit: Option<RateLimit>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub comment: Option<String>,               
+    pub conntrack: Option<Invert<ConntrackMatch>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Invert<OwnerMatch>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
 }
 
 /// Rejection types for the REJECT target (--reject-with)
@@ -640,17 +642,27 @@ pub enum RuleExpectedState {
 #[serde(rename_all = "PascalCase")]
 pub struct Invert<T> {
     pub value: T,
-    #[serde(rename = "Inverted", default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        rename = "Inverted",
+        default,
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub inverted: bool,
 }
 
 impl<T> Invert<T> {
     pub fn new(value: T) -> Self {
-        Self { value, inverted: false }
+        Self {
+            value,
+            inverted: false,
+        }
     }
 
     pub fn inverted(value: T) -> Self {
-        Self { value, inverted: true }
+        Self {
+            value,
+            inverted: true,
+        }
     }
 }
 
@@ -688,11 +700,11 @@ impl std::fmt::Display for PortRange {
 #[serde(rename_all = "PascalCase", untagged)]
 pub enum PortSpec {
     Single(u16),
-    Range { 
+    Range {
         #[serde(rename = "Start")]
-        start: u16, 
+        start: u16,
         #[serde(rename = "End")]
-        end: u16, 
+        end: u16,
     },
     List(Vec<PortRange>),
 }
@@ -774,19 +786,13 @@ impl IptablesBlockExpectedState {
         }
     }
 
-    pub fn absent(
-        ip_version: IpVersion,
-        rule: IptablesRule,
-    ) -> IptablesBlockExpectedState {
-        IptablesBlockExpectedState::Absent {
-            ip_version,
-            rule,
-        }
+    pub fn absent(ip_version: IpVersion, rule: IptablesRule) -> IptablesBlockExpectedState {
+        IptablesBlockExpectedState::Absent { ip_version, rule }
     }
 
     /// Allow incoming TCP traffic on a specific port in the INPUT chain.
     /// This is a convenience method for the common use case of opening a TCP port.
-    /// 
+    ///
     /// # Arguments
     /// * `port` - The TCP port number to allow
     /// * `position` - Optional rule position for insertion (uses Append if None)
@@ -795,7 +801,7 @@ impl IptablesBlockExpectedState {
     }
 
     /// Allow incoming TCP traffic on a specific port in the INPUT chain with custom IP version.
-    /// 
+    ///
     /// # Arguments
     /// * `port` - The TCP port number to allow
     /// * `ip_version` - IP version (V4 or V6)
@@ -837,7 +843,7 @@ impl IptablesBlockExpectedState {
 
     /// Allow incoming UDP traffic on a specific port in the INPUT chain.
     /// This is a convenience method for the common use case of opening a UDP port.
-    /// 
+    ///
     /// # Arguments
     /// * `port` - The UDP port number to allow
     /// * `position` - Optional rule position for insertion (uses Append if None)
@@ -846,7 +852,7 @@ impl IptablesBlockExpectedState {
     }
 
     /// Allow incoming UDP traffic on a specific port in the INPUT chain with custom IP version.
-    /// 
+    ///
     /// # Arguments
     /// * `port` - The UDP port number to allow
     /// * `ip_version` - IP version (V4 or V6)
@@ -887,7 +893,7 @@ impl IptablesBlockExpectedState {
 
     /// Allow incoming SSH traffic on port 22 in the INPUT chain.
     /// This is a convenience method for the common use case of enabling SSH access.
-    /// 
+    ///
     /// # Arguments
     /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn allow_ssh(position: Option<u32>) -> IptablesBlockExpectedState {
@@ -895,7 +901,7 @@ impl IptablesBlockExpectedState {
     }
 
     /// Allow incoming SSH traffic on port 22 in the INPUT chain with custom IP version.
-    /// 
+    ///
     /// # Arguments
     /// * `ip_version` - IP version (V4 or V6)
     /// * `position` - Optional rule position for insertion (uses Append if None)
@@ -908,7 +914,7 @@ impl IptablesBlockExpectedState {
 
     /// Drop all incoming traffic on the INPUT chain.
     /// This is a convenience method for creating a default deny policy.
-    /// 
+    ///
     /// # Arguments
     /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn drop_all_incoming(position: Option<u32>) -> IptablesBlockExpectedState {
@@ -916,7 +922,7 @@ impl IptablesBlockExpectedState {
     }
 
     /// Drop all incoming traffic on the INPUT chain with custom IP version.
-    /// 
+    ///
     /// # Arguments
     /// * `ip_version` - IP version (V4 or V6)
     /// * `position` - Optional rule position for insertion (uses Append if None)
@@ -969,11 +975,26 @@ impl Check for IptablesBlockExpectedState {
 
         // Check that custom chain names are not empty
         match rule {
-            IptablesRule::Raw { chain: RawChain::Custom(c), .. }
-            | IptablesRule::Filter { chain: FilterChain::Custom(c), .. }
-            | IptablesRule::Nat { chain: NatChain::Custom(c), .. }
-            | IptablesRule::Mangle { chain: MangleChain::Custom(c), .. }
-            | IptablesRule::Security { chain: SecurityChain::Custom(c), .. } => {
+            IptablesRule::Raw {
+                chain: RawChain::Custom(c),
+                ..
+            }
+            | IptablesRule::Filter {
+                chain: FilterChain::Custom(c),
+                ..
+            }
+            | IptablesRule::Nat {
+                chain: NatChain::Custom(c),
+                ..
+            }
+            | IptablesRule::Mangle {
+                chain: MangleChain::Custom(c),
+                ..
+            }
+            | IptablesRule::Security {
+                chain: SecurityChain::Custom(c),
+                ..
+            } => {
                 if c.is_empty() {
                     return Err(RegentError::IncoherentExpectedState(
                         "custom chain name must not be empty.".to_string(),
@@ -1015,12 +1036,33 @@ impl Check for IptablesBlockExpectedState {
 /// Helper function to get the table argument from an IptablesRule
 fn get_table_arg(rule: &IptablesRule) -> String {
     match rule {
-        IptablesRule::Raw { chain: _, criteria: _, target: _ } => "-t raw",
-        IptablesRule::Filter { chain: _, criteria: _, target: _ } => "-t filter",
-        IptablesRule::Nat { chain: _, criteria: _, target: _ } => "-t nat",
-        IptablesRule::Mangle { chain: _, criteria: _, target: _ } => "-t mangle",
-        IptablesRule::Security { chain: _, criteria: _, target: _ } => "-t security",
-    }.to_string()
+        IptablesRule::Raw {
+            chain: _,
+            criteria: _,
+            target: _,
+        } => "-t raw",
+        IptablesRule::Filter {
+            chain: _,
+            criteria: _,
+            target: _,
+        } => "-t filter",
+        IptablesRule::Nat {
+            chain: _,
+            criteria: _,
+            target: _,
+        } => "-t nat",
+        IptablesRule::Mangle {
+            chain: _,
+            criteria: _,
+            target: _,
+        } => "-t mangle",
+        IptablesRule::Security {
+            chain: _,
+            criteria: _,
+            target: _,
+        } => "-t security",
+    }
+    .to_string()
 }
 
 /// Helper function to get the chain name from an IptablesRule
@@ -1054,9 +1096,16 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
 
         // Extract ip_version, action, and rule from the IptablesBlockExpectedState
         let (ip_version, expected_state, action, rule) = match self {
-            IptablesBlockExpectedState::Present { ip_version, action, rule } => {
-                (ip_version, RuleExpectedState::Present, Some(action.clone()), rule)
-            }
+            IptablesBlockExpectedState::Present {
+                ip_version,
+                action,
+                rule,
+            } => (
+                ip_version,
+                RuleExpectedState::Present,
+                Some(action.clone()),
+                rule,
+            ),
             IptablesBlockExpectedState::Absent { ip_version, rule } => {
                 (ip_version, RuleExpectedState::Absent, None, rule)
             }
@@ -1569,11 +1618,21 @@ fn build_rule_args_from_new_structures(rule: &IptablesRule) -> String {
 
     // Extract criteria and target from the rule
     let (criteria, target) = match rule {
-        IptablesRule::Raw { criteria, target, .. }
-        | IptablesRule::Filter { criteria, target, .. }
-        | IptablesRule::Nat { criteria, target, .. }
-        | IptablesRule::Mangle { criteria, target, .. }
-        | IptablesRule::Security { criteria, target, .. } => (criteria, target),
+        IptablesRule::Raw {
+            criteria, target, ..
+        }
+        | IptablesRule::Filter {
+            criteria, target, ..
+        }
+        | IptablesRule::Nat {
+            criteria, target, ..
+        }
+        | IptablesRule::Mangle {
+            criteria, target, ..
+        }
+        | IptablesRule::Security {
+            criteria, target, ..
+        } => (criteria, target),
     };
 
     // Protocol
@@ -1617,13 +1676,26 @@ fn build_rule_args_from_new_structures(rule: &IptablesRule) -> String {
     if let Some(ref tcp_flags) = get_tcp_flags(&criteria.protocol) {
         let mask_strs: Vec<&str> = tcp_flags.mask.iter().map(|f| tcp_flag_to_str(f)).collect();
         let comp_strs: Vec<&str> = tcp_flags.comp.iter().map(|f| tcp_flag_to_str(f)).collect();
-        parts.push(format!("-m tcp --tcp-flags {} {}", mask_strs.join(","), comp_strs.join(",")));
+        parts.push(format!(
+            "-m tcp --tcp-flags {} {}",
+            mask_strs.join(","),
+            comp_strs.join(",")
+        ));
     }
 
     // Connection tracking state (with inversion support)
     if let Some(ref conntrack) = criteria.conntrack {
-        let prefix = if conntrack.inverted { "! -m conntrack --ctstate " } else { "-m conntrack --ctstate " };
-        let states: Vec<&str> = conntrack.value.states.iter().map(|s| connection_state_to_str(s)).collect();
+        let prefix = if conntrack.inverted {
+            "! -m conntrack --ctstate "
+        } else {
+            "-m conntrack --ctstate "
+        };
+        let states: Vec<&str> = conntrack
+            .value
+            .states
+            .iter()
+            .map(|s| connection_state_to_str(s))
+            .collect();
         parts.push(format!("{} {}", prefix, states.join(",")));
     }
 
@@ -1656,7 +1728,11 @@ fn build_rule_args_from_new_structures(rule: &IptablesRule) -> String {
 
     // Owner match (with inversion support)
     if let Some(ref owner) = criteria.owner {
-        let prefix = if owner.inverted { "! -m owner " } else { "-m owner " };
+        let prefix = if owner.inverted {
+            "! -m owner "
+        } else {
+            "-m owner "
+        };
         parts.push(format!("{} {}", prefix, owner_match_to_str(&owner.value)));
     }
 
@@ -1674,37 +1750,53 @@ fn build_rule_args_from_new_structures(rule: &IptablesRule) -> String {
 /// Helper functions to extract protocol-specific fields
 fn get_source_port(proto: &Protocol) -> Option<&PortSpec> {
     match proto {
-        Protocol::Tcp { source_port: Some(p), .. }
-        | Protocol::Udp { source_port: Some(p), .. } => Some(p),
+        Protocol::Tcp {
+            source_port: Some(p),
+            ..
+        }
+        | Protocol::Udp {
+            source_port: Some(p),
+            ..
+        } => Some(p),
         _ => None,
     }
 }
 
 fn get_dest_port(proto: &Protocol) -> Option<&PortSpec> {
     match proto {
-        Protocol::Tcp { dest_port: Some(p), .. }
-        | Protocol::Udp { dest_port: Some(p), .. } => Some(p),
+        Protocol::Tcp {
+            dest_port: Some(p), ..
+        }
+        | Protocol::Udp {
+            dest_port: Some(p), ..
+        } => Some(p),
         _ => None,
     }
 }
 
 fn get_tcp_flags(proto: &Protocol) -> Option<&TcpFlagsMatch> {
     match proto {
-        Protocol::Tcp { tcp_flags: Some(f), .. } => Some(f),
+        Protocol::Tcp {
+            tcp_flags: Some(f), ..
+        } => Some(f),
         _ => None,
     }
 }
 
 fn get_icmp_type(proto: &Protocol) -> Option<u8> {
     match proto {
-        Protocol::Icmp { icmp_type: Some(t), .. } => Some(*t),
+        Protocol::Icmp {
+            icmp_type: Some(t), ..
+        } => Some(*t),
         _ => None,
     }
 }
 
 fn get_icmp_code(proto: &Protocol) -> Option<u8> {
     match proto {
-        Protocol::Icmp { icmp_code: Some(c), .. } => Some(*c),
+        Protocol::Icmp {
+            icmp_code: Some(c), ..
+        } => Some(*c),
         _ => None,
     }
 }
@@ -1714,20 +1806,34 @@ fn target_to_str(target: &IptablesTarget) -> String {
     match target {
         IptablesTarget::Accept => "-j ACCEPT".to_string(),
         IptablesTarget::Drop => "-j DROP".to_string(),
-        IptablesTarget::Reject { with: Some(reject_with) } => {
+        IptablesTarget::Reject {
+            with: Some(reject_with),
+        } => {
             format!("-j REJECT --reject-with {}", reject_with)
         }
         IptablesTarget::Reject { with: None } => "-j REJECT".to_string(),
-        IptablesTarget::Log { prefix: Some(p), level: Some(l) } => {
+        IptablesTarget::Log {
+            prefix: Some(p),
+            level: Some(l),
+        } => {
             format!("-j LOG --log-prefix '{}' --log-level {}", p, l)
         }
-        IptablesTarget::Log { prefix: Some(p), level: None } => {
+        IptablesTarget::Log {
+            prefix: Some(p),
+            level: None,
+        } => {
             format!("-j LOG --log-prefix '{}'", p)
         }
-        IptablesTarget::Log { prefix: None, level: Some(l) } => {
+        IptablesTarget::Log {
+            prefix: None,
+            level: Some(l),
+        } => {
             format!("-j LOG --log-level {}", l)
         }
-        IptablesTarget::Log { prefix: None, level: None } => "-j LOG".to_string(),
+        IptablesTarget::Log {
+            prefix: None,
+            level: None,
+        } => "-j LOG".to_string(),
         IptablesTarget::Return => "-j RETURN".to_string(),
         IptablesTarget::Jump(target) => format!("-j {}", target),
         IptablesTarget::Goto(target) => format!("-g {}", target),
@@ -1766,13 +1872,21 @@ Details:
     "#;
 
         let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
-        
+
         match state {
-            IptablesBlockExpectedState::Present { ip_version, action, rule } => {
+            IptablesBlockExpectedState::Present {
+                ip_version,
+                action,
+                rule,
+            } => {
                 assert_eq!(ip_version, IpVersion::V4);
                 assert_eq!(action, IptablesInsertionAction::Append);
                 match rule {
-                    IptablesRule::Filter { chain, criteria, target } => {
+                    IptablesRule::Filter {
+                        chain,
+                        criteria,
+                        target,
+                    } => {
                         assert_eq!(chain, FilterChain::Input);
                         assert_eq!(target, IptablesTarget::Accept);
                         assert!(criteria.comment.is_some());
@@ -1813,14 +1927,26 @@ Details:
             IptablesBlockExpectedState::Absent { ip_version, rule } => {
                 assert_eq!(ip_version, IpVersion::V6);
                 match rule {
-                    IptablesRule::Nat { chain, criteria, target } => {
+                    IptablesRule::Nat {
+                        chain,
+                        criteria,
+                        target,
+                    } => {
                         assert_eq!(chain, NatChain::Postrouting);
                         assert_eq!(
                             target,
-                            IptablesTarget::Reject { with: Some(RejectWith::IcmpPortUnreachable) }
+                            IptablesTarget::Reject {
+                                with: Some(RejectWith::IcmpPortUnreachable)
+                            }
                         );
                         if let Protocol::Udp { dest_port, .. } = criteria.protocol {
-                            assert_eq!(dest_port, Some(PortSpec::Range { start: 1024, end: 65535 }));
+                            assert_eq!(
+                                dest_port,
+                                Some(PortSpec::Range {
+                                    start: 1024,
+                                    end: 65535
+                                })
+                            );
                         } else {
                             panic!("Expected UDP protocol");
                         }
@@ -1859,21 +1985,19 @@ Details:
         let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         match state {
-            IptablesBlockExpectedState::Present { rule, .. } => {
-                match rule {
-                    IptablesRule::Mangle { chain, target, .. } => {
-                        assert_eq!(chain, MangleChain::Output);
-                        assert_eq!(
-                            target,
-                            IptablesTarget::Log {
-                                prefix: Some("LOG_MARK: ".to_string()),
-                                level: Some(4),
-                            }
-                        );
-                    }
-                    _ => panic!("Expected Mangle rule"),
+            IptablesBlockExpectedState::Present { rule, .. } => match rule {
+                IptablesRule::Mangle { chain, target, .. } => {
+                    assert_eq!(chain, MangleChain::Output);
+                    assert_eq!(
+                        target,
+                        IptablesTarget::Log {
+                            prefix: Some("LOG_MARK: ".to_string()),
+                            level: Some(4),
+                        }
+                    );
                 }
-            }
+                _ => panic!("Expected Mangle rule"),
+            },
             _ => panic!("Expected Present state"),
         }
     }

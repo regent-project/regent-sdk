@@ -156,7 +156,7 @@ pub enum ServiceAction {
 #[serde(untagged)]
 pub enum ServiceBlockExpectedState {
     /// Manage the service's running state and/or boot enablement
-    /// 
+    ///
     /// Note: The `enabled` field is only present in this variant to respect the semantics
     /// that enabled state is managed alongside running state.
     State {
@@ -185,11 +185,15 @@ impl Timeout for ServiceBlockExpectedState {
 
 impl ServiceBlockExpectedState {
     /// Create a state configuration with running state and boot enablement
-    pub fn state(name: &str, state: ServiceExpectedState, enabled: bool) -> ServiceBlockExpectedState {
+    pub fn state(
+        name: &str,
+        state: ServiceExpectedState,
+        enabled: bool,
+    ) -> ServiceBlockExpectedState {
         ServiceBlockExpectedState::State {
             name: name.to_string(),
             state: Some(state),
-            enabled
+            enabled,
         }
     }
 
@@ -198,18 +202,24 @@ impl ServiceBlockExpectedState {
         ServiceBlockExpectedState::State {
             name: name.to_string(),
             state: None,
-            enabled
+            enabled,
         }
     }
 
     /// Create a restarted action configuration
     pub fn restarted(name: &str) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::Action { name: name.to_string(), action: ServiceAction::Restarted }
+        ServiceBlockExpectedState::Action {
+            name: name.to_string(),
+            action: ServiceAction::Restarted,
+        }
     }
 
     /// Create a reloaded action configuration
     pub fn reloaded(name: &str) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::Action { name: name.to_string(), action: ServiceAction::Reloaded }
+        ServiceBlockExpectedState::Action {
+            name: name.to_string(),
+            action: ServiceAction::Reloaded,
+        }
     }
 }
 
@@ -304,7 +314,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
         let mut remediations: Vec<Remediation> = Vec::new();
 
         match &self {
-            Self::State { name, state, enabled } => {
+            Self::State {
+                name,
+                state,
+                enabled,
+            } => {
                 // Handle state (started/stopped) with optional enabled
                 match os_kind {
                     #[cfg(feature = "windows")]
@@ -317,10 +331,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                                         .await
                                         .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                                     if !active {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Start(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Start(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                 }
                                 ServiceExpectedState::Stopped => {
@@ -328,10 +344,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                                         .await
                                         .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                                     if active {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Stop(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Stop(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                 }
                             }
@@ -368,10 +386,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                                         .await
                                         .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                                     if !active {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Start(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Start(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                 }
                                 ServiceExpectedState::Stopped => {
@@ -379,10 +399,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                                         .await
                                         .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
                                     if active {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Stop(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Stop(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                 }
                             }
