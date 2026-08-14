@@ -7,7 +7,7 @@
   [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
   [![Rust](https://img.shields.io/badge/rust-2024%20Edition-green.svg)](https://www.rust-lang.org/)
   [![Docs.rs](https://docs.rs/regent-sdk/badge.svg)](https://docs.rs/regent-sdk)
-  [![Discord](https://img.shields.io/discord/1114335045138882600?logo=discord&label=Discord)](https://discord.gg/2gxAW7uzsx)
+  [![Discord](https://img.shields.io/badge/Discord-Join%20our%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/2gxAW7uzsx)
   
   <p><strong>Multi-paradigm configuration management library for Rust</strong></p>
 </div>
