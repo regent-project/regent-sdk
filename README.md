@@ -1,65 +1,114 @@
-<div style="display: flex; align-items: center; gap: 30px;">
-  <img src="regent-logo.png" alt="Regent" width="200" style="margin-bottom: 10px;" />
-  <div>
-    <h1>Regent</h1>
-    <p><em>Shape the tool for the job</em></p>
-  </div>
+<div align="center">
+  <img src="regent-logo.png" alt="Regent" width="200" />
+  <h1>Regent</h1>
+  <p><em>Shape the tool for the job</em></p>
+
+  [![Crates.io](https://img.shields.io/crates/v/regent-sdk.svg)](https://crates.io/crates/regent-sdk)
+  [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+  [![Rust](https://img.shields.io/badge/rust-2024%20Edition-green.svg)](https://www.rust-lang.org/)
+  [![Docs.rs](https://docs.rs/regent-sdk/badge.svg)](https://docs.rs/regent-sdk)
+  [![Discord](https://img.shields.io/discord/1114335045138882600?logo=discord&label=Discord)](https://discord.gg/2gxAW7uzsx)
+  
+  <p><strong>Multi-paradigm configuration management library for Rust</strong></p>
 </div>
 
-***Regent*** is a multi-paradigm configuration management library for Rust. By embedding a generic automation engine in your codebase, you leverage Rust's type system, fearless concurrency, and rich ecosystem to industrialize automation, configuration management, and self-remediation at scale.
+---
 
-*Note: While inspired by Ansible, Regent does not aim to reproduce its API or behaviors. Also, as a multi-paradigm library, you're free to implement agent/agent-less, autonomous/centralized, push/pull models — whatever fits your use case.*
+## Table of Contents
 
-## Key Regent Principles
+- [What is Regent?](#what-is-regent)
+- [Core Concepts](#core-concepts)
+- [Features](#features)
+- [Capabilities](#capabilities)
+- [Quick Start](#quick-start)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [YAML API](#yaml-api)
+  - [Rust API](#rust-api)
+- [Attribute Categories](#attribute-categories)
+- [Connection Methods](#connection-methods)
+- [Use Cases](#use-cases)
+- [Secret Management](#secret-management)
+- [Task Distribution](#task-distribution)
+- [Contributing](#contributing)
+- [License](#license)
 
-At its core, Regent is built around a very straightforward approach: **expected state** (the desired configuration of your system), **attributes** (the building blocks that describe that state), and **compliance** (whether a host matches its expected state or not). When you use Regent, you can **assess** if a host is compliant or you can **enforce** it.
+---
 
-Available attributes :
-| Category | Attribute | Description |
-|---|---|---|
-| **Package Management** | [Apt](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/apt/index.html) | Debian/Ubuntu package management |
-| | [YumDnf](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/yumdnf/index.html) | RHEL/CentOS package management |
-| | [Pacman](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/pacman/index.html) | Arch Linux package management |
-| | [AptRepo](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/apt_repo/index.html) | APT repository configuration |
-| | [DnfRepo](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/dnf_repo/index.html) | DNF repository configuration |
-| **System** | [Service](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/service/index.html) | System service management (start/stop/enable/disable) |
-| | [User](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/user/index.html) | User account management |
-| | [Group](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/group/index.html) | Group management |
-| | [Cron](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/cron/index.html) | Cron job management |
-| | [Hostname](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/hostname/index.html) | Hostname configuration |
-| **Network** | [Iptables](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/network/iptables/index.html) | Firewall rule management |
-| **Shell** | [Command](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/shell/command/index.html) | Arbitrary command execution |
-| **Utilities** | [LineInFile](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/lineinfile/index.html) | Line insertion/removal in files |
-| | [Ping](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/ping/index.html) | Connectivity checks between Regent and hosts (network, authentication) |
-| | [Debug](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/debug/index.html) | Debug message output |
-| **AI** | [Ollama](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/ai/ollama/index.html) | Ollama API integration for AI model management |
+## What is Regent?
 
-## Why Regent?
+A **multi-paradigm configuration management system as a library**.
 
-**Type Safety Meets System Management**
-Regent puts Rust's powerful type system to work in infrastructure automation. Define your expected state with compile-time guarantees, eliminating entire classes of configuration errors before they reach production.
+Regent SDK provides an engine for declarative configuration management, allowing you to define expected system states and automatically assess or remedy compliance. Because it's an engine, you embed it in your own solution — whether that's an all-in-one CLI tool, a distributed system with control nodes and workers, a monitoring system feeding a web interface, or an agent fetching remote configuration — whatever suits your needs and constraints.
 
-**Async by Default**
-Built on tokio, Regent executes operations in parallel when possible. Handle thousands of hosts concurrently without fighting with threads or callbacks.
+> **Note:** While inspired by Ansible in several ways, Regent does not aim to reproduce its API or behaviors.
 
-**Observable by Design**
-Full tracing instrumentation means every operation, every connection, and every state change is observable. Integrate seamlessly with your existing monitoring and logging infrastructure.
+## Core Concepts
 
-**Secure Secret Management**
-Never hardcode secrets. Regent's SecretProvider abstraction dynamically retrieves credentials at runtime from environment variables, files, AWS Secrets Manager, GCP Secret Manager, with more providers coming soon.
+Regent is built around three key concepts:
 
-**Flexible as Your Use Case**
-As a library, not a framework, Regent adapts to you. Need a CLI tool? Wrap it with clap. Distributing work? Serialize your tasks and ship them anywhere. Making hosts observable? Put a compliance check behind an axum endpoint.
+- **Expected State**: The desired configuration of your system, defined via [`ExpectedState`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.ExpectedState.html)
+- **Attributes**: Building blocks that describe that state (see [`attribute`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/index.html) module)
+- **Compliance**: Whether a host matches its expected state, with methods to **assess** or **enforce** it
+---
 
-## Two Ways to Use Regent
-### The YAML API
+## Features
+
+Enable the following Cargo features for additional capabilities:
+
+- `aws-secretsmanager`: Enable AWS Secrets Manager support via `SecretProvider::aws_secretsmanager`
+- `gcp-secretmanager`: Enable Google Cloud Secret Manager support via `SecretProvider::gcp_secretmanager`
+- `windows`: Enable Windows support, including Windows OS detection, command execution, and service management
+
+## Capabilities
+
+- **Declarative State Management**: Define infrastructure as code using [`ExpectedState`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.ExpectedState.html) and [`Attribute`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/index.html)
+- **Multi-Protocol Host Management**: Connect to hosts via [`Ssh2HostHandler`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/handlers/ssh2/struct.Ssh2HostHandler.html) or [`LocalHostHandler`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/handlers/localhost/struct.LocalHostHandler.html)
+- **Comprehensive Resource Modules**: Manage packages, services, users, groups, cron jobs, files, iptables, and more
+- **Secret Management**: Secure secret retrieval from multiple providers using [`SecretProvidersPoolBuilder`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.SecretProvidersPoolBuilder.html)
+- **Task Distribution**: Serializable tasks for distributed workload execution using [`RegentTask`](https://docs.rs/regent-sdk/latest/regent_sdk/task/struct.RegentTask.html) and [`Job`](https://docs.rs/regent-sdk/latest/regent_sdk/task/enum.Job.html)
+- **Compliance Engine**: Automatic assessment and remediation via [`ManagedHost::assess_compliance`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/managed_host/struct.ManagedHost.html#method.assess_compliance) and [`ManagedHost::reach_compliance`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/managed_host/struct.ManagedHost.html#method.reach_compliance)
+- **Idempotent Operations**: All operations are designed to be idempotent
+- **Templating Support**: Variable substitution using Tera templates
+
+---
+
+## Quick Start
+
+Ready to try Regent? With the core concepts of **expected state**, **attributes**, and **compliance**, you can assess or enforce configuration across your infrastructure in minutes.
+
+---
+
+## Installation
+
+Add Regent to your `Cargo.toml`:
+
+```toml
+[dependencies]
+regent-sdk = "0.8.3"
+```
+
+Enable features for secret providers as needed:
+
+```toml
+[dependencies]
+regent-sdk = { version = "0.8.3", features = ["aws-secretsmanager", "gcp-secretmanager"] }
+```
+
+---
+
+## Usage
+
+### YAML API
+
+Define your infrastructure declaratively with YAML:
 
 ```rust
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt().init();
 
-    // Define your inventory
+    // Define inventory
     let yaml_inventory = r#"---
 DefaultConnectionMethod: !Localhost
     UserKind: !CurrentUser
@@ -84,7 +133,7 @@ Attributes:
 
     let expected_state = ExpectedState::from_raw_yaml(expected_state).unwrap();
 
-    // Build your secret providers pool
+    // Build secret providers pool
     let config_aws = aws_config::load_from_env().await;
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
         .add_default_provider("aws", SecretProvider::aws_secretsmanager(config_aws))
@@ -96,11 +145,15 @@ Attributes:
     living_inventory.reach_compliance(&expected_state).await.unwrap();
 }
 ```
-### The Rusty API
+
+### Rust API
+
+Build your infrastructure programmatically:
+
 ```rust
 #[tokio::main]
 async fn main() {
-    // Build your managed host
+    // Build managed host
     let mut managed_host = ManagedHostBuilder::new(
         "<host-id>",
         "<host-endpoint>:<port>",
@@ -113,7 +166,10 @@ async fn main() {
     managed_host.connect().await.unwrap();
 
     // Define expected state programmatically
-    let apache_expected_state = AptBlockExpectedState::package_state("apache2", PackageExpectedState::Present);
+    let apache_expected_state = AptBlockExpectedState::package_state(
+        "apache2", 
+        PackageExpectedState::Present
+    );
 
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::apt(
@@ -132,36 +188,79 @@ async fn main() {
 }
 ```
 
+---
+
+## Attribute Categories
+
+Available attribute modules for defining expected state:
+
+- **[`attribute::system`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/system/index.html)**: System resources (services, users, groups, cron, hostname)
+- **[`attribute::package`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/package/index.html)**: Package management (apt, yum/dnf, pacman, repositories)
+- **[`attribute::network`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/network/index.html)**: Network configuration (iptables)
+- **[`attribute::shell`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/shell/index.html)**: Shell commands
+- **[`attribute::utilities`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/index.html)**: Utilities (line in file, debug, ping)
+- **[`attribute::ai`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/ai/index.html)**: AI integration (Ollama)
+
+## Connection Methods
+
+Connect to hosts using:
+
+- **[`hosts::handlers::localhost::LocalHostHandler`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/handlers/localhost/struct.LocalHostHandler.html)**: Execute on the local machine
+- **[`hosts::handlers::ssh2::Ssh2HostHandler`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/handlers/ssh2/struct.Ssh2HostHandler.html)**: Connect to remote hosts via SSH2
+
+---
+
 ## Use Cases
 
-Regent integrates with the Rust ecosystem you already know:
+Regent integrates seamlessly with the Rust ecosystem:
 
-- **CLI Tools**: Wrap with [clap](https://docs.rs/clap) for configuration management commands
-- **Massive Scale**: Use tokio to handle thousands of hosts concurrently
-- **Distributed Systems**: Serialize tasks, send via HTTP/gRPC/RabbitMQ, execute on worker nodes
-- **Observability**: Run compliance checks in [axum](https://docs.rs/axum) health endpoints
-- **Monitoring Integration**: Plug into Centreon, Nagios, Zabbix for regular health checks
+- **CLI Tools** - Wrap with [clap](https://docs.rs/clap) for configuration management commands
+- **Massive Scale** - Use tokio to handle thousands of hosts concurrently
+- **Distributed Systems** - Serialize tasks, send via HTTP/gRPC/RabbitMQ, execute on worker nodes
+- **Observability** - Run compliance checks in [axum](https://docs.rs/axum) health endpoints
+- **Monitoring Integration** - Plug into Centreon, Nagios, Zabbix for regular health checks
 
-## Secret Providers
+---
 
-Regent never hardcodes secrets. The SecretProvider abstraction dynamically retrieves credentials at runtime from:
-- [x] Environment variables
-- [x] Files
-- [x] AWS Secrets Manager
-- [x] GCP Secret Manager
-- [ ] Hashicorp Vault
-- [ ] Delinea SecretServer (Thycotic)
+## Secret Management
+
+Securely retrieve secrets from:
+
+- **Local**: Files and environment variables
+- **Cloud**: AWS Secrets Manager, Google Cloud Secret Manager (enable via features)
+
+See [`SecretProvidersPoolBuilder`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.SecretProvidersPoolBuilder.html) for configuration options.
+
+## Task Distribution
+
+Create serializable tasks for distributed execution:
+
+```rust
+use regent_sdk::{Job, RegentTask};
+
+let task = RegentTask::from(managed_host_builder, expected_state, Job::Assess);
+let serialized = serde_json::to_string(&task).unwrap();
+let mut task: RegentTask = serde_json::from_str(&serialized).unwrap();
+let result = task.run(Some(secrets_pool)).await.unwrap();
+```
+
+---
 
 ## Contributing
 
 We welcome contributions! The project needs help with:
-- **New secret providers**: Hashicorp Vault, Delinea SecretServer, Azure Key Vault, or any other secure backend
-- **New attributes**: Expand coverage for network management (nftables, firewalld), additional package managers, container orchestration, or cloud resource management
+
+- **New Secret Providers**: Hashicorp Vault, Delinea SecretServer, Azure Key Vault, or any other secure backend
+- **New Attributes**: Expand coverage for network management (nftables, firewalld), additional package managers, container orchestration, or cloud resource management
 - **Documentation**: Tutorials, real-world examples, and deeper API documentation
 - **Testing**: More comprehensive test coverage, especially for edge cases and multi-host scenarios
 - **Performance**: Benchmarks, optimizations for large-scale deployments
 
+**Join our community:** [Regent Discord](https://discord.gg/2gxAW7uzsx)
 
+---
 
-Join our Discord: [Regent project](https://discord.gg/2gxAW7uzsx)
+## License
+
+Regent is licensed under the [Apache License, Version 2.0](LICENSE).
 
