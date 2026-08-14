@@ -31,7 +31,7 @@ async fn main() {
 
     // Describe the expected state
     let httpd_service_active_and_enabled =
-        ServiceBlockExpectedState::state_and_enabled("httpd", ServiceExpectedState::Started, true);
+        ServiceBlockExpectedState::state("httpd", ServiceExpectedState::Started, true);
 
     let localhost_expected_state = ExpectedState::new()
         .with_attribute(Attribute::service(
