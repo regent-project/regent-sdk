@@ -2,41 +2,30 @@
 //!
 //! A **multi-paradigm configuration management system as a library**.
 //!
-//! Regent SDK provides an engine for declarative configuration management,
-//! allowing you to define expected system states and automatically assess/remedy compliance.
-//! Because it's an engine, you still have to embed it in something else, such as a all-in-one CLI tool,
-//! a distributed system wich a control node and workers, a monitoring system which feeds a web interface
-//! in real time with systems status, an agent which regularly fetches a remote git repository and applies
-//! configuration on its localhost... whatever suits your needs and specific constraints !
+//! Regent SDK provides an engine for declarative configuration management, allowing you to define expected system states and automatically assess or remedy compliance. Because it's an engine, you embed it in your own solution — an all-in-one CLI tool, a distributed system with control nodes and workers, a monitoring system feeding a web interface, or an agent fetching remote configuration — whatever suits you !
 //!
-//! *Note: While inspired by Ansible in several ways, Regent does not aim to reproduce its API or behaviors.
-//!
-//! ## Core Concepts
-//!
+//! ## Core principles
+//! 
 //! Regent is built around three key concepts:
-//!
-//! - **Expected State**: The desired configuration of your system, defined via [`ExpectedState`]
-//! - **Attributes**: Building blocks that describe that state (see [`attribute`] module)
+//! 
+//! - **Expected State**: The desired configuration of your system, defined via [`ExpectedState`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.ExpectedState.html)
+//! - **Attributes**: Building blocks that describe that state (see [`attribute`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/index.html) module)
 //! - **Compliance**: Whether a host matches its expected state, with methods to **assess** or **enforce** it
-//!
-//! ## Features
-//!
-//! Enable the following Cargo features for additional capabilities:
-//!
-//! - `aws-secretsmanager`: Enable AWS Secrets Manager support via `SecretProvider::aws_secretsmanager`
-//! - `gcp-secretmanager`: Enable Google Cloud Secret Manager support via `SecretProvider::gcp_secretmanager`
-//! - `windows`: Enable Windows support, including Windows OS detection, command execution, and service management
-//!
-//! ## Capabilities
-//!
-//! - **Declarative State Management**: Define infrastructure as code using [`ExpectedState`] and [`Attribute`]
-//! - **Multi-Protocol Host Management**: Connect to hosts via [`Ssh2HostHandler`] or [`LocalHostHandler`]
-//! - **Comprehensive Resource Modules**: Manage packages, services, users, groups, cron jobs, files, iptables, and more
-//! - **Secret Management**: Secure secret retrieval from multiple providers using [`SecretProvidersPoolBuilder`]
-//! - **Task Distribution**: Serializable tasks for distributed workload execution using [`RegentTask`] and [`Job`]
-//! - **Compliance Engine**: Automatic assessment and remediation via [`ManagedHost::assess_compliance`] and [`ManagedHost::reach_compliance`]
-//! - **Idempotent Operations**: All operations are designed to be idempotent
-//! - **Templating Support**: Variable substitution using Tera templates
+//! 
+//! On top of these concepts, Regent is developped with the following goals in mind :
+//! - **Declarative State Management**: Describe the expected state of a host using [`ExpectedState`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.ExpectedState.html) and [`Attribute`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/index.html). Regent is not a scripting tool.
+//! - **Idempotency when possible**: All operations are designed to be idempotent, meaning a strong focus on the initial assessment of the host's state. However some operations can't be idempotent by nature (a shell command).
+//! - **Multi-Protocol Host Connection**: Regent can connect to hosts using SSH2 or direct access (localhost) so nothing new for now but we abstracted away the connection protocol and we intend to add more protocols and ways to connect to hosts (like this [cool project](https://github.com/h4sh5/sshoq))
+//! - **Secret Management**: For secrets, we rely on modern specialized platforms instead. Regent has the [`SecretProvider`](https://docs.rs/regent-sdk/latest/regent_sdk/secrets/enum.SecretProvider.html) abstraction for this.
+//! - **Task Distribution**: Workload can be sent through the wire (serialized/deserialized) using the [`RegentTask`](https://docs.rs/regent-sdk/latest/regent_sdk/task/struct.RegentTask.html) type. Build a RegentTask, send it to someone else to be executed then get back the outcome. Lots of possibilities here !
+//! - **Templating Support**: Variable substitution using [Tera](https://docs.rs/tera/latest/tera/) templates
+//! 
+//! ## Available crate features
+//! 
+//! - `aws-secretsmanager`: dynamically retrieve secrets from AWS Secrets Manager
+//! - `gcp-secretmanager`: dynamically retrieve secrets from Google Cloud Secret Manager
+//! - `windows`: Enable Windows support (not every attribute will be compatible, see [Usage](#usage))
+//! 
 //!
 //! ## Usage
 //!
@@ -91,8 +80,6 @@
 //! }
 //! ```
 //!
-//! For YAML-based configuration, see [`ExpectedState::from_raw_yaml`] and [`Inventory`].
-//!
 //! ## Attribute Categories
 //!
 //! Available attribute modules for defining expected state:
@@ -104,34 +91,6 @@
 //! - **[`attribute::utilities`]**: Utilities (line in file, debug, ping)
 //! - **[`attribute::ai`]**: AI integration (Ollama)
 //!
-//! ## Connection Methods
-//!
-//! Connect to hosts using:
-//!
-//! - **[`hosts::handlers::localhost::LocalHostHandler`]**: Execute on the local machine
-//! - **[`hosts::handlers::ssh2::Ssh2HostHandler`]**: Connect to remote hosts via SSH2
-//!
-//! ## Secret Management
-//!
-//! Securely retrieve secrets from:
-//!
-//! - **Local**: Files and environment variables
-//! - **Cloud**: AWS Secrets Manager, Google Cloud Secret Manager (enable via features)
-//!
-//! See [`SecretProvidersPoolBuilder`] for configuration options.
-//!
-//! ## Task Distribution
-//!
-//! Create serializable tasks for distributed execution:
-//!
-//! ```no_run
-//! use regent_sdk::{Job, RegentTask};
-//!
-//! let task = RegentTask::from(managed_host_builder, expected_state, Job::Assess);
-//! let serialized = serde_json::to_string(&task).unwrap();
-//! let mut task: RegentTask = serde_json::from_str(&serialized).unwrap();
-//! let result = task.run(Some(secrets_pool)).await.unwrap();
-//! ```
 
 pub mod command;
 pub mod error;
