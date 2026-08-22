@@ -50,10 +50,6 @@ pub struct LocalHostHandler {
 impl LocalHostHandler {
     /// Create a new local host handler with the specified user context.
     ///
-    /// # Arguments
-    ///
-    /// * `user` - The user to execute commands as
-    ///
     /// # Example
     ///
     /// ```no_run

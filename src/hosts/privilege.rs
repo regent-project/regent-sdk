@@ -73,11 +73,6 @@ pub struct Credentials {
 impl Credentials {
     /// Create new credentials from username and password.
     ///
-    /// # Arguments
-    ///
-    /// * `username` - The username
-    /// * `password` - The password
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -93,10 +88,6 @@ impl Credentials {
     }
 
     /// Get the username.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the username string.
     pub fn username(&self) -> &str {
         &self.username
     }
@@ -104,10 +95,6 @@ impl Credentials {
     /// Get the password.
     ///
     /// **Warning**: Be cautious with this method as it exposes the password in plain text.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the password string.
     pub fn password(&self) -> &str {
         &self.password
     }
@@ -138,12 +125,7 @@ pub struct LoginKey {
 }
 
 impl LoginKey {
-    /// Create a new login key from username and private key.
-    ///
-    /// # Arguments
-    ///
-    /// * `username` - The SSH username
-    /// * `key` - The SSH private key (PEM format)
+    /// Create a new login key from username and private key (PEM format expected)
     ///
     /// # Example
     ///
@@ -157,10 +139,6 @@ impl LoginKey {
     }
 
     /// Get the username.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the username string.
     pub fn username(&self) -> &str {
         &self.username
     }
@@ -168,10 +146,6 @@ impl LoginKey {
     /// Get the private key.
     ///
     /// **Warning**: Be cautious with this method as it exposes the private key in plain text.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the private key string.
     pub fn key(&self) -> &str {
         &self.key
     }
@@ -205,11 +179,6 @@ pub struct LoginKeyRef {
 impl LoginKeyRef {
     /// Create a new login key reference from username and secret reference.
     ///
-    /// # Arguments
-    ///
-    /// * `username` - The SSH username
-    /// * `key` - Reference to the secret containing the private key
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -224,19 +193,11 @@ impl LoginKeyRef {
     }
 
     /// Get the username.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the username string.
     pub fn username(&self) -> &str {
         &self.username
     }
 
     /// Get the secret reference for the SSH key.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the secret reference.
     pub fn key_ref(&self) -> &SecretReference {
         &self.key
     }

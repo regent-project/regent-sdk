@@ -67,35 +67,13 @@ pub struct ExpectedState {
 impl ExpectedState {
     /// Create a new, empty expected state.
     ///
-    /// # Returns
-    ///
-    /// A new [`ExpectedState`] with no attributes.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use regent_sdk::state::ExpectedState;
-    ///
-    /// let expected_state = ExpectedState::new();
-    /// assert!(expected_state.attributes.is_empty());
-    /// ```
     pub fn new() -> ExpectedState {
         ExpectedState {
             attributes: Vec::new(),
         }
     }
 
-    /// Add an attribute to the expected state.
-    ///
-    /// This method uses the builder pattern, allowing for fluent configuration.
-    ///
-    /// # Arguments
-    ///
-    /// * `attribute` - The attribute to add
-    ///
-    /// # Returns
-    ///
-    /// The same [`ExpectedState`] with the attribute added.
+    /// Chainable method to add an attribute to the expected state.
     ///
     /// # Example
     ///
@@ -108,24 +86,14 @@ impl ExpectedState {
     ///     .with_attribute(Attribute::user(/* ... */))
     ///     .build();
     /// ```
+    /// 
     pub fn with_attribute(mut self, attribute: Attribute) -> Self {
         self.attributes.push(attribute);
         self
     }
 
     /// Parse an expected state from raw YAML content.
-    ///
-    /// This method deserializes YAML and validates all attributes.
-    ///
-    /// # Arguments
-    ///
-    /// * `raw_yaml_content` - The YAML string to parse
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(ExpectedState)` if parsing and validation succeeded
-    /// - `Err(RegentError)` if parsing failed or any attribute validation failed
-    ///
+    /// 
     /// # Example
     ///
     /// ```no_run
@@ -154,25 +122,8 @@ impl ExpectedState {
         }
     }
 
-    /// Build the expected state.
+    /// Final method of the builder pattern
     ///
-    /// This method creates a new [`ExpectedState`] with a copy of the current attributes.
-    /// It's primarily useful for finalizing a builder-style configuration.
-    ///
-    /// # Returns
-    ///
-    /// A new [`ExpectedState`] instance.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use regent_sdk::state::ExpectedState;
-    /// use regent_sdk::Attribute;
-    ///
-    /// let expected_state = ExpectedState::new()
-    ///     .with_attribute(Attribute::service(/* ... */))
-    ///     .build();
-    /// ```
     pub fn build(&self) -> ExpectedState {
         ExpectedState {
             attributes: self.attributes.clone(),
@@ -185,20 +136,9 @@ impl ExpectedState {
 /// This enum allows attributes to accept parameters that are either provided
 /// directly or retrieved from a secret provider.
 ///
-/// # Type Parameters
-///
-/// * `T` - The type of the clear value
-///
-/// # Variants
-///
-/// - `Clear`: A direct value (not secret)
-/// - `Secret`: A reference to a secret in a secret provider
-///
 /// # Example
 ///
 /// ```no_run
-/// use regent_sdk::state::expected_state::Parameter;
-/// use regent_sdk::secrets::SecretReference;
 ///
 /// // Clear parameter
 /// let param1: Parameter<String> = Parameter::Clear("hello".to_string());
@@ -255,15 +195,6 @@ impl Parameter<String> {
     /// If the parameter is a clear value, returns it directly.
     /// If the parameter is a secret reference, retrieves the secret from the provider.
     ///
-    /// # Arguments
-    ///
-    /// * `optional_secret_provider` - Optional secret providers pool
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(String)` with the resolved value
-    /// - `Err(RegentError)` if secret retrieval failed or no provider was available
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -308,19 +239,6 @@ impl<T: DeserializeOwned> Parameter<T> {
     ///
     /// If the parameter is a clear value, returns it directly.
     /// If the parameter is a secret reference, retrieves and deserializes the secret.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - The type to deserialize the secret into (must implement `DeserializeOwned`)
-    ///
-    /// # Arguments
-    ///
-    /// * `optional_secret_provider` - Optional secret providers pool
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(T)` with the resolved and deserialized value
-    /// - `Err(RegentError)` if secret retrieval or deserialization failed
     ///
     /// # Example
     ///

@@ -121,16 +121,6 @@ pub struct ManagedHostBuilder {
 impl ManagedHostBuilder {
     /// Create a new managed host builder.
     ///
-    /// # Arguments
-    ///
-    /// * `id` - Unique identifier for the host
-    /// * `endpoint` - Network endpoint for the host
-    /// * `connection_method` - How to connect to the host
-    ///
-    /// # Returns
-    ///
-    /// A new [`ManagedHostBuilder`] instance.
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -159,10 +149,6 @@ impl ManagedHostBuilder {
 
     /// Set the connection method for this host.
     ///
-    /// # Arguments
-    ///
-    /// * `connection_method` - The connection method to use
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -177,10 +163,6 @@ impl ManagedHostBuilder {
     }
 
     /// Set the host variables for templating.
-    ///
-    /// # Arguments
-    ///
-    /// * `host_vars` - HashMap of variable names to values
     ///
     /// # Example
     ///
@@ -201,15 +183,6 @@ impl ManagedHostBuilder {
     }
 
     /// Parse a managed host builder from raw YAML content.
-    ///
-    /// # Arguments
-    ///
-    /// * `raw_yaml` - The YAML string to parse
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(ManagedHostBuilder)` if parsing succeeded
-    /// - `Err(RegentError)` if parsing failed
     ///
     /// # Example
     ///
@@ -234,15 +207,6 @@ impl ManagedHostBuilder {
     }
 
     /// Parse a managed host builder from raw JSON content.
-    ///
-    /// # Arguments
-    ///
-    /// * `raw_json` - The JSON string to parse
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(ManagedHostBuilder)` if parsing succeeded
-    /// - `Err(RegentError)` if parsing failed
     ///
     /// # Example
     ///
@@ -455,19 +419,6 @@ impl Clone for ManagedHost {
 
 impl ManagedHost {
     /// Create a new managed host.
-    ///
-    /// # Arguments
-    ///
-    /// * `id` - Unique identifier for the host
-    /// * `endpoint` - Network endpoint for the host
-    /// * `handler` - Connection handler for the host
-    /// * `host_vars` - Host-specific variables for templating
-    /// * `host_properties` - Optional cached host properties
-    /// * `secret_providers` - Optional secret providers pool
-    ///
-    /// # Returns
-    ///
-    /// A new [`ManagedHost`] instance.
     pub fn new(
         id: String,
         endpoint: &str,
@@ -502,18 +453,6 @@ impl ManagedHost {
     ///
     /// This is a convenience constructor that accepts variables as an iterator.
     ///
-    /// # Arguments
-    ///
-    /// * `id` - Unique identifier for the host
-    /// * `endpoint` - Network endpoint for the host
-    /// * `handler` - Connection handler for the host
-    /// * `vars` - Iterator of (key, value) pairs for host variables
-    /// * `host_properties` - Optional cached host properties
-    /// * `secret_providers` - Optional secret providers pool
-    ///
-    /// # Returns
-    ///
-    /// A new [`ManagedHost`] instance.
     pub fn from(
         id: String,
         endpoint: &str,
@@ -547,10 +486,6 @@ impl ManagedHost {
     }
 
     /// Get the unique identifier for this managed host.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the host's ID string.
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -558,11 +493,6 @@ impl ManagedHost {
     /// Add a variable to the host's template context.
     ///
     /// This variable will be available during template rendering for attributes.
-    ///
-    /// # Arguments
-    ///
-    /// * `key` - The variable name
-    /// * `value` - The variable value
     pub fn add_var(&mut self, key: String, value: String) {
         if self.context.contains_key(&key) {
             warn!(
@@ -576,10 +506,6 @@ impl ManagedHost {
     /// Set the host properties.
     ///
     /// This replaces any existing host properties with the provided value.
-    ///
-    /// # Arguments
-    ///
-    /// * `host_properties` - The host properties to set
     pub fn set_host_properties(&mut self, host_properties: Option<HostProperties>) {
         self.host_properties = host_properties;
     }
@@ -607,9 +533,6 @@ impl ManagedHost {
     /// This method connects to the host and collects information about its
     /// operating system, architecture, and other properties.
     ///
-    /// # Returns
-    ///
-    /// `Ok(())` if property collection succeeded, or a [`RegentError`] if it failed.
     pub async fn collect_properties(&mut self) -> Result<(), RegentError> {
         if matches!(self.host_properties, None) {
             match HostProperties::collect_dynamically(&mut self.handler).await {
@@ -627,10 +550,6 @@ impl ManagedHost {
     }
 
     /// Get the host properties.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the optional host properties.
     pub fn get_host_properties(&self) -> &Option<HostProperties> {
         &self.host_properties
     }
@@ -638,10 +557,6 @@ impl ManagedHost {
     /// Connect to the host.
     ///
     /// This method establishes a connection to the host using the configured handler.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if connection succeeded, or a [`RegentError`] if it failed.
     ///
     /// # Example
     ///
@@ -663,10 +578,6 @@ impl ManagedHost {
     }
 
     /// Check if the host is currently connected.
-    ///
-    /// # Returns
-    ///
-    /// `true` if connected, `false` otherwise.
     pub async fn is_connected(&mut self) -> bool {
         self.handler.is_connected().await
     }
@@ -676,9 +587,6 @@ impl ManagedHost {
     /// Unlike `is_connected()`, which queries the underlying handler,
     /// this returns the tracked state that was last set by `connect()` or `disconnect()`.
     ///
-    /// # Returns
-    ///
-    /// The current `ConnectionState` of this host.
     pub fn connection_state(&self) -> &ConnectionState {
         &self.connection_state
     }
@@ -689,9 +597,6 @@ impl ManagedHost {
     /// the actual underlying handler state. Use `is_connected()` to check
     /// the actual connection status.
     ///
-    /// # Returns
-    ///
-    /// `true` if the tracked state is `Connected`.
     pub fn is_tracked_connected(&self) -> bool {
         matches!(self.connection_state, ConnectionState::Connected)
     }
@@ -700,18 +605,12 @@ impl ManagedHost {
     ///
     /// This returns `true` if the tracked state is `Disconnected`.
     ///
-    /// # Returns
-    ///
-    /// `true` if the tracked state is `Disconnected`.
     pub fn is_tracked_disconnected(&self) -> bool {
         matches!(self.connection_state, ConnectionState::Disconnected)
     }
 
     /// Disconnect from the host.
     ///
-    /// # Returns
-    ///
-    /// `Ok(())` if disconnection succeeded, or a [`RegentError`] if it failed.
     pub async fn disconnect(&mut self) -> Result<(), RegentError> {
         let result = self.handler.disconnect().await;
         if result.is_ok() {
@@ -726,15 +625,6 @@ impl ManagedHost {
     ///
     /// This method checks each attribute in the expected state and determines
     /// whether the host is compliant. It does not make any changes to the host.
-    ///
-    /// # Arguments
-    ///
-    /// * `expected_state` - The expected state to check against
-    ///
-    /// # Returns
-    ///
-    /// A [`ManagedHostStatus`] indicating whether the host is compliant and
-    /// what remediations would be needed to reach compliance.
     ///
     /// # Example
     ///
@@ -821,15 +711,6 @@ impl ManagedHost {
     /// This method assesses compliance and then automatically performs the necessary
     /// remediations to bring the host into the expected state. It will stop at the
     /// first failure unless all remediations are marked as allowed to fail.
-    ///
-    /// # Arguments
-    ///
-    /// * `expected_state` - The expected state to reach
-    ///
-    /// # Returns
-    ///
-    /// A [`ManagedHostStatus`] indicating the final compliance status and
-    /// what actions were taken.
     ///
     /// # Example
     ///
@@ -987,17 +868,6 @@ impl ManagedHost {
 /// * `Handler` - The type of host handler
 pub trait AssessCompliance<Handler: HostHandler> {
     /// Assess whether the host is compliant.
-    ///
-    /// # Arguments
-    ///
-    /// * `host_handler` - The handler for executing commands on the host
-    /// * `host_properties` - Optional host properties
-    /// * `privilege` - The privilege level to use for command execution
-    /// * `optional_secret_provider` - Optional secret providers pool
-    ///
-    /// # Returns
-    ///
-    /// An [`AttributeComplianceAssessment`] indicating whether the host is compliant.
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -1017,16 +887,6 @@ pub trait AssessCompliance<Handler: HostHandler> {
 /// * `Handler` - The type of host handler
 pub trait ReachCompliance<Handler: HostHandler> {
     /// Perform remediation on the host.
-    ///
-    /// # Arguments
-    ///
-    /// * `host_handler` - The handler for executing commands on the host
-    /// * `host_properties` - Optional host properties
-    /// * `optional_secret_provider` - Optional secret providers pool
-    ///
-    /// # Returns
-    ///
-    /// An [`InternalApiCallOutcome`] indicating the result of the remediation.
     async fn call(
         &self,
         host_handler: &mut Handler,
@@ -1040,10 +900,6 @@ pub trait ReachCompliance<Handler: HostHandler> {
 /// Implement this trait for operations that should have a configurable timeout.
 pub trait Timeout {
     /// Get the default timeout for this operation.
-    ///
-    /// # Returns
-    ///
-    /// A [`Duration`] representing the default timeout.
     fn default_timeout(&self) -> Duration;
 }
 

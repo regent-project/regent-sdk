@@ -69,36 +69,18 @@ impl SecretCache {
     }
 
     /// Insert a secret into the cache.
-    ///
-    /// # Arguments
-    /// * `secret_ref` - The secret reference string (including provider if specified)
-    /// * `value` - The resolved secret value
     pub async fn insert(&self, secret_ref: String, value: String) {
         let mut cache = self.cache.lock().await;
         cache.insert(secret_ref, value);
     }
 
-    /// Get a secret from the cache.
-    ///
-    /// # Arguments
-    /// * `secret_ref` - The secret reference string (including provider if specified)
-    ///
-    /// # Returns
-    /// * `Some(String)` if the secret is in the cache
-    /// * `None` if the secret is not cached
+    /// Get a secret from the cache if it exists
     pub async fn get(&self, secret_ref: &str) -> Option<String> {
         let cache = self.cache.lock().await;
         cache.get(secret_ref).cloned()
     }
 
     /// Check if a secret is in the cache.
-    ///
-    /// # Arguments
-    /// * `secret_ref` - The secret reference string (including provider if specified)
-    ///
-    /// # Returns
-    /// * `true` if the secret is cached
-    /// * `false` otherwise
     pub async fn contains(&self, secret_ref: &str) -> bool {
         let cache = self.cache.lock().await;
         cache.contains_key(secret_ref)
@@ -189,10 +171,6 @@ impl SecretProvider {
     ///
     /// Requires the `aws-secretsmanager` feature to be enabled.
     ///
-    /// # Arguments
-    ///
-    /// * `aws_config` - AWS SDK configuration
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -210,10 +188,6 @@ impl SecretProvider {
     /// Create a Google Cloud Secret Manager provider.
     ///
     /// Requires the `gcp-secretmanager` feature to be enabled.
-    ///
-    /// # Returns
-    ///
-    /// A new GCP Secret Manager provider or an error if initialization fails.
     ///
     /// # Example
     ///
@@ -290,39 +264,15 @@ impl SecretProvider {
 /// and retrieving secrets in both typed and raw string formats.
 pub trait SecretProvidingSolution {
     /// Connect to the secret provider backend.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if connection was successful, or a [`RegentError`] if it failed.
     async fn connect(&mut self) -> Result<(), RegentError>;
 
     /// Retrieve a secret as a specific type.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - The type to deserialize the secret into (must implement `DeserializeOwned`)
-    ///
-    /// # Arguments
-    ///
-    /// * `secret_reference` - The reference/identifier for the secret
-    ///
-    /// # Returns
-    ///
-    /// The secret wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError>;
 
     /// Retrieve a secret as a raw string.
-    ///
-    /// # Arguments
-    ///
-    /// * `secret_reference` - The reference/identifier for the secret
-    ///
-    /// # Returns
-    ///
-    /// The secret as a string wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
 }
 
@@ -336,39 +286,15 @@ pub trait SecretProvidingSolution {
 /// and retrieving secrets in both typed and raw string formats.
 pub trait AsyncSecretProvidingSolution {
     /// Connect to the secret provider backend.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if connection was successful, or a [`RegentError`] if it failed.
     async fn connect(&mut self) -> Result<(), RegentError>;
 
     /// Retrieve a secret as a specific type.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - The type to deserialize the secret into (must implement `DeserializeOwned`)
-    ///
-    /// # Arguments
-    ///
-    /// * `secret_reference` - The reference/identifier for the secret
-    ///
-    /// # Returns
-    ///
-    /// The secret wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError>;
 
     /// Retrieve a secret as a raw string.
-    ///
-    /// # Arguments
-    ///
-    /// * `secret_reference` - The reference/identifier for the secret
-    ///
-    /// # Returns
-    ///
-    /// The secret as a string wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     async fn get_secret_raw(&self, secret_reference: &str) -> Result<Secret<String>, RegentError>;
 }
 
@@ -418,11 +344,6 @@ where
 impl<T> Secret<T> {
     /// Create a new secret wrapper.
     ///
-    /// # Arguments
-    ///
-    /// * `sec_ref` - A reference identifier for this secret (used for auditing)
-    /// * `inner` - The actual secret value
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -440,10 +361,6 @@ impl<T> Secret<T> {
     /// Consume the secret wrapper and return the inner value.
     ///
     /// **Warning**: This exposes the secret value. Use with caution.
-    ///
-    /// # Returns
-    ///
-    /// The inner secret value.
     ///
     /// # Example
     ///
@@ -488,11 +405,6 @@ pub struct SecretReference {
 impl SecretReference {
     /// Create a new secret reference.
     ///
-    /// # Arguments
-    ///
-    /// * `sec_ref` - The reference/identifier for the secret
-    /// * `provider` - Optional name of the secret provider
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -512,19 +424,11 @@ impl SecretReference {
     }
 
     /// Get the secret reference string.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the secret reference string.
     pub fn sec_ref(&self) -> &str {
         &self.sec_ref
     }
 
     /// Get the optional provider name.
-    ///
-    /// # Returns
-    ///
-    /// A reference to the optional provider name.
     pub fn provider(&self) -> &Option<String> {
         &self.provider
     }
@@ -570,15 +474,6 @@ impl SecretProvidersPoolBuilder {
 
     /// Add a secret provider to the pool.
     ///
-    /// # Arguments
-    ///
-    /// * `name` - Unique identifier for this provider
-    /// * `provider` - The secret provider instance
-    ///
-    /// # Returns
-    ///
-    /// The builder, for method chaining.
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -600,15 +495,6 @@ impl SecretProvidersPoolBuilder {
     /// Add a secret provider and set it as the default.
     ///
     /// This is a convenience method that combines `add_provider` and `set_default`.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - Unique identifier for this provider
-    /// * `provider` - The secret provider instance
-    ///
-    /// # Returns
-    ///
-    /// The builder, for method chaining.
     ///
     /// # Example
     ///
@@ -633,14 +519,6 @@ impl SecretProvidersPoolBuilder {
     ///
     /// The provider must have been previously added with `add_provider`.
     ///
-    /// # Arguments
-    ///
-    /// * `name` - Name of the provider to set as default
-    ///
-    /// # Returns
-    ///
-    /// The builder, for method chaining.
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -659,11 +537,6 @@ impl SecretProvidersPoolBuilder {
     /// Build the secret providers pool.
     ///
     /// This consumes the builder and returns a new [`SecretProvidersPool`] if validation passes.
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(SecretProvidersPool)` if the pool was successfully built
-    /// - `Err(RegentError)` if validation failed (e.g., no default provider set, or default provider not found)
     ///
     /// # Example
     ///
@@ -740,15 +613,6 @@ impl SecretProvidersPool {
     /// This is a convenience constructor for pools with only one provider,
     /// which will automatically be set as the default.
     ///
-    /// # Arguments
-    ///
-    /// * `name` - Name for the provider
-    /// * `secret_provider` - The secret provider instance
-    ///
-    /// # Returns
-    ///
-    /// A new [`SecretProvidersPool`] with the specified provider as the default.
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -800,10 +664,6 @@ impl SecretProvidersPool {
     }
 
     /// Check if caching is enabled for this pool.
-    ///
-    /// # Returns
-    /// * `true` if caching is enabled
-    /// * `false` otherwise
     pub fn is_caching_enabled(&self) -> bool {
         self.secret_cache.is_some()
     }
@@ -821,18 +681,6 @@ impl SecretProvidersPool {
     }
 
     /// Retrieve a secret as a specific type.
-    ///
-    /// # Type Parameters
-    ///
-    /// * `T` - The type to deserialize the secret into (must implement `DeserializeOwned`)
-    ///
-    /// # Arguments
-    ///
-    /// * `secret_reference` - Reference to the secret to retrieve
-    ///
-    /// # Returns
-    ///
-    /// The secret wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
     ///
     /// # Example
     ///
@@ -879,15 +727,7 @@ impl SecretProvidersPool {
     }
 
     /// Retrieve a secret as a raw string.
-    ///
-    /// # Arguments
-    ///
-    /// * `secret_reference` - Reference to the secret to retrieve
-    ///
-    /// # Returns
-    ///
-    /// The secret as a string wrapped in a [`Secret`] container, or a [`RegentError`] if retrieval failed.
-    ///
+    /// 
     /// # Example
     ///
     /// ```no_run

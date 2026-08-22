@@ -77,11 +77,6 @@ impl TargetUser {
 
     /// Create a target user for a specific user.
     ///
-    /// # Arguments
-    ///
-    /// * `sec_ref` - Reference to the secret containing credentials
-    /// * `provider` - Optional name of the secret provider to use
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -143,14 +138,6 @@ pub enum ConnectionMethod {
 /// Implementers of this trait can be used interchangeably through the [`Handler`] enum.
 pub trait HostHandler: Sized {
     /// Establish a connection to the specified endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `endpoint` - The host address to connect to (e.g., "192.168.1.100:22")
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if connection was successful, or a [`RegentError`] if it failed.
     async fn connect(
         &mut self,
         endpoint: &str,
@@ -158,30 +145,12 @@ pub trait HostHandler: Sized {
     ) -> Result<(), RegentError>;
 
     /// Check if the handler is currently connected to a host.
-    ///
-    /// # Returns
-    ///
-    /// `true` if connected, `false` otherwise.
     async fn is_connected(&mut self) -> bool;
 
     /// Disconnect from the host.
-    ///
-    /// # Returns
-    ///
-    /// `Ok(())` if disconnection was successful, or a [`RegentError`] if it failed.
     async fn disconnect(&mut self) -> Result<(), RegentError>;
 
     /// Check if a specific command is available on the host.
-    ///
-    /// # Arguments
-    ///
-    /// * `command` - The command name to check
-    /// * `privilege` - The privilege level to check with
-    ///
-    /// # Returns
-    ///
-    /// `Ok(true)` if the command exists, `Ok(false)` if it doesn't,
-    /// or a [`RegentError`] if the check failed.
     async fn is_this_command_available(
         &mut self,
         command: &str,
@@ -189,16 +158,6 @@ pub trait HostHandler: Sized {
     ) -> Result<bool, RegentError>;
 
     /// Execute a command on the host.
-    ///
-    /// # Arguments
-    ///
-    /// * `command` - The command to execute
-    /// * `privilege` - The privilege level to use
-    ///
-    /// # Returns
-    ///
-    /// A [`CommandResult`] containing the exit code, stdout, and stderr,
-    /// or a [`RegentError`] if execution failed.
     async fn run_command(
         &mut self,
         command: &str,
@@ -208,26 +167,10 @@ pub trait HostHandler: Sized {
     /// Execute a Windows command on the host.
     ///
     /// This method is specifically for Windows command execution.
-    ///
-    /// # Arguments
-    ///
-    /// * `command` - The Windows command to execute
-    ///
-    /// # Returns
-    ///
-    /// A [`CommandResult`] or a [`RegentError`] if execution failed.
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError>;
 
     /// Retrieve the contents of a file from the host.
-    ///
-    /// # Arguments
-    ///
-    /// * `path` - The path to the file to retrieve
-    ///
-    /// # Returns
-    ///
-    /// The file contents as a byte vector, or a [`RegentError`] if retrieval failed.
     async fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError>;
 }
 
@@ -272,10 +215,6 @@ impl Clone for Handler {
 impl Handler {
     /// Create a [`Handler`] from a [`LocalHostHandler`].
     ///
-    /// # Arguments
-    ///
-    /// * `localhost_handler` - The local host handler to wrap
-    ///
     /// # Example
     ///
     /// ```no_run
@@ -288,10 +227,6 @@ impl Handler {
     }
 
     /// Create a [`Handler`] from a [`Ssh2HostHandler`].
-    ///
-    /// # Arguments
-    ///
-    /// * `ss2_handler` - The SSH host handler to wrap
     ///
     /// # Example
     ///

@@ -792,20 +792,11 @@ impl IptablesBlockExpectedState {
 
     /// Allow incoming TCP traffic on a specific port in the INPUT chain.
     /// This is a convenience method for the common use case of opening a TCP port.
-    ///
-    /// # Arguments
-    /// * `port` - The TCP port number to allow
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn allow_tcp_port(port: u16, position: Option<u32>) -> IptablesBlockExpectedState {
         Self::allow_tcp_port_with_ip(port, IpVersion::V4, position)
     }
 
     /// Allow incoming TCP traffic on a specific port in the INPUT chain with custom IP version.
-    ///
-    /// # Arguments
-    /// * `port` - The TCP port number to allow
-    /// * `ip_version` - IP version (V4 or V6)
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn allow_tcp_port_with_ip(
         port: u16,
         ip_version: IpVersion,
@@ -843,20 +834,11 @@ impl IptablesBlockExpectedState {
 
     /// Allow incoming UDP traffic on a specific port in the INPUT chain.
     /// This is a convenience method for the common use case of opening a UDP port.
-    ///
-    /// # Arguments
-    /// * `port` - The UDP port number to allow
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn allow_udp_port(port: u16, position: Option<u32>) -> IptablesBlockExpectedState {
         Self::allow_udp_port_with_ip(port, IpVersion::V4, position)
     }
 
     /// Allow incoming UDP traffic on a specific port in the INPUT chain with custom IP version.
-    ///
-    /// # Arguments
-    /// * `port` - The UDP port number to allow
-    /// * `ip_version` - IP version (V4 or V6)
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn allow_udp_port_with_ip(
         port: u16,
         ip_version: IpVersion,
@@ -893,18 +875,11 @@ impl IptablesBlockExpectedState {
 
     /// Allow incoming SSH traffic on port 22 in the INPUT chain.
     /// This is a convenience method for the common use case of enabling SSH access.
-    ///
-    /// # Arguments
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn allow_ssh(position: Option<u32>) -> IptablesBlockExpectedState {
         Self::allow_ssh_with_ip(IpVersion::V4, position)
     }
 
     /// Allow incoming SSH traffic on port 22 in the INPUT chain with custom IP version.
-    ///
-    /// # Arguments
-    /// * `ip_version` - IP version (V4 or V6)
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn allow_ssh_with_ip(
         ip_version: IpVersion,
         position: Option<u32>,
@@ -914,18 +889,11 @@ impl IptablesBlockExpectedState {
 
     /// Drop all incoming traffic on the INPUT chain.
     /// This is a convenience method for creating a default deny policy.
-    ///
-    /// # Arguments
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn drop_all_incoming(position: Option<u32>) -> IptablesBlockExpectedState {
         Self::drop_all_incoming_with_ip(IpVersion::V4, position)
     }
 
     /// Drop all incoming traffic on the INPUT chain with custom IP version.
-    ///
-    /// # Arguments
-    /// * `ip_version` - IP version (V4 or V6)
-    /// * `position` - Optional rule position for insertion (uses Append if None)
     pub fn drop_all_incoming_with_ip(
         ip_version: IpVersion,
         position: Option<u32>,

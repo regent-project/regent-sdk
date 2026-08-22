@@ -51,16 +51,10 @@ pub use expected_state::ExpectedState;
 pub trait Check {
     /// Validate this item.
     ///
-    /// # Returns
-    ///
-    /// `Ok(())` if validation passed, or a [`RegentError`] if validation failed.
     fn check(&self) -> Result<(), RegentError>;
 
     /// If host properties are known, checks whether this attribute is compatible with the host or not.
     ///
-    /// # Returns
-    ///
-    /// `Ok(())` if host is compatible, or a [`RegentError`] if not.
     fn check_host_compatibility(
         &self,
         managed_host_properties: &HostProperties,

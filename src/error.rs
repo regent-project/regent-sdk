@@ -38,28 +38,6 @@ use thiserror::Error;
 /// - `AttributeError`: Issue with an attribute definition or execution
 /// - `TimeOutReached`: Operation timed out
 ///
-/// # Example
-///
-/// ```no_run
-/// use regent_sdk::RegentError;
-///
-/// fn handle_error(e: RegentError) {
-///     match e {
-///         RegentError::NotConnectedToHost => {
-///             eprintln!("Please connect to the host first");
-///         }
-///         RegentError::TimeOutReached(msg) => {
-///             eprintln!("Operation timed out: {}", msg);
-///         }
-///         RegentError::FailedToGetSecret(msg) => {
-///             eprintln!("Secret retrieval failed: {}", msg);
-///         }
-///         _ => {
-///             eprintln!("An error occurred: {:?}", e);
-///         }
-///     }
-/// }
-/// ```
 #[derive(Debug, Error, Clone)]
 pub enum RegentError {
     #[error("Failure to find group content")]
