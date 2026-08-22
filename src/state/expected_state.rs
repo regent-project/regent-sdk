@@ -86,14 +86,14 @@ impl ExpectedState {
     ///     .with_attribute(Attribute::user(/* ... */))
     ///     .build();
     /// ```
-    /// 
+    ///
     pub fn with_attribute(mut self, attribute: Attribute) -> Self {
         self.attributes.push(attribute);
         self
     }
 
     /// Parse an expected state from raw YAML content.
-    /// 
+    ///
     /// # Example
     ///
     /// ```no_run

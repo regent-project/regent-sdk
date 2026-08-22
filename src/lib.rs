@@ -5,13 +5,13 @@
 //! Regent SDK provides an engine for declarative configuration management, allowing you to define expected system states and automatically assess or remedy compliance. Because it's an engine, you embed it in your own solution — an all-in-one CLI tool, a distributed system with control nodes and workers, a monitoring system feeding a web interface, or an agent fetching remote configuration — whatever suits you !
 //!
 //! ## Core principles
-//! 
+//!
 //! Regent is built around three key concepts:
-//! 
+//!
 //! - **Expected State**: The desired configuration of your system, defined via [`ExpectedState`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.ExpectedState.html)
 //! - **Attributes**: Building blocks that describe that state (see [`attribute`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/index.html) module)
 //! - **Compliance**: Whether a host matches its expected state, with methods to **assess** or **enforce** it
-//! 
+//!
 //! On top of these concepts, Regent is developped with the following goals in mind :
 //! - **Declarative State Management**: Describe the expected state of a host using [`ExpectedState`](https://docs.rs/regent-sdk/latest/regent_sdk/struct.ExpectedState.html) and [`Attribute`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/index.html). Regent is not a scripting tool.
 //! - **Idempotency when possible**: All operations are designed to be idempotent, meaning a strong focus on the initial assessment of the host's state. However some operations can't be idempotent by nature (a shell command).
@@ -19,13 +19,13 @@
 //! - **Secret Management**: For secrets, we rely on modern specialized platforms instead. Regent has the [`SecretProvider`](https://docs.rs/regent-sdk/latest/regent_sdk/secrets/enum.SecretProvider.html) abstraction for this.
 //! - **Task Distribution**: Workload can be sent through the wire (serialized/deserialized) using the [`RegentTask`](https://docs.rs/regent-sdk/latest/regent_sdk/task/struct.RegentTask.html) type. Build a RegentTask, send it to someone else to be executed then get back the outcome. Lots of possibilities here !
 //! - **Templating Support**: Variable substitution using [Tera](https://docs.rs/tera/latest/tera/) templates
-//! 
+//!
 //! ## Available crate features
-//! 
+//!
 //! - `aws-secretsmanager`: dynamically retrieve secrets from AWS Secrets Manager
 //! - `gcp-secretmanager`: dynamically retrieve secrets from Google Cloud Secret Manager
 //! - `windows`: Enable Windows support (not every attribute will be compatible, see [Usage](#usage))
-//! 
+//!
 //!
 //! ## Usage
 //!

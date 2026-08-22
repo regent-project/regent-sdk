@@ -11,13 +11,13 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::error::RegentError;
+use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::ssh2::Ssh2Auth;
+use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
 use crate::{LocalHostHandler, Ssh2HostHandler};
-use crate::hosts::command::CommandResult;
-use crate::hosts::privilege::Privilege;
 
 // Intermediary representation of a WhichUser
 // WhichUser holds secrets, TargetUser holds references to secrets

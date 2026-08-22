@@ -89,7 +89,7 @@ impl RegentTask {
     /// task is delivered multiple times to a worker, external systems can use this key to
     /// deduplicate the execution. Note: this is separate from attribute-level idempotency,
     /// which ensures each configuration change is safely repeatable
-    /// 
+    ///
     pub fn idempotency_key(&self) -> &str {
         &self.idempotency_key
     }
@@ -98,7 +98,7 @@ impl RegentTask {
     ///
     /// This method builds the managed host, connects to it, and performs the
     /// specified job (assess or reach compliance).
-    /// 
+    ///
     pub async fn run(
         &mut self,
         optional_secret_provider: Option<SecretProvidersPool>,
@@ -125,7 +125,7 @@ impl RegentTask {
 }
 
 /// The type of job for a [`RegentTask`] to perform.
-/// 
+///
 #[derive(Serialize, Deserialize)]
 pub enum Job {
     /// Assess compliance only (read-only operation).
@@ -156,7 +156,7 @@ pub struct RegentTaskResult {
 
 impl RegentTaskResult {
     /// Create a new task result.
-    /// 
+    ///
     pub fn from(idempotency_key: String, host_status: ManagedHostStatus) -> Self {
         Self {
             idempotency_key,

@@ -727,7 +727,7 @@ impl SecretProvidersPool {
     }
 
     /// Retrieve a secret as a raw string.
-    /// 
+    ///
     /// # Example
     ///
     /// ```no_run
