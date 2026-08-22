@@ -1,3 +1,4 @@
+pub mod command;
 pub mod handlers;
 pub mod inventory;
 pub mod managed_host;

@@ -92,7 +92,6 @@
 //! - **[`attribute::ai`]**: AI integration (Ollama)
 //!
 
-pub mod command;
 pub mod error;
 pub mod hosts;
 pub mod secrets;

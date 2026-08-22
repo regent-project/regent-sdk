@@ -4,8 +4,8 @@
 //! on the local machine. It implements the [`HostHandler`] trait and provides
 //! command execution, file retrieval, and connection management for local operations.
 
-use crate::command::CommandResult;
 use crate::error::RegentError;
+use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::privilege::Credentials;

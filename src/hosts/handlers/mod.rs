@@ -16,7 +16,8 @@ use crate::hosts::handlers::ssh2::Ssh2Auth;
 use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
 use crate::{LocalHostHandler, Ssh2HostHandler};
-use crate::{command::CommandResult, hosts::privilege::Privilege};
+use crate::hosts::command::CommandResult;
+use crate::hosts::privilege::Privilege;
 
 // Intermediary representation of a WhichUser
 // WhichUser holds secrets, TargetUser holds references to secrets

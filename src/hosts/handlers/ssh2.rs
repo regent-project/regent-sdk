@@ -15,8 +15,8 @@ use tokio::time::{Duration, timeout};
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
 
-use crate::command::CommandResult;
 use crate::error::RegentError;
+use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::handlers::localhost::WhichUser;
