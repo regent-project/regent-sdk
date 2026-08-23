@@ -4,7 +4,7 @@ use russh::Preferred;
 use russh::client::AuthResult;
 use russh::client::{Config, Handle, Handler};
 use russh::keys::key::PrivateKeyWithHashAlg;
-use russh::keys::{load_secret_key, ssh_key};
+use russh::keys::{load_secret_key, PublicKeyOrCertificate};
 use russh::{Channel, ChannelMsg};
 use serde::Deserialize;
 use serde::Serialize;
@@ -45,7 +45,7 @@ impl Handler for Ssh2Client {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        _server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
         Ok(true)
     }
