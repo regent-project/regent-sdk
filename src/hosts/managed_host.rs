@@ -649,6 +649,7 @@ impl ManagedHost {
     pub async fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
+        logging: bool
     ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
@@ -675,12 +676,26 @@ impl ManagedHost {
                         )
                         .await
                     {
-                        Ok(attribute_compliance) => {
-                            if let AttributeComplianceAssessment::NonCompliant(remediations) =
-                                attribute_compliance
-                            {
-                                already_compliant = false;
-                                final_remediations_list.extend(remediations.into_inner());
+                        Ok(attribute_compliance_assessment) => {
+                            match attribute_compliance_assessment {
+                                AttributeComplianceAssessment::Compliant => {
+                                    if logging {
+                                        info!(target: "run",assesment_outcome = "Compliant", "Attribute already compliant");
+                                    }
+                                }
+                                AttributeComplianceAssessment::NonCompliant(remediations) => {
+                                    if logging {
+                                        warn!(target: "run",assesment_outcome = "NonCompliant", remediations = ?remediations.remediations(), "Not compliant but remediations are possible");
+                                    }
+                                    already_compliant = false;
+                                    final_remediations_list.extend(remediations.into_inner());
+                                }
+                                AttributeComplianceAssessment::NonCompliantFatal(details) => {
+                                    if logging {
+                                        error!(target: "run",assesment_outcome = "NonCompliantFatal", details, "Not compliant but no remediation possible");
+                                    }
+                                    already_compliant = false;
+                                }
                             }
                         }
                         Err(details) => {
@@ -769,7 +784,7 @@ impl ManagedHost {
                                     // Nothing to do
                                 }
                                 AttributeComplianceAssessment::NonCompliant(remediations) => {
-                                    warn!(target: "run",assesment_outcome = ?outcome, "Not compliant. Trying to remedy.");
+                                    warn!(target: "run",assesment_outcome = "NonCompliant", remediations = ?remediations.remediations(), "Not compliant but remediations are possible");
 
                                     // Host is not compliant as there are remediations to perform
                                     // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
@@ -824,10 +839,16 @@ impl ManagedHost {
                                         }
                                     }
 
+                                    // TODO : Variabilize this behavior to make it possible to go beyond a failure
+                                    // (would have to be updated again in a "DependsOn" implementation)
                                     if reaching_compliance_failed {
                                         // Stop processing more attributes
                                         break;
                                     }
+                                }
+                                AttributeComplianceAssessment::NonCompliantFatal(details) => {
+                                    error!(target: "run",assesment_outcome = "NonCompliantFatal", details, "Not compliant but no remediation possible");
+                                    final_host_status = HostStatus::ReachComplianceFailed;
                                 }
                             }
                         }

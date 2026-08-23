@@ -130,8 +130,12 @@ impl Action {
 
 #[derive(Debug, Clone)]
 pub enum AttributeComplianceAssessment {
+    /// The attribute assesses the host as fully compliant.
     Compliant,
+    /// The attribute knows the host is not compliant but can act on it if asked.
     NonCompliant(RemediationsList),
+    /// The attribute knows the host is not compliant but can't do anything about it (out of scope of the attribute, unsupported case).
+    NonCompliantFatal(String)
 }
 
 impl AttributeComplianceAssessment {
@@ -141,6 +145,7 @@ impl AttributeComplianceAssessment {
             AttributeComplianceAssessment::NonCompliant(remediations) => {
                 remediations.iter().collect()
             }
+            AttributeComplianceAssessment::NonCompliantFatal(_) => Vec::new(),
         }
     }
 }
@@ -165,5 +170,6 @@ pub enum AttributeComplianceStatus {
     AlreadyCompliant,
     ReachedCompliance,
     NonCompliant,
+    NonCompliantFatal(String),
     FailedReachedCompliance,
 }

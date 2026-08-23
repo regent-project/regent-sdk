@@ -913,6 +913,10 @@ impl AttributeDetail {
                     Some(actions_taken),
                 ))
             }
+            AttributeComplianceAssessment::NonCompliantFatal(details) => {
+                Ok(AttributeComplianceResult::from(
+                    AttributeComplianceStatus::NonCompliantFatal(details), None))
+            }
         }
     }
 
