@@ -319,116 +319,181 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                 state,
                 enabled,
             } => {
+                // TODO : factorize this
                 // Handle state (started/stopped) with optional enabled
                 match os_kind {
                     #[cfg(feature = "windows")]
                     OsKind::Windows(_) => {
                         // Handle state if present
-                        if let Some(state) = state {
-                            match state {
-                                ServiceExpectedState::Started => {
-                                    let active = windows_service_is_active(host_handler, &name)
-                                        .await
-                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                    if !active {
-                                        remediations.push(Remediation::Service(
-                                            ServiceApiCall::from(
-                                                ServiceModuleInternalApiCall::Start(name.clone()),
-                                                privilege.clone(),
-                                            ),
-                                        ));
+                        if let Some(expected_state) = state {
+                            match windows_service_is_active(host_handler, &name).await {
+                                Ok(current_service_activity) => {
+                                    match (current_service_activity, expected_state) {
+                                        (ServiceActivityStatus::Active, ServiceExpectedState::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedState::Stopped) => {
+                                            // Service already in expected state, nothing to do
+                                        }
+                                        (ServiceActivityStatus::Active, ServiceExpectedState::Stopped) => {
+                                            remediations.push(Remediation::Service(
+                                                ServiceApiCall::from(
+                                                    ServiceModuleInternalApiCall::Stop(name.clone()),
+                                                    privilege.clone(),
+                                                ),
+                                            ));
+                                        }
+                                        (ServiceActivityStatus::Inactive, ServiceExpectedState::Started) => {
+                                            remediations.push(Remediation::Service(
+                                                ServiceApiCall::from(
+                                                    ServiceModuleInternalApiCall::Start(name.clone()),
+                                                    privilege.clone(),
+                                                ),
+                                            ));
+                                        }
+                                        (ServiceActivityStatus::ServiceNotFound, _expected_state) => {
+                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                               format!("service not found") 
+                                            ));
+                                        }
+                                        (ServiceActivityStatus::UnsupportedCase(details), _expected_state) => {
+                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                               format!("{details}") 
+                                            ));
+                                        }
                                     }
                                 }
-                                ServiceExpectedState::Stopped => {
-                                    let active = windows_service_is_active(host_handler, &name)
-                                        .await
-                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                    if active {
-                                        remediations.push(Remediation::Service(
-                                            ServiceApiCall::from(
-                                                ServiceModuleInternalApiCall::Stop(name.clone()),
-                                                privilege.clone(),
-                                            ),
-                                        ));
-                                    }
+                                Err(error_details) => {
+                                    return Err(RegentError::FailedTaskDryRun(
+                                        format!("Unable to check service activity : {error_details}")
+                                    ));
                                 }
                             }
                         }
+
                         // Handle enabled
-                        if *enabled {
-                            let is_enabled = windows_service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if !is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Enable(name.clone()),
-                                    privilege.clone(),
-                                )));
+                        match windows_service_is_enabled(host_handler, &name).await {
+                            Ok(current_service_enabling) => {
+                                match (current_service_enabling, *enabled) {
+                                    (ServiceEnablingStatus::Enabled, true) | (ServiceEnablingStatus::Disabled, false) => {
+                                        // Service already in expected state, nothing to do
+                                    }
+                                    (ServiceEnablingStatus::Enabled, false) => {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Disable(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Enable(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
+                                    (ServiceEnablingStatus::Disabled, true) => {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Enable(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
+                                    (ServiceEnablingStatus::ServiceNotFound, _expected_state) => {
+                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                            format!("service not found") 
+                                        ));
+                                    }
+                                    (ServiceEnablingStatus::UnsupportedCase(details), _expected_state) => {
+                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                            format!("{details}") 
+                                        ));
+                                    }
+                                }
                             }
-                        } else {
-                            let is_enabled = windows_service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Disable(name.clone()),
-                                    privilege.clone(),
-                                )));
+                            Err(error_details) => {
+                                return Err(RegentError::FailedTaskDryRun(
+                                    format!("Unable to check service activity : {error_details}")
+                                ));
                             }
                         }
                     }
                     OsKind::Linux(_) => {
                         // Handle state if present
-                        if let Some(state) = state {
-                            match state {
-                                ServiceExpectedState::Started => {
-                                    let active = service_is_active(host_handler, &name)
-                                        .await
-                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                    if !active {
-                                        remediations.push(Remediation::Service(
-                                            ServiceApiCall::from(
-                                                ServiceModuleInternalApiCall::Start(name.clone()),
-                                                privilege.clone(),
-                                            ),
-                                        ));
+                        if let Some(expected_state) = state {
+                            match service_is_active(host_handler, &name).await {
+                                Ok(current_service_activity) => {
+                                    match (current_service_activity, expected_state) {
+                                        (ServiceActivityStatus::Active, ServiceExpectedState::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedState::Stopped) => {
+                                            // Service already in expected state, nothing to do
+                                        }
+                                        (ServiceActivityStatus::Active, ServiceExpectedState::Stopped) => {
+                                            remediations.push(Remediation::Service(
+                                                ServiceApiCall::from(
+                                                    ServiceModuleInternalApiCall::Stop(name.clone()),
+                                                    privilege.clone(),
+                                                ),
+                                            ));
+                                        }
+                                        (ServiceActivityStatus::Inactive, ServiceExpectedState::Started) => {
+                                            remediations.push(Remediation::Service(
+                                                ServiceApiCall::from(
+                                                    ServiceModuleInternalApiCall::Start(name.clone()),
+                                                    privilege.clone(),
+                                                ),
+                                            ));
+                                        }
+                                        (ServiceActivityStatus::ServiceNotFound, _expected_state) => {
+                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                               format!("service not found") 
+                                            ));
+                                        }
+                                        (ServiceActivityStatus::UnsupportedCase(details), _expected_state) => {
+                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                               format!("{details}") 
+                                            ));
+                                        }
                                     }
                                 }
-                                ServiceExpectedState::Stopped => {
-                                    let active = service_is_active(host_handler, &name)
-                                        .await
-                                        .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                                    if active {
-                                        remediations.push(Remediation::Service(
-                                            ServiceApiCall::from(
-                                                ServiceModuleInternalApiCall::Stop(name.clone()),
-                                                privilege.clone(),
-                                            ),
-                                        ));
-                                    }
+                                Err(error_details) => {
+                                    return Err(RegentError::FailedTaskDryRun(
+                                        format!("Unable to check service activity : {error_details}")
+                                    ));
                                 }
                             }
                         }
+
                         // Handle enabled
-                        if *enabled {
-                            let is_enabled = service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if !is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Enable(name.clone()),
-                                    privilege.clone(),
-                                )));
+                        match service_is_enabled(host_handler, &name).await {
+                            Ok(current_service_enabling) => {
+                                match (current_service_enabling, *enabled) {
+                                    (ServiceEnablingStatus::Enabled, true) | (ServiceEnablingStatus::Disabled, false) => {
+                                        // Service already in expected state, nothing to do
+                                    }
+                                    (ServiceEnablingStatus::Enabled, false) => {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Disable(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Enable(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
+                                    (ServiceEnablingStatus::Disabled, true) => {
+                                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                                            ServiceModuleInternalApiCall::Enable(name.clone()),
+                                            privilege.clone(),
+                                        )));
+                                    }
+                                    (ServiceEnablingStatus::ServiceNotFound, _expected_state) => {
+                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                            format!("service not found") 
+                                        ));
+                                    }
+                                    (ServiceEnablingStatus::UnsupportedCase(details), _expected_state) => {
+                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                            format!("{details}") 
+                                        ));
+                                    }
+                                }
                             }
-                        } else {
-                            let is_enabled = service_is_enabled(host_handler, &name)
-                                .await
-                                .map_err(|e| RegentError::FailedDryRunEvaluation(e))?;
-                            if is_enabled {
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Disable(name.clone()),
-                                    privilege.clone(),
-                                )));
+                            Err(error_details) => {
+                                return Err(RegentError::FailedTaskDryRun(
+                                    format!("Unable to check service activity : {error_details}")
+                                ));
                             }
                         }
                     }
@@ -687,16 +752,18 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
 async fn service_is_active<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
-) -> Result<bool, String> {
+) -> Result<ServiceActivityStatus, String> {
     match host_handler
         .run_command(&format!("systemctl is-active {}", name), &Privilege::None)
         .await
     {
         Ok(r) => match r.return_code {
-            0 => Ok(true),
-            3 => Ok(false),
-            4 => Err(format!("Service not found: {}", name)),
-            _ => Ok(false), // "failed" or other transient states → not active
+            0 => Ok(ServiceActivityStatus::Active),
+            3 => Ok(ServiceActivityStatus::Inactive),
+            4 => Ok(ServiceActivityStatus::ServiceNotFound),
+            _ => Ok(ServiceActivityStatus::UnsupportedCase(
+                format!("{:?}", r)
+            )),
         },
         Err(e) => Err(format!("Unable to check active state of {}: {:?}", name, e)),
     }
@@ -705,16 +772,18 @@ async fn service_is_active<Handler: HostHandler>(
 async fn service_is_enabled<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
-) -> Result<bool, String> {
+) -> Result<ServiceEnablingStatus, String> {
     match host_handler
         .run_command(&format!("systemctl is-enabled {}", name), &Privilege::None)
         .await
     {
         Ok(r) => match r.return_code {
-            0 => Ok(true),
-            1 | 3 => Ok(false),
-            4 => Err(format!("Service not found: {}", name)),
-            _ => Ok(false),
+            0 => Ok(ServiceEnablingStatus::Enabled),
+            1 | 3 => Ok(ServiceEnablingStatus::Disabled),
+            4 => Ok(ServiceEnablingStatus::ServiceNotFound),
+            _ => Ok(ServiceEnablingStatus::UnsupportedCase(
+                format!("{:?}", r)
+            )),
         },
         Err(e) => Err(format!(
             "Unable to check enabled state of {}: {:?}",
@@ -727,7 +796,7 @@ async fn service_is_enabled<Handler: HostHandler>(
 async fn windows_service_is_active<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
-) -> Result<bool, String> {
+) -> Result<ServiceActivityStatus, String> {
     match host_handler
         .run_windows_command(&format!("sc query {}", name))
         .await
@@ -738,21 +807,25 @@ async fn windows_service_is_active<Handler: HostHandler>(
             if r.return_code != 0 {
                 // Service might not exist or other error
                 if r.stdout.contains("does not exist") || r.stderr.contains("does not exist") {
-                    return Err(format!("Service not found: {}", name));
+                    return Ok(ServiceActivityStatus::ServiceNotFound);
+                } else {
+                    return Ok(ServiceActivityStatus::UnsupportedCase(
+                        format!("Unable to check service enabling status (command issue): {:?}", r)
+                    ));
                 }
-                return Ok(false);
             }
 
             // Parse the output for service state
             // Looking for lines like: "STATE              : 4  RUNNING"
             let output = r.stdout.to_lowercase();
             if output.contains("running") {
-                Ok(true)
+                Ok(ServiceActivityStatus::Active)
             } else if output.contains("stopped") || output.contains("pending") {
-                Ok(false)
+                Ok(ServiceActivityStatus::Inactive)
             } else {
-                // Default to false if we can't determine the state
-                Ok(false)
+                Ok(ServiceActivityStatus::UnsupportedCase(
+                    format!("Unable to check service activity (output parsing issue): {:?}", r)
+                ))
             }
         }
         Err(e) => Err(format!("Unable to check active state of {}: {:?}", name, e)),
@@ -763,7 +836,7 @@ async fn windows_service_is_active<Handler: HostHandler>(
 async fn windows_service_is_enabled<Handler: HostHandler>(
     host_handler: &mut Handler,
     name: &str,
-) -> Result<bool, String> {
+) -> Result<ServiceEnablingStatus, String> {
     match host_handler
         .run_windows_command(&format!("sc qc {}", name))
         .await
@@ -773,21 +846,25 @@ async fn windows_service_is_enabled<Handler: HostHandler>(
             // We need to look for the START_TYPE line
             if r.return_code != 0 {
                 if r.stdout.contains("does not exist") || r.stderr.contains("does not exist") {
-                    return Err(format!("Service not found: {}", name));
+                    return Ok(ServiceEnablingStatus::ServiceNotFound);
+                } else {
+                    return Ok(ServiceEnablingStatus::UnsupportedCase(
+                        format!("Unable to check service enabling status (command issue): {:?}", r)
+                    ));
                 }
-                return Ok(false);
             }
 
             // Parse the output for start type
             // Looking for lines like: "START_TYPE       : 2   AUTO_START"
             let output = r.stdout.to_lowercase();
             if output.contains("auto_start") || output.contains("2") {
-                Ok(true)
+                Ok(ServiceEnablingStatus::Enabled)
             } else if output.contains("disabled") || output.contains("3") || output.contains("4") {
-                Ok(false)
+                Ok(ServiceEnablingStatus::Disabled)
             } else {
-                // Default to false if we can't determine
-                Ok(false)
+                Ok(ServiceEnablingStatus::UnsupportedCase(
+                    format!("Unable to check service enabling status (output parsing issue): {:?}", r)
+                ))
             }
         }
         Err(e) => Err(format!(
@@ -823,4 +900,19 @@ mod tests {
         ";
         let _: Vec<ServiceBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
+}
+
+
+enum ServiceActivityStatus {
+    Active,
+    Inactive,
+    ServiceNotFound,
+    UnsupportedCase(String)
+}
+
+enum ServiceEnablingStatus {
+    Enabled,
+    Disabled,
+    ServiceNotFound,
+    UnsupportedCase(String)
 }
