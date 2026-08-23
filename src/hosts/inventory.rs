@@ -350,7 +350,7 @@ impl LivingInventory {
                 let _host_enter = host_span.enter();
 
                 debug!(name = host_id, "Assessing compliance");
-                match managed_host.assess_compliance(&expected_state_clone).await {
+                match managed_host.assess_compliance(&expected_state_clone, true).await {
                     Ok(managed_host_status) => {
                         debug!("Compliance assessment complete");
                         Ok((host_id.to_string(), managed_host_status))

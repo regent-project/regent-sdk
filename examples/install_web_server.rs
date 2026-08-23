@@ -37,7 +37,7 @@ async fn main() {
         .build();
 
     // Assess whether the host is compliant or not
-    match managed_host.assess_compliance(&expected_state).await {
+    match managed_host.assess_compliance(&expected_state, true).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");

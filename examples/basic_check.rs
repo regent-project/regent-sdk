@@ -43,7 +43,7 @@ async fn main() {
 
     // Assess whether the host is compliant or not
     match managed_host
-        .assess_compliance(&localhost_expected_state)
+        .assess_compliance(&localhost_expected_state, true)
         .await
     {
         Ok(compliance_status) => {

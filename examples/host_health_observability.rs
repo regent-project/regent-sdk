@@ -92,7 +92,7 @@ impl AppState {
     ) -> Result<(StatusCode, HealthCheckResponse), String> {
         match self
             .managed_host
-            .assess_compliance(&self.expected_state)
+            .assess_compliance(&self.expected_state, true)
             .await
         {
             Ok(compliance_status) => {
