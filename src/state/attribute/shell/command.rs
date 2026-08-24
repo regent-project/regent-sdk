@@ -1,6 +1,6 @@
 //! Shell command execution attribute
 //!
-//! This module provides the `CommandBlockExpectedState` type for executing arbitrary
+//! This module provides the `CommandExpectedState` type for executing arbitrary
 //! shell commands on managed hosts.
 //!
 //! **Compatible OS:**
@@ -12,11 +12,11 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::shell::command::CommandBlockExpectedState;
+//! use regent_sdk::state::attribute::shell::command::CommandExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Execute a simple command
-//! let echo = CommandBlockExpectedState::builder("echo 'Hello, World!'")
+//! let echo = CommandExpectedState::builder("echo 'Hello, World!'")
 //!     .build()
 //!     .unwrap();
 //!
@@ -57,32 +57,32 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct CommandBlockExpectedState {
+pub struct CommandExpectedState {
     /// Command to execute. Can be a clear text string or a secret reference.
     cmd: Parameter<String>,
 }
 
-impl Timeout for CommandBlockExpectedState {
+impl Timeout for CommandExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(10)
     }
 }
 
-impl CommandBlockExpectedState {
-    pub fn new(cmd: &str) -> CommandBlockExpectedState {
-        CommandBlockExpectedState {
+impl CommandExpectedState {
+    pub fn new(cmd: &str) -> CommandExpectedState {
+        CommandExpectedState {
             cmd: Parameter::Clear(cmd.to_string()),
         }
     }
 
-    pub fn new_from_secret(sec_ref: SecretReference) -> CommandBlockExpectedState {
-        CommandBlockExpectedState {
+    pub fn new_from_secret(sec_ref: SecretReference) -> CommandExpectedState {
+        CommandExpectedState {
             cmd: Parameter::Secret(sec_ref),
         }
     }
 }
 
-impl Check for CommandBlockExpectedState {
+impl Check for CommandExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -96,7 +96,7 @@ impl Check for CommandBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for CommandBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for CommandExpectedState {
     async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
@@ -256,7 +256,7 @@ mod tests {
         let raw_attributes = "---
 - Cmd: ls -ltrh";
 
-        let _attributes: Vec<CommandBlockExpectedState> =
+        let _attributes: Vec<CommandExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

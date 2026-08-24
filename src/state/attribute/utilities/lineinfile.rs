@@ -1,6 +1,6 @@
 //! Line in file management attribute
 //!
-//! This module provides the `LineInFileBlockExpectedState` type for ensuring specific lines
+//! This module provides the `LineInFileExpectedState` type for ensuring specific lines
 //! are present or absent in files. Useful for configuration files, environment files, etc.
 //!
 //! **Compatible OS:** All (cross-platform)
@@ -10,11 +10,11 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::utilities::lineinfile::{LineInFileBlockExpectedState, LineExpectedState};
+//! use regent_sdk::state::attribute::utilities::lineinfile::{LineInFileExpectedState, LineExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Ensure a line exists in /etc/environment
-//! let env_line = LineInFileBlockExpectedState::builder("/etc/environment")
+//! let env_line = LineInFileExpectedState::builder("/etc/environment")
 //!     .with_state(LineExpectedState::Present)
 //!     .with_line("KEY=value")
 //!     .with_create(true)
@@ -128,7 +128,7 @@ fn default_line_position() -> LinePosition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct LineInFileBlockExpectedState {
+pub struct LineInFileExpectedState {
     /// Absolute path to the managed file.
     file_path: String,
     /// Line to ensure is present or absent. Default state: Present.
@@ -136,7 +136,7 @@ pub struct LineInFileBlockExpectedState {
     line: Line,
 }
 
-impl LineInFileBlockExpectedState {
+impl LineInFileExpectedState {
     // --- Absent State ---
 
     /// Creates a block for a line that should **not** exist in the file.
@@ -148,8 +148,8 @@ impl LineInFileBlockExpectedState {
         file_path: &str,
         line: Line,
         file_must_exist_anyway: bool,
-    ) -> LineInFileBlockExpectedState {
-        LineInFileBlockExpectedState {
+    ) -> LineInFileExpectedState {
+        LineInFileExpectedState {
             file_path: file_path.to_string(),
             state: LineExpectedState::Absent {
                 file_must_exist_anyway,
@@ -168,8 +168,8 @@ impl LineInFileBlockExpectedState {
         file_path: &str,
         line: Line,
         create: Option<bool>,
-    ) -> LineInFileBlockExpectedState {
-        LineInFileBlockExpectedState {
+    ) -> LineInFileExpectedState {
+        LineInFileExpectedState {
             file_path: file_path.to_string(),
             state: LineExpectedState::Present {
                 position: LinePosition::InsertBefore("BOF".to_string()),
@@ -188,8 +188,8 @@ impl LineInFileBlockExpectedState {
         file_path: &str,
         line: Line,
         create: Option<bool>,
-    ) -> LineInFileBlockExpectedState {
-        LineInFileBlockExpectedState {
+    ) -> LineInFileExpectedState {
+        LineInFileExpectedState {
             file_path: file_path.to_string(),
             state: LineExpectedState::Present {
                 position: LinePosition::InsertAfter("EOF".to_string()),
@@ -212,8 +212,8 @@ impl LineInFileBlockExpectedState {
         insert_after: &str,
         firstmatch: Option<bool>,
         create: Option<bool>,
-    ) -> LineInFileBlockExpectedState {
-        LineInFileBlockExpectedState {
+    ) -> LineInFileExpectedState {
+        LineInFileExpectedState {
             file_path: file_path.to_string(),
             state: LineExpectedState::Present {
                 position: LinePosition::InsertAfter(insert_after.to_string()),
@@ -236,8 +236,8 @@ impl LineInFileBlockExpectedState {
         insert_before: &str,
         firstmatch: Option<bool>,
         create: Option<bool>,
-    ) -> LineInFileBlockExpectedState {
-        LineInFileBlockExpectedState {
+    ) -> LineInFileExpectedState {
+        LineInFileExpectedState {
             file_path: file_path.to_string(),
             state: LineExpectedState::Present {
                 position: LinePosition::InsertBefore(insert_before.to_string()),
@@ -256,8 +256,8 @@ impl LineInFileBlockExpectedState {
         file_path: &str,
         line: Line,
         create: Option<bool>,
-    ) -> LineInFileBlockExpectedState {
-        LineInFileBlockExpectedState {
+    ) -> LineInFileExpectedState {
+        LineInFileExpectedState {
             file_path: file_path.to_string(),
             state: LineExpectedState::Present {
                 position: LinePosition::InsertAfter("EOF".to_string()), // Default to EOF
@@ -294,7 +294,7 @@ impl LineInFileBlockExpectedState {
     }
 }
 
-impl Check for LineInFileBlockExpectedState {
+impl Check for LineInFileExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         if self.file_path.is_empty() {
             return Err(RegentError::IncoherentExpectedState(
@@ -313,13 +313,13 @@ impl Check for LineInFileBlockExpectedState {
     }
 }
 
-impl Timeout for LineInFileBlockExpectedState {
+impl Timeout for LineInFileExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(1)
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -427,7 +427,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileBlockExpected
 }
 
 async fn assess_absence<Handler: HostHandler>(
-    block: &LineInFileBlockExpectedState,
+    block: &LineInFileExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
     line: &Line, // Now uses `Line` directly
@@ -513,7 +513,7 @@ async fn assess_absence<Handler: HostHandler>(
 }
 
 async fn assess_presence<Handler: HostHandler>(
-    block: &LineInFileBlockExpectedState,
+    block: &LineInFileExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
     line: &Line, // Now uses `Line` directly
@@ -1236,7 +1236,7 @@ mod tests {
   State: !Present
     Create: true
         ";
-        let _: Vec<LineInFileBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        let _: Vec<LineInFileExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
     #[test]
     fn test_deserialize_line_in_file_block_expected_state_present_raw() {
@@ -1250,7 +1250,7 @@ mod tests {
           "hello world"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_eq!(result.file_path, "/tmp/test.txt");
         assert_matches!(
             result.state,
@@ -1273,7 +1273,7 @@ mod tests {
           "hello world"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_eq!(result.file_path, "/tmp/test.txt");
         assert_matches!(
             result.state,
@@ -1296,7 +1296,7 @@ mod tests {
           "^hello.*$"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_eq!(result.file_path, "/tmp/test.txt");
         assert_matches!(
             result.state,
@@ -1319,7 +1319,7 @@ mod tests {
           ContentToInsert: "hi \\1"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_eq!(result.file_path, "/tmp/test.txt");
         assert_matches!(result.state, LineExpectedState::Present { .. });
         assert_matches!(
@@ -1340,7 +1340,7 @@ mod tests {
           "hello world"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_eq!(result.file_path, "/tmp/test.txt");
         assert_matches!(result.state, LineExpectedState::Present { .. });
         assert_matches!(result.line, Line::SearchString(_));
@@ -1357,7 +1357,7 @@ mod tests {
           "hello world"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_matches!(
             result.state,
             LineExpectedState::Present {
@@ -1377,7 +1377,7 @@ mod tests {
           "hello world"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_matches!(
             result.state,
             LineExpectedState::Present {
@@ -1395,7 +1395,7 @@ mod tests {
         Line: !Raw "hello world"
     "#;
 
-        let result = yaml_serde::from_str::<LineInFileBlockExpectedState>(yaml);
+        let result = yaml_serde::from_str::<LineInFileExpectedState>(yaml);
         assert!(result.is_err()); // Missing required State field
     }
 
@@ -1409,7 +1409,7 @@ mod tests {
           "hello world"
     "#;
 
-        let result = yaml_serde::from_str::<LineInFileBlockExpectedState>(yaml);
+        let result = yaml_serde::from_str::<LineInFileExpectedState>(yaml);
         assert!(result.is_err()); // Should fail due to unknown field at top level
     }
 
@@ -1423,7 +1423,7 @@ mod tests {
           "hello world"
     "#;
 
-        let result: LineInFileBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let result: LineInFileExpectedState = yaml_serde::from_str(yaml).unwrap();
         assert_matches!(
             result.state,
             LineExpectedState::Present {

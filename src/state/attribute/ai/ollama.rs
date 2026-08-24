@@ -1,6 +1,6 @@
 //! Ollama AI management attribute
 //!
-//! This module provides the `OllamaBlockExpectedState` type for managing the Ollama
+//! This module provides the `OllamaExpectedState` type for managing the Ollama
 //! AI inference engine, including installation, service management, model pulling,
 //! and API configuration.
 //!
@@ -11,11 +11,11 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::ai::ollama::{OllamaBlockExpectedState, OllamaExpectedState, OllamaServiceState, OllamaModel, OllamaModelState, OllamaApiConfig};
+//! use regent_sdk::state::attribute::ai::ollama::{OllamaExpectedState, OllamaExpectedState, OllamaServiceState, OllamaModel, OllamaModelState, OllamaApiConfig};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install Ollama, start the service, and pull a model
-//! let ollama = OllamaBlockExpectedState::builder()
+//! let ollama = OllamaExpectedState::builder()
 //!     .with_state(OllamaExpectedState::Present)
 //!     .with_service(OllamaServiceState::Started)
 //!     .with_models(vec![
@@ -125,7 +125,7 @@ pub struct OllamaApiConfig {
 /// fields (service, models, api) will be managed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum OllamaBlockExpectedState {
+pub enum OllamaExpectedState {
     Absent,
     Present,
     // #[serde(untagged)]
@@ -148,38 +148,38 @@ pub enum OllamaBlockExpectedState {
     },
 }
 
-impl Timeout for OllamaBlockExpectedState {
+impl Timeout for OllamaExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(600)
     }
 }
 
-impl OllamaBlockExpectedState {
-    pub fn absent() -> OllamaBlockExpectedState {
-        OllamaBlockExpectedState::Absent
+impl OllamaExpectedState {
+    pub fn absent() -> OllamaExpectedState {
+        OllamaExpectedState::Absent
     }
 
-    pub fn present_with_default_config() -> OllamaBlockExpectedState {
-        OllamaBlockExpectedState::Present
+    pub fn present_with_default_config() -> OllamaExpectedState {
+        OllamaExpectedState::Present
     }
 
-    pub fn present_with_config(api_config: OllamaApiConfig) -> OllamaBlockExpectedState {
-        OllamaBlockExpectedState::PresentWithConfig { api_config }
+    pub fn present_with_config(api_config: OllamaApiConfig) -> OllamaExpectedState {
+        OllamaExpectedState::PresentWithConfig { api_config }
     }
 
-    pub fn present_with_models(models: Vec<OllamaModel>) -> OllamaBlockExpectedState {
-        OllamaBlockExpectedState::PresentWithModels { models }
+    pub fn present_with_models(models: Vec<OllamaModel>) -> OllamaExpectedState {
+        OllamaExpectedState::PresentWithModels { models }
     }
 
     pub fn present_with_config_and_models(
         api_config: OllamaApiConfig,
         models: Vec<OllamaModel>,
-    ) -> OllamaBlockExpectedState {
-        OllamaBlockExpectedState::PresentWithConfigAndModels { api_config, models }
+    ) -> OllamaExpectedState {
+        OllamaExpectedState::PresentWithConfigAndModels { api_config, models }
     }
 }
 
-impl Check for OllamaBlockExpectedState {
+impl Check for OllamaExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -200,7 +200,7 @@ impl Check for OllamaBlockExpectedState {
 
 // ── assess_compliance ─────────────────────────────────────────────────────────
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -227,7 +227,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
             == 0;
 
         match self {
-            OllamaBlockExpectedState::Absent => {
+            OllamaExpectedState::Absent => {
                 if ollama_is_installed {
                     remediations.push(Remediation::Ollama(OllamaApiCall::from(
                         OllamaModuleInternalApiCall::Uninstall,
@@ -235,7 +235,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     )));
                 }
             }
-            OllamaBlockExpectedState::Present => {
+            OllamaExpectedState::Present => {
                 if !ollama_is_installed {
                     remediations.push(Remediation::Ollama(OllamaApiCall::from(
                         OllamaModuleInternalApiCall::Install,
@@ -243,7 +243,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     )));
                 }
             }
-            OllamaBlockExpectedState::PresentWithConfig { api_config } => {
+            OllamaExpectedState::PresentWithConfig { api_config } => {
                 if !ollama_is_installed {
                     remediations.push(Remediation::Ollama(OllamaApiCall::from(
                         OllamaModuleInternalApiCall::Install,
@@ -277,7 +277,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     }
                 }
             }
-            OllamaBlockExpectedState::PresentWithModels { models } => {
+            OllamaExpectedState::PresentWithModels { models } => {
                 if !ollama_is_installed {
                     remediations.push(Remediation::Ollama(OllamaApiCall::from(
                         OllamaModuleInternalApiCall::Install,
@@ -332,7 +332,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaBlockExpectedStat
                     }
                 }
             }
-            OllamaBlockExpectedState::PresentWithConfigAndModels { api_config, models } => {
+            OllamaExpectedState::PresentWithConfigAndModels { api_config, models } => {
                 if !ollama_is_installed {
                     remediations.push(Remediation::Ollama(OllamaApiCall::from(
                         OllamaModuleInternalApiCall::Install,
@@ -640,10 +640,10 @@ mod tests {
 
     #[test]
     fn parsing_ollama_module_block_from_yaml_str() {
-        let serde_helper: Vec<OllamaBlockExpectedState> = vec![
-            OllamaBlockExpectedState::Present,
-            OllamaBlockExpectedState::Absent,
-            OllamaBlockExpectedState::PresentWithModels {
+        let serde_helper: Vec<OllamaExpectedState> = vec![
+            OllamaExpectedState::Present,
+            OllamaExpectedState::Absent,
+            OllamaExpectedState::PresentWithModels {
                 models: vec![OllamaModel {
                     name: "mistral:7b".to_string(),
                     state: OllamaModelState::Present,
@@ -655,14 +655,14 @@ mod tests {
         let raw = "---
 !Absent
 ";
-        let block: OllamaBlockExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert_eq!(block, OllamaBlockExpectedState::Absent);
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(block, OllamaExpectedState::Absent);
 
         let raw = "---
 !Present
 ";
-        let block: OllamaBlockExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert_eq!(block, OllamaBlockExpectedState::Present);
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(block, OllamaExpectedState::Present);
 
         let raw = "---
 !PresentWithModels
@@ -670,10 +670,10 @@ Models:
     - Name: mistral:7b
       State: Present
 ";
-        let block: OllamaBlockExpectedState = yaml_serde::from_str(raw).unwrap();
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
         assert_eq!(
             block,
-            OllamaBlockExpectedState::PresentWithModels {
+            OllamaExpectedState::PresentWithModels {
                 models: vec![OllamaModel {
                     name: "mistral:7b".to_string(),
                     state: OllamaModelState::Present
@@ -699,9 +699,9 @@ Models:
     - Name: codellama:13b
       State: Absent
 ";
-        let block: OllamaBlockExpectedState = yaml_serde::from_str(raw).unwrap();
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
         match &block {
-            OllamaBlockExpectedState::PresentWithConfigAndModels { api_config, models } => {
+            OllamaExpectedState::PresentWithConfigAndModels { api_config, models } => {
                 assert_eq!(models.len(), 3);
                 assert_eq!(models[0].name, "llama3");
                 assert_eq!(models[0].state, OllamaModelState::Present);

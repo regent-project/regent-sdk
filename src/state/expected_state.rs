@@ -38,11 +38,11 @@ use std::fmt::{Debug, Display};
 /// ```no_run
 /// use regent_sdk::state::ExpectedState;
 /// use regent_sdk::Attribute;
-/// use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
+/// use regent_sdk::attribute::system::service::{ServiceExpectedState, ServiceExpectedState};
 /// use regent_sdk::Privilege;
 ///
 /// // Create individual attribute
-/// let nginx_service = ServiceBlockExpectedState::builder("nginx")
+/// let nginx_service = ServiceExpectedState::builder("nginx")
 ///     .with_state(ServiceExpectedState::Started)
 ///     .build()
 ///     .unwrap();

@@ -34,7 +34,7 @@
 //! ```no_run
 //! use regent_sdk::{Attribute, ConnectionMethod, ExpectedState, ManagedHostBuilder, Privilege};
 //! use regent_sdk::{SecretProvider, SecretProvidersPoolBuilder, TargetUser};
-//! use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
+//! use regent_sdk::attribute::system::service::{ServiceExpectedState, ServiceExpectedState};
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -57,7 +57,7 @@
 //!     managed_host.connect().unwrap();
 //!
 //!     // 3. Define the expected state using attributes
-//!     let nginx_service = ServiceBlockExpectedState::state("nginx", ServiceExpectedState::Started, true);
+//!     let nginx_service = ServiceExpectedState::state("nginx", ServiceExpectedState::Started, true);
 //!
 //!     let expected_state = ExpectedState::new()
 //!         .with_attribute(Attribute::service(

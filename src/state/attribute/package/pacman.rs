@@ -1,6 +1,6 @@
 //! Pacman package management attribute
 //!
-//! This module provides the `PacmanBlockExpectedState` type for managing Arch Linux packages
+//! This module provides the `PacmanExpectedState` type for managing Arch Linux packages
 //! using the pacman package manager.
 //!
 //! **Compatible OS:** Linux (Arch-based distributions)
@@ -10,17 +10,17 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::pacman::{PacmanBlockExpectedState, PackageExpectedState};
+//! use regent_sdk::state::attribute::package::pacman::{PacmanExpectedState, PackageExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install a package
-//! let pkg = PacmanBlockExpectedState::package_state("nginx", PackageExpectedState::Present);
+//! let pkg = PacmanExpectedState::package_state("nginx", PackageExpectedState::Present);
 //!
 //! // Remove a package
-//! let pkg = PacmanBlockExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//! let pkg = PacmanExpectedState::package_state("nginx", PackageExpectedState::Absent);
 //!
 //! // Trigger a full system upgrade
-//! let upgrade = PacmanBlockExpectedState::system_upgrade();
+//! let upgrade = PacmanExpectedState::system_upgrade();
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::pacman(pkg, Privilege::WithSudo, None))
@@ -112,7 +112,7 @@ pub enum PackageExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
-pub enum PacmanBlockExpectedState {
+pub enum PacmanExpectedState {
     /// Perform a full system upgrade (pacman -Syu)
     SystemUpgrade,
     /// Manage a specific package's state
@@ -125,7 +125,7 @@ pub enum PacmanBlockExpectedState {
     },
 }
 
-impl Timeout for PacmanBlockExpectedState {
+impl Timeout for PacmanExpectedState {
     fn default_timeout(&self) -> Duration {
         match self {
             Self::SystemUpgrade => Duration::from_secs(300),
@@ -137,20 +137,20 @@ impl Timeout for PacmanBlockExpectedState {
     }
 }
 
-impl PacmanBlockExpectedState {
-    pub fn system_upgrade() -> PacmanBlockExpectedState {
-        PacmanBlockExpectedState::SystemUpgrade
+impl PacmanExpectedState {
+    pub fn system_upgrade() -> PacmanExpectedState {
+        PacmanExpectedState::SystemUpgrade
     }
 
-    pub fn package_state(package: &str, state: PackageExpectedState) -> PacmanBlockExpectedState {
-        PacmanBlockExpectedState::PackageState {
+    pub fn package_state(package: &str, state: PackageExpectedState) -> PacmanExpectedState {
+        PacmanExpectedState::PackageState {
             package: package.to_string(),
             state,
         }
     }
 }
 
-impl Check for PacmanBlockExpectedState {
+impl Check for PacmanExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -172,7 +172,7 @@ impl Check for PacmanBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -401,12 +401,12 @@ mod tests {
 - SystemUpgrade
     ";
 
-        let attributes: Vec<PacmanBlockExpectedState> =
+        let attributes: Vec<PacmanExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
 
         assert_eq!(
             attributes[0],
-            PacmanBlockExpectedState::PackageState {
+            PacmanExpectedState::PackageState {
                 package: "apache".to_string(),
                 state: PackageExpectedState::Present
             }
@@ -414,13 +414,13 @@ mod tests {
 
         assert_eq!(
             attributes[1],
-            PacmanBlockExpectedState::PackageState {
+            PacmanExpectedState::PackageState {
                 package: "apache".to_string(),
                 state: PackageExpectedState::Absent
             }
         );
 
-        assert_eq!(attributes[2], PacmanBlockExpectedState::SystemUpgrade);
+        assert_eq!(attributes[2], PacmanExpectedState::SystemUpgrade);
     }
 
     #[test]
@@ -429,14 +429,14 @@ mod tests {
         let raw_attribute = "---
 Package: apache
     ";
-        assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<PacmanExpectedState>(raw_attribute).is_err());
 
         // Test that Package with empty State fails
         let raw_attribute = "---
 Package:
 State: Absent
     ";
-        assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<PacmanExpectedState>(raw_attribute).is_err());
 
         // Test that unknown keys are rejected
         let raw_attribute = "---
@@ -444,6 +444,6 @@ Package: apache
 State: Absent
 unknown_key: unknown_value
     ";
-        assert!(yaml_serde::from_str::<PacmanBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<PacmanExpectedState>(raw_attribute).is_err());
     }
 }

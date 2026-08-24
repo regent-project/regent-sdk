@@ -17,11 +17,11 @@
 //!
 //! ```no_run
 //! use regent_sdk::state::{ExpectedState, Attribute};
-//! use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
+//! use regent_sdk::attribute::system::service::{ServiceExpectedState, ServiceExpectedState};
 //! use regent_sdk::Privilege;
 //!
 //! // Create a service attribute
-//! let nginx_service = ServiceBlockExpectedState::builder("nginx")
+//! let nginx_service = ServiceExpectedState::builder("nginx")
 //!     .with_state(ServiceExpectedState::Started)
 //!     .with_enabled(true)
 //!     .build()

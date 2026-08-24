@@ -1,6 +1,6 @@
 //! APT package management attribute
 //!
-//! This module provides the `AptBlockExpectedState` type for managing Debian/Ubuntu packages
+//! This module provides the `AptExpectedState` type for managing Debian/Ubuntu packages
 //! using the APT package manager.
 //!
 //! **Compatible OS:** Linux (Debian-based distributions: Debian, Ubuntu, etc.)
@@ -10,17 +10,17 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::apt::{AptBlockExpectedState, PackageExpectedState};
+//! use regent_sdk::state::attribute::package::apt::{AptExpectedState, PackageExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install a package
-//! let apache = AptBlockExpectedState::package_state("apache2", PackageExpectedState::Present);
+//! let apache = AptExpectedState::package_state("apache2", PackageExpectedState::Present);
 //!
 //! // Remove a package
-//! let nginx = AptBlockExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//! let nginx = AptExpectedState::package_state("nginx", PackageExpectedState::Absent);
 //!
 //! // Trigger a full system upgrade
-//! let upgrade = AptBlockExpectedState::full_system_upgrade();
+//! let upgrade = AptExpectedState::full_system_upgrade();
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::apt(apache, Privilege::WithSudo, None))
@@ -112,7 +112,7 @@ pub enum PackageExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
-pub enum AptBlockExpectedState {
+pub enum AptExpectedState {
     /// Perform a full system upgrade (apt-get update && apt-get upgrade)
     SystemUpToDate,
     /// Manage a specific package's state
@@ -125,7 +125,7 @@ pub enum AptBlockExpectedState {
     },
 }
 
-impl Timeout for AptBlockExpectedState {
+impl Timeout for AptExpectedState {
     fn default_timeout(&self) -> Duration {
         match self {
             Self::SystemUpToDate => Duration::from_secs(300),
@@ -137,20 +137,20 @@ impl Timeout for AptBlockExpectedState {
     }
 }
 
-impl AptBlockExpectedState {
-    pub fn full_system_upgrade() -> AptBlockExpectedState {
-        AptBlockExpectedState::SystemUpToDate
+impl AptExpectedState {
+    pub fn full_system_upgrade() -> AptExpectedState {
+        AptExpectedState::SystemUpToDate
     }
 
-    pub fn package_state(package: &str, state: PackageExpectedState) -> AptBlockExpectedState {
-        AptBlockExpectedState::PackageState {
+    pub fn package_state(package: &str, state: PackageExpectedState) -> AptExpectedState {
+        AptExpectedState::PackageState {
             package: package.to_string(),
             state,
         }
     }
 }
 
-impl Check for AptBlockExpectedState {
+impl Check for AptExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -172,7 +172,7 @@ impl Check for AptBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for AptBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for AptExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -456,13 +456,13 @@ mod tests {
   State: Absent
     ";
 
-        let attributes: Vec<AptBlockExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
+        let attributes: Vec<AptExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
 
-        assert_eq!(attributes[0], AptBlockExpectedState::SystemUpToDate);
+        assert_eq!(attributes[0], AptExpectedState::SystemUpToDate);
 
         assert_eq!(
             attributes[1],
-            AptBlockExpectedState::PackageState {
+            AptExpectedState::PackageState {
                 package: "apache2".to_string(),
                 state: PackageExpectedState::Present
             }
@@ -470,7 +470,7 @@ mod tests {
 
         assert_eq!(
             attributes[2],
-            AptBlockExpectedState::PackageState {
+            AptExpectedState::PackageState {
                 package: "apache2".to_string(),
                 state: PackageExpectedState::Absent
             }
@@ -483,14 +483,14 @@ mod tests {
         let raw_attribute = "---
 Package: apache2
     ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<AptExpectedState>(raw_attribute).is_err());
 
         // Test that Package with empty State fails
         let raw_attribute = "---
 Package:
 State: Absent
     ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<AptExpectedState>(raw_attribute).is_err());
 
         // Test that unknown keys are rejected
         let raw_attribute = "---
@@ -498,6 +498,6 @@ Package: apache2
 State: Absent
 unknown_key: unknown_value
     ";
-        assert!(yaml_serde::from_str::<AptBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<AptExpectedState>(raw_attribute).is_err());
     }
 }

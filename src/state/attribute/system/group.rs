@@ -1,6 +1,6 @@
 //! Group management attribute
 //!
-//! This module provides the `GroupBlockExpectedState` type for managing Unix system groups
+//! This module provides the `GroupExpectedState` type for managing Unix system groups
 //! using the groupadd, groupmod, and groupdel commands (or lgroupadd, lgroupdel for local groups).
 //!
 //! **Compatible OS:** Linux (all distributions)
@@ -10,14 +10,14 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::group::{GroupBlockExpectedState, GroupExpectedState};
+//! use regent_sdk::state::attribute::system::group::{GroupExpectedState, GroupExpectedStatus};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Create a group with a specific GID
-//! let developers = GroupBlockExpectedState::present("developers", Some(1500), Some(vec!["daniel".to_string(), "chris".to_string()]), None, None);
+//! let developers = GroupExpectedState::present("developers", Some(1500), Some(vec!["daniel".to_string(), "chris".to_string()]), None, None);
 //!
 //!
-//! let group_cleaning = GroupBlockExpectedState::absent("oldgroup", None);
+//! let group_cleaning = GroupExpectedState::absent("oldgroup", None);
 //! ```
 //!
 //! ## YAML API
@@ -50,7 +50,7 @@ use std::time::Duration;
 /// Desired state of a group
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum GroupExpectedState {
+pub enum GroupExpectedStatus {
     Absent,
     /// Group should exist
     #[serde(rename_all = "PascalCase")]
@@ -77,26 +77,26 @@ pub enum GroupExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct GroupBlockExpectedState {
+pub struct GroupExpectedState {
     /// Unique name of the group
     name: String,
     /// Desired state of the group
-    state: GroupExpectedState,
+    state: GroupExpectedStatus,
     /// Whether to use local commands (lgroupadd/lgroupdel) instead of system commands
     local: Option<bool>,
 }
 
-impl Timeout for GroupBlockExpectedState {
+impl Timeout for GroupExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(5)
     }
 }
 
-impl GroupBlockExpectedState {
-    pub fn absent(name: &str, local: Option<bool>) -> GroupBlockExpectedState {
-        GroupBlockExpectedState {
+impl GroupExpectedState {
+    pub fn absent(name: &str, local: Option<bool>) -> GroupExpectedState {
+        GroupExpectedState {
             name: name.to_string(),
-            state: GroupExpectedState::Absent,
+            state: GroupExpectedStatus::Absent,
             local,
         }
     }
@@ -107,10 +107,10 @@ impl GroupBlockExpectedState {
         members: Option<Vec<String>>,
         system: Option<bool>,
         local: Option<bool>,
-    ) -> GroupBlockExpectedState {
-        GroupBlockExpectedState {
+    ) -> GroupExpectedState {
+        GroupExpectedState {
             name: name.to_string(),
-            state: GroupExpectedState::Present {
+            state: GroupExpectedStatus::Present {
                 gid,
                 members,
                 system,
@@ -120,7 +120,7 @@ impl GroupBlockExpectedState {
     }
 }
 
-impl Check for GroupBlockExpectedState {
+impl Check for GroupExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -139,7 +139,7 @@ impl Check for GroupBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -162,7 +162,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
         let mut remediations: Vec<Remediation> = Vec::new();
 
         match &self.state {
-            GroupExpectedState::Absent => {
+            GroupExpectedStatus::Absent => {
                 if let Some(_group_info) = opt_group_info {
                     remediations.push(Remediation::Group(GroupApiCall::from(
                         GroupModuleInternalApiCall::Delete {
@@ -173,7 +173,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupBlockExpectedState
                     )));
                 };
             }
-            GroupExpectedState::Present {
+            GroupExpectedStatus::Present {
                 gid,
                 members,
                 system,
@@ -529,7 +529,7 @@ mod tests {
   State: !Absent
         ";
 
-        let attributes: Vec<GroupBlockExpectedState> =
+        let attributes: Vec<GroupExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
 
         println!("{:#?}", attributes);

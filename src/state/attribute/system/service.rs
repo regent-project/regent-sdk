@@ -1,6 +1,6 @@
 //! Service management attribute
 //!
-//! This module provides the `ServiceBlockExpectedState` type for managing system services.
+//! This module provides the `ServiceExpectedState` type for managing system services.
 //!
 //! **Compatible OS:**
 //! - Linux (all distributions with systemd) - uses `systemctl`
@@ -11,24 +11,24 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState, ServiceAction};
+//! use regent_sdk::state::attribute::system::service::{ServiceExpectedState, ServiceExpectedStatus, ServiceAction};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Ensure httpd service is running and enabled
-//! let httpd = ServiceBlockExpectedState::state(
+//! let httpd = ServiceExpectedState::state(
 //!     "httpd",
-//!     ServiceExpectedState::Started,
+//!     ServiceExpectedStatus::Started,
 //!     true
 //! );
 //!
 //! // Just manage service state (running/stopped)
-//! let nginx = ServiceBlockExpectedState::state("nginx", ServiceExpectedState::Started, false);
+//! let nginx = ServiceExpectedState::state("nginx", ServiceExpectedStatus::Started, false);
 //!
 //! // Just manage whether service is enabled at boot
-//! let mysql = ServiceBlockExpectedState::enabled("mysql", true);
+//! let mysql = ServiceExpectedState::enabled("mysql", true);
 //!
 //! // Manage unconditional action (restart)
-//! let redis = ServiceBlockExpectedState::restarted("redis");
+//! let redis = ServiceExpectedState::restarted("redis");
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::service(httpd, Privilege::WithSudo, None))
@@ -94,7 +94,7 @@ use std::time::Duration;
 /// - `Stopped` → `"Stopped"`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum ServiceExpectedState {
+pub enum ServiceExpectedStatus {
     /// Service should be running
     Started,
     /// Service should be stopped
@@ -154,7 +154,7 @@ pub enum ServiceAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(untagged)]
-pub enum ServiceBlockExpectedState {
+pub enum ServiceExpectedState {
     /// Manage the service's running state and/or boot enablement
     ///
     /// Note: The `enabled` field is only present in this variant to respect the semantics
@@ -164,7 +164,7 @@ pub enum ServiceBlockExpectedState {
         name: String,
         /// Desired running state of the service (optional - can be omitted for enabled-only config)
         #[serde(default)]
-        state: Option<ServiceExpectedState>,
+        state: Option<ServiceExpectedStatus>,
         /// Whether the service should be enabled at boot
         enabled: bool,
     },
@@ -177,20 +177,20 @@ pub enum ServiceBlockExpectedState {
     },
 }
 
-impl Timeout for ServiceBlockExpectedState {
+impl Timeout for ServiceExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(10)
     }
 }
 
-impl ServiceBlockExpectedState {
+impl ServiceExpectedState {
     /// Create a state configuration with running state and boot enablement
     pub fn state(
         name: &str,
-        state: ServiceExpectedState,
+        state: ServiceExpectedStatus,
         enabled: bool,
-    ) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::State {
+    ) -> ServiceExpectedState {
+        ServiceExpectedState::State {
             name: name.to_string(),
             state: Some(state),
             enabled,
@@ -198,17 +198,17 @@ impl ServiceBlockExpectedState {
     }
 
     /// Create an enabled-only configuration (no state management, only enablement)
-    pub fn started_and_enabled(name: &str) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::State {
+    pub fn started_and_enabled(name: &str) -> ServiceExpectedState {
+        ServiceExpectedState::State {
             name: name.to_string(),
-            state: Some(ServiceExpectedState::Started),
+            state: Some(ServiceExpectedStatus::Started),
             enabled: true,
         }
     }
 
     /// Create an enabled-only configuration (no state management, only enablement)
-    pub fn enabled(name: &str, enabled: bool) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::State {
+    pub fn enabled(name: &str, enabled: bool) -> ServiceExpectedState {
+        ServiceExpectedState::State {
             name: name.to_string(),
             state: None,
             enabled,
@@ -216,23 +216,23 @@ impl ServiceBlockExpectedState {
     }
 
     /// Create a restarted action configuration
-    pub fn restarted(name: &str) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::Action {
+    pub fn restarted(name: &str) -> ServiceExpectedState {
+        ServiceExpectedState::Action {
             name: name.to_string(),
             action: ServiceAction::Restarted,
         }
     }
 
     /// Create a reloaded action configuration
-    pub fn reloaded(name: &str) -> ServiceBlockExpectedState {
-        ServiceBlockExpectedState::Action {
+    pub fn reloaded(name: &str) -> ServiceExpectedState {
+        ServiceExpectedState::Action {
             name: name.to_string(),
             action: ServiceAction::Reloaded,
         }
     }
 }
 
-impl Check for ServiceBlockExpectedState {
+impl Check for ServiceExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         // if self.state.is_none() && self.enabled.is_none() {
         //     return Err(RegentError::IncoherentExpectedState(
@@ -264,7 +264,7 @@ impl Check for ServiceBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -338,10 +338,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                             match windows_service_is_active(host_handler, &name).await {
                                 Ok(current_service_activity) => {
                                     match (current_service_activity, expected_state) {
-                                        (ServiceActivityStatus::Active, ServiceExpectedState::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedState::Stopped) => {
+                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Stopped) => {
                                             // Service already in expected state, nothing to do
                                         }
-                                        (ServiceActivityStatus::Active, ServiceExpectedState::Stopped) => {
+                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Stopped) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
                                                     ServiceModuleInternalApiCall::Stop(name.clone()),
@@ -349,7 +349,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                                                 ),
                                             ));
                                         }
-                                        (ServiceActivityStatus::Inactive, ServiceExpectedState::Started) => {
+                                        (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Started) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
                                                     ServiceModuleInternalApiCall::Start(name.clone()),
@@ -425,10 +425,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                             match service_is_active(host_handler, &name).await {
                                 Ok(current_service_activity) => {
                                     match (current_service_activity, expected_state) {
-                                        (ServiceActivityStatus::Active, ServiceExpectedState::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedState::Stopped) => {
+                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Stopped) => {
                                             // Service already in expected state, nothing to do
                                         }
-                                        (ServiceActivityStatus::Active, ServiceExpectedState::Stopped) => {
+                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Stopped) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
                                                     ServiceModuleInternalApiCall::Stop(name.clone()),
@@ -436,7 +436,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceBlockExpectedSta
                                                 ),
                                             ));
                                         }
-                                        (ServiceActivityStatus::Inactive, ServiceExpectedState::Started) => {
+                                        (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Started) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
                                                     ServiceModuleInternalApiCall::Start(name.clone()),
@@ -907,7 +907,7 @@ mod tests {
 - Name: nginx
   Enabled: true
         ";
-        let _: Vec<ServiceBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        let _: Vec<ServiceExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
 }
 

@@ -1,6 +1,6 @@
 //! User account management attribute
 //!
-//! This module provides the `UserBlockExpectedState` type for managing user accounts
+//! This module provides the `UserExpectedState` type for managing user accounts
 //! on Unix-like systems and Windows.
 //!
 //! **Compatible OS:**
@@ -12,12 +12,12 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::user::{UserBlockExpectedState, UserExpectedState};
+//! use regent_sdk::state::attribute::system::user::{UserExpectedState, UserExpectedStatus};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Create a user with specific properties
-//! let alice = UserBlockExpectedState::builder("alice")
-//!     .with_state(UserExpectedState::Present)
+//! let alice = UserExpectedState::builder("alice")
+//!     .with_state(UserExpectedStatus::Present)
 //!     .with_uid(1001)
 //!     .with_shell("/bin/bash")
 //!     .with_home("/home/alice")
@@ -62,7 +62,7 @@ use std::time::Duration;
 /// Desired state of a user account
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum UserExpectedState {
+pub enum UserExpectedStatus {
     /// User should not exist
     Absent {
         /// Whether to remove home directory when deleting user
@@ -181,45 +181,45 @@ impl UserDetails {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct UserBlockExpectedState {
+pub struct UserExpectedState {
     /// Username
     name: String,
     /// Desired state of the user (defaults to Present if not specified)
-    state: UserExpectedState,
+    state: UserExpectedStatus,
 }
 
-impl Timeout for UserBlockExpectedState {
+impl Timeout for UserExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(5)
     }
 }
 
-impl UserBlockExpectedState {
-    pub fn absent(&mut self, username: &str, remove_home: Option<bool>) -> UserBlockExpectedState {
-        UserBlockExpectedState {
+impl UserExpectedState {
+    pub fn absent(&mut self, username: &str, remove_home: Option<bool>) -> UserExpectedState {
+        UserExpectedState {
             name: username.to_string(),
-            state: UserExpectedState::Absent { remove_home },
+            state: UserExpectedStatus::Absent { remove_home },
         }
     }
 
-    pub fn present_with_defaults(username: &str) -> UserBlockExpectedState {
-        UserBlockExpectedState {
+    pub fn present_with_defaults(username: &str) -> UserExpectedState {
+        UserExpectedState {
             name: username.to_string(),
-            state: UserExpectedState::Present {
+            state: UserExpectedStatus::Present {
                 details: UserDetails::default(),
             },
         }
     }
 
-    pub fn present_with_details(username: &str, details: UserDetails) -> UserBlockExpectedState {
-        UserBlockExpectedState {
+    pub fn present_with_details(username: &str, details: UserDetails) -> UserExpectedState {
+        UserExpectedState {
             name: username.to_string(),
-            state: UserExpectedState::Present { details },
+            state: UserExpectedStatus::Present { details },
         }
     }
 }
 
-impl Check for UserBlockExpectedState {
+impl Check for UserExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -240,7 +240,7 @@ impl Check for UserBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -282,7 +282,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
         };
 
         match &self.state {
-            UserExpectedState::Absent { remove_home } => {
+            UserExpectedStatus::Absent { remove_home } => {
                 if !user_exists {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
@@ -297,7 +297,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserBlockExpectedState 
                     .unwrap(),
                 ));
             }
-            UserExpectedState::Present { details } => {
+            UserExpectedStatus::Present { details } => {
                 if !user_exists {
                     return Ok(AttributeComplianceAssessment::NonCompliant(
                         RemediationsList::from(vec![Remediation::User(UserApiCall::from(
@@ -945,7 +945,7 @@ mod tests {
   State: !Absent
         ";
 
-        let _attributes: Vec<UserBlockExpectedState> =
+        let _attributes: Vec<UserExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 
@@ -962,10 +962,10 @@ State: !Present
       - docker
 ";
 
-        let yaml_defined: UserBlockExpectedState =
+        let yaml_defined: UserExpectedState =
             yaml_serde::from_str(raw_yaml_attribute).unwrap();
 
-        let rusty_defined = UserBlockExpectedState::present_with_details(
+        let rusty_defined = UserExpectedState::present_with_details(
             "alice",
             UserDetails::default()
                 .with_shell("/bin/bash")

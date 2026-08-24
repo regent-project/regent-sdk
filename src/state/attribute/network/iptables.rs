@@ -1,6 +1,6 @@
 //! Iptables attribute for firewall rule management
 //!
-//! This module provides the `IptablesBlockExpectedState` type for managing iptables/ip6tables
+//! This module provides the `IptablesExpectedState` type for managing iptables/ip6tables
 //! firewall rules and chains. It supports creating, modifying, and deleting rules across
 //! different tables (filter, nat, mangle, raw, security) using a strongly-typed API.
 //!
@@ -19,20 +19,20 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::network::iptables::{IptablesBlockExpectedState, IpVersion};
+//! use regent_sdk::state::attribute::network::iptables::{IptablesExpectedState, IpVersion};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Allow SSH on port 22 using convenience method (defaults to IPv4)
-//! let ssh_rule = IptablesBlockExpectedState::allow_ssh(None);
+//! let ssh_rule = IptablesExpectedState::allow_ssh(None);
 //!
 //! // Allow HTTP on port 80 at position 1
-//! let http_rule = IptablesBlockExpectedState::allow_tcp_port(80, Some(1));
+//! let http_rule = IptablesExpectedState::allow_tcp_port(80, Some(1));
 //!
 //! // Allow DNS on port 53 (UDP)
-//! let dns_rule = IptablesBlockExpectedState::allow_udp_port(53, None);
+//! let dns_rule = IptablesExpectedState::allow_udp_port(53, None);
 //!
 //! // Drop all incoming traffic (default deny)
-//! let deny_all = IptablesBlockExpectedState::drop_all_incoming(None);
+//! let deny_all = IptablesExpectedState::drop_all_incoming(None);
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::iptables(ssh_rule, Privilege::WithSudo, None))
@@ -728,7 +728,7 @@ impl std::fmt::Display for PortSpec {
 /// fields. The `IpVersion` defaults to V4 and is omitted when V4.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "State", rename_all = "PascalCase")]
-pub enum IptablesBlockExpectedState {
+pub enum IptablesExpectedState {
     #[serde(rename_all = "PascalCase")]
     Present {
         #[serde(default = "default_ip_family", skip_serializing_if = "is_v4_default")]
@@ -763,36 +763,36 @@ pub enum IptablesBlockExpectedState {
 ///
 /// ```no_run
 /// use regent_sdk::state::attribute::network::iptables::{
-///     IptablesBlockExpectedState, IpVersion, IptablesInsertionAction,
+///     IptablesExpectedState, IpVersion, IptablesInsertionAction,
 ///     IptablesRule, FilterChain, Protocol, MatchCriteria, IptablesTarget
 /// };
 /// use regent_sdk::state::attribute::network::iptables::PortSpec;
 /// use regent_sdk::{Attribute, ExpectedState, Privilege};
 ///
 /// // Allow SSH on port 22 using convenience method (defaults to IPv4)
-/// let ssh_rule = IptablesBlockExpectedState::allow_ssh(None);
+/// let ssh_rule = IptablesExpectedState::allow_ssh(None);
 ///
 /// // Or use the full API for more complex rules
-impl IptablesBlockExpectedState {
+impl IptablesExpectedState {
     pub fn present(
         ip_version: IpVersion,
         action: IptablesInsertionAction,
         rule: IptablesRule,
-    ) -> IptablesBlockExpectedState {
-        IptablesBlockExpectedState::Present {
+    ) -> IptablesExpectedState {
+        IptablesExpectedState::Present {
             ip_version,
             action,
             rule,
         }
     }
 
-    pub fn absent(ip_version: IpVersion, rule: IptablesRule) -> IptablesBlockExpectedState {
-        IptablesBlockExpectedState::Absent { ip_version, rule }
+    pub fn absent(ip_version: IpVersion, rule: IptablesRule) -> IptablesExpectedState {
+        IptablesExpectedState::Absent { ip_version, rule }
     }
 
     /// Allow incoming TCP traffic on a specific port in the INPUT chain.
     /// This is a convenience method for the common use case of opening a TCP port.
-    pub fn allow_tcp_port(port: u16, position: Option<u32>) -> IptablesBlockExpectedState {
+    pub fn allow_tcp_port(port: u16, position: Option<u32>) -> IptablesExpectedState {
         Self::allow_tcp_port_with_ip(port, IpVersion::V4, position)
     }
 
@@ -801,12 +801,12 @@ impl IptablesBlockExpectedState {
         port: u16,
         ip_version: IpVersion,
         position: Option<u32>,
-    ) -> IptablesBlockExpectedState {
+    ) -> IptablesExpectedState {
         let action = match position {
             Some(pos) => IptablesInsertionAction::Insert { position: pos },
             None => IptablesInsertionAction::Append,
         };
-        IptablesBlockExpectedState::Present {
+        IptablesExpectedState::Present {
             ip_version,
             action,
             rule: IptablesRule::Filter {
@@ -834,7 +834,7 @@ impl IptablesBlockExpectedState {
 
     /// Allow incoming UDP traffic on a specific port in the INPUT chain.
     /// This is a convenience method for the common use case of opening a UDP port.
-    pub fn allow_udp_port(port: u16, position: Option<u32>) -> IptablesBlockExpectedState {
+    pub fn allow_udp_port(port: u16, position: Option<u32>) -> IptablesExpectedState {
         Self::allow_udp_port_with_ip(port, IpVersion::V4, position)
     }
 
@@ -843,12 +843,12 @@ impl IptablesBlockExpectedState {
         port: u16,
         ip_version: IpVersion,
         position: Option<u32>,
-    ) -> IptablesBlockExpectedState {
+    ) -> IptablesExpectedState {
         let action = match position {
             Some(pos) => IptablesInsertionAction::Insert { position: pos },
             None => IptablesInsertionAction::Append,
         };
-        IptablesBlockExpectedState::Present {
+        IptablesExpectedState::Present {
             ip_version,
             action,
             rule: IptablesRule::Filter {
@@ -875,7 +875,7 @@ impl IptablesBlockExpectedState {
 
     /// Allow incoming SSH traffic on port 22 in the INPUT chain.
     /// This is a convenience method for the common use case of enabling SSH access.
-    pub fn allow_ssh(position: Option<u32>) -> IptablesBlockExpectedState {
+    pub fn allow_ssh(position: Option<u32>) -> IptablesExpectedState {
         Self::allow_ssh_with_ip(IpVersion::V4, position)
     }
 
@@ -883,13 +883,13 @@ impl IptablesBlockExpectedState {
     pub fn allow_ssh_with_ip(
         ip_version: IpVersion,
         position: Option<u32>,
-    ) -> IptablesBlockExpectedState {
+    ) -> IptablesExpectedState {
         Self::allow_tcp_port_with_ip(22, ip_version, position)
     }
 
     /// Drop all incoming traffic on the INPUT chain.
     /// This is a convenience method for creating a default deny policy.
-    pub fn drop_all_incoming(position: Option<u32>) -> IptablesBlockExpectedState {
+    pub fn drop_all_incoming(position: Option<u32>) -> IptablesExpectedState {
         Self::drop_all_incoming_with_ip(IpVersion::V4, position)
     }
 
@@ -897,12 +897,12 @@ impl IptablesBlockExpectedState {
     pub fn drop_all_incoming_with_ip(
         ip_version: IpVersion,
         position: Option<u32>,
-    ) -> IptablesBlockExpectedState {
+    ) -> IptablesExpectedState {
         let action = match position {
             Some(pos) => IptablesInsertionAction::Insert { position: pos },
             None => IptablesInsertionAction::Append,
         };
-        IptablesBlockExpectedState::Present {
+        IptablesExpectedState::Present {
             ip_version,
             action,
             rule: IptablesRule::Filter {
@@ -925,7 +925,7 @@ impl IptablesBlockExpectedState {
     }
 }
 
-impl Timeout for IptablesBlockExpectedState {
+impl Timeout for IptablesExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(5)
     }
@@ -933,12 +933,12 @@ impl Timeout for IptablesBlockExpectedState {
 
 // ── Check ─────────────────────────────────────────────────────────────────────
 
-impl Check for IptablesBlockExpectedState {
+impl Check for IptablesExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         // Extract the rule which is present in both Present and Absent variants
         let rule = match self {
-            IptablesBlockExpectedState::Present { rule, .. }
-            | IptablesBlockExpectedState::Absent { rule, .. } => rule,
+            IptablesExpectedState::Present { rule, .. }
+            | IptablesExpectedState::Absent { rule, .. } => rule,
         };
 
         // Check that custom chain names are not empty
@@ -976,7 +976,7 @@ impl Check for IptablesBlockExpectedState {
         // so we don't need to check for at least one actionable
 
         // For Present variant, check that if action is Insert, it has a position
-        if let IptablesBlockExpectedState::Present { action, .. } = self {
+        if let IptablesExpectedState::Present { action, .. } = self {
             if let IptablesInsertionAction::Insert { position: _ } = action {
                 // Position is required in the Insert variant, so it's always valid
             }
@@ -1049,7 +1049,7 @@ fn ip_version_to_str(ip_version: &IpVersion) -> String {
     ip_version.to_string()
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -1062,9 +1062,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
             self.check_host_compatibility(props)?;
         }
 
-        // Extract ip_version, action, and rule from the IptablesBlockExpectedState
+        // Extract ip_version, action, and rule from the IptablesExpectedState
         let (ip_version, expected_state, action, rule) = match self {
-            IptablesBlockExpectedState::Present {
+            IptablesExpectedState::Present {
                 ip_version,
                 action,
                 rule,
@@ -1074,7 +1074,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesBlockExpectedSt
                 Some(action.clone()),
                 rule,
             ),
-            IptablesBlockExpectedState::Absent { ip_version, rule } => {
+            IptablesExpectedState::Absent { ip_version, rule } => {
                 (ip_version, RuleExpectedState::Absent, None, rule)
             }
         };
@@ -1523,7 +1523,7 @@ fn build_cmd(binary: &str, table_arg: &str, flags: &str) -> String {
     }
 }
 
-/// Builds the rule-specification string from the fields of an `IptablesBlockExpectedState`.
+/// Builds the rule-specification string from the fields of an `IptablesExpectedState`.
 /// The order of arguments follows the conventional iptables ordering: match criteria first,
 /// then the target (jump/goto) with its options at the end.
 /// Helper function to convert Protocol to iptables protocol string
@@ -1839,10 +1839,10 @@ Details:
         Comment: "Allow HTTPS web traffic"
     "#;
 
-        let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         match state {
-            IptablesBlockExpectedState::Present {
+            IptablesExpectedState::Present {
                 ip_version,
                 action,
                 rule,
@@ -1889,10 +1889,10 @@ Details:
             With: IcmpPortUnreachable
         "#;
 
-        let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         match state {
-            IptablesBlockExpectedState::Absent { ip_version, rule } => {
+            IptablesExpectedState::Absent { ip_version, rule } => {
                 assert_eq!(ip_version, IpVersion::V6);
                 match rule {
                     IptablesRule::Nat {
@@ -1950,10 +1950,10 @@ Details:
             Level: 4
         "#;
 
-        let state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         match state {
-            IptablesBlockExpectedState::Present { rule, .. } => match rule {
+            IptablesExpectedState::Present { rule, .. } => match rule {
                 IptablesRule::Mangle { chain, target, .. } => {
                     assert_eq!(chain, MangleChain::Output);
                     assert_eq!(
@@ -1986,10 +1986,10 @@ Details:
                 DestPort: 22
     Target: Accept
 "#;
-        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let yaml_state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         // Rust API representation
-        let rust_state = IptablesBlockExpectedState::allow_ssh(None);
+        let rust_state = IptablesExpectedState::allow_ssh(None);
 
         assert_eq!(yaml_state, rust_state);
     }
@@ -2010,10 +2010,10 @@ Details:
                 DestPort: 80
     Target: Accept
 "#;
-        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let yaml_state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         // Rust API representation
-        let rust_state = IptablesBlockExpectedState::allow_tcp_port(80, None);
+        let rust_state = IptablesExpectedState::allow_tcp_port(80, None);
 
         assert_eq!(yaml_state, rust_state);
     }
@@ -2032,10 +2032,10 @@ Details:
         Protocol: All
     Target: Drop
 "#;
-        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let yaml_state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         // Rust API representation
-        let rust_state = IptablesBlockExpectedState::drop_all_incoming(None);
+        let rust_state = IptablesExpectedState::drop_all_incoming(None);
 
         assert_eq!(yaml_state, rust_state);
     }
@@ -2056,10 +2056,10 @@ Details:
                 DestPort: 53
     Target: Accept
 "#;
-        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let yaml_state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         // Rust API representation
-        let rust_state = IptablesBlockExpectedState::allow_udp_port(53, None);
+        let rust_state = IptablesExpectedState::allow_udp_port(53, None);
 
         assert_eq!(yaml_state, rust_state);
     }
@@ -2085,10 +2085,10 @@ Details:
             Inverted: false
     Target: Accept
 "#;
-        let yaml_state: IptablesBlockExpectedState = yaml_serde::from_str(yaml).unwrap();
+        let yaml_state: IptablesExpectedState = yaml_serde::from_str(yaml).unwrap();
 
         // Rust API representation
-        let rust_state = IptablesBlockExpectedState::present(
+        let rust_state = IptablesExpectedState::present(
             IpVersion::V4,
             IptablesInsertionAction::Insert { position: 1 },
             IptablesRule::Filter {

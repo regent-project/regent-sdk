@@ -43,42 +43,42 @@ use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::ai::ollama::OllamaApiCall;
-use crate::state::attribute::ai::ollama::OllamaBlockExpectedState;
+use crate::state::attribute::ai::ollama::OllamaExpectedState;
 use crate::state::attribute::network::iptables::IptablesApiCall;
-use crate::state::attribute::network::iptables::IptablesBlockExpectedState;
+use crate::state::attribute::network::iptables::IptablesExpectedState;
 use crate::state::attribute::package::apt::AptApiCall;
-use crate::state::attribute::package::apt::AptBlockExpectedState;
+use crate::state::attribute::package::apt::AptExpectedState;
 use crate::state::attribute::package::apt_repo::AptRepoApiCall;
-use crate::state::attribute::package::apt_repo::AptRepoBlockExpectedState;
+use crate::state::attribute::package::apt_repo::AptRepoExpectedState;
 use crate::state::attribute::package::dnf_repo::DnfRepoApiCall;
-use crate::state::attribute::package::dnf_repo::DnfRepoBlockExpectedState;
+use crate::state::attribute::package::dnf_repo::DnfRepoExpectedState;
 use crate::state::attribute::package::yumdnf::YumDnfApiCall;
-use crate::state::attribute::package::yumdnf::YumDnfBlockExpectedState;
+use crate::state::attribute::package::yumdnf::YumDnfExpectedState;
 use crate::state::attribute::shell::command::CommandApiCall;
-use crate::state::attribute::shell::command::CommandBlockExpectedState;
+use crate::state::attribute::shell::command::CommandExpectedState;
 use crate::state::attribute::system::cron::CronApiCall;
-use crate::state::attribute::system::cron::CronBlockExpectedState;
+use crate::state::attribute::system::cron::CronExpectedState;
 use crate::state::attribute::system::group::GroupApiCall;
-use crate::state::attribute::system::group::GroupBlockExpectedState;
+use crate::state::attribute::system::group::GroupExpectedState;
 use crate::state::attribute::system::hostname::HostnameApiCall;
-use crate::state::attribute::system::hostname::HostnameBlockExpectedState;
+use crate::state::attribute::system::hostname::HostnameExpectedState;
 use crate::state::attribute::system::service::ServiceApiCall;
-use crate::state::attribute::system::service::ServiceBlockExpectedState;
+use crate::state::attribute::system::service::ServiceExpectedState;
 use crate::state::attribute::system::user::UserApiCall;
-use crate::state::attribute::system::user::UserBlockExpectedState;
+use crate::state::attribute::system::user::UserExpectedState;
 use crate::state::attribute::utilities::debug::DebugApiCall;
-use crate::state::attribute::utilities::debug::DebugBlockExpectedState;
+use crate::state::attribute::utilities::debug::DebugExpectedState;
 use crate::state::attribute::utilities::lineinfile::LineInFileApiCall;
-use crate::state::attribute::utilities::lineinfile::LineInFileBlockExpectedState;
+use crate::state::attribute::utilities::lineinfile::LineInFileExpectedState;
 use crate::state::attribute::utilities::ping::PingApiCall;
-use crate::state::attribute::utilities::ping::PingBlockExpectedState;
+use crate::state::attribute::utilities::ping::PingExpectedState;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::AttributeComplianceResult;
 use crate::state::compliance::AttributeComplianceStatus;
 use crate::{
     hosts::handlers::HostHandler,
     hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout},
-    state::attribute::package::pacman::{PacmanApiCall, PacmanBlockExpectedState},
+    state::attribute::package::pacman::{PacmanApiCall, PacmanExpectedState},
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -237,7 +237,7 @@ impl Attribute {
     }
 
     pub fn apt(
-        details: AptBlockExpectedState,
+        details: AptExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -245,7 +245,7 @@ impl Attribute {
     }
 
     pub fn pacman(
-        details: PacmanBlockExpectedState,
+        details: PacmanExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -253,7 +253,7 @@ impl Attribute {
     }
 
     pub fn yumdnf(
-        details: YumDnfBlockExpectedState,
+        details: YumDnfExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -261,7 +261,7 @@ impl Attribute {
     }
 
     pub fn command(
-        details: CommandBlockExpectedState,
+        details: CommandExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -269,7 +269,7 @@ impl Attribute {
     }
 
     pub fn service(
-        details: ServiceBlockExpectedState,
+        details: ServiceExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -277,7 +277,7 @@ impl Attribute {
     }
 
     pub fn debug(
-        details: DebugBlockExpectedState,
+        details: DebugExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -285,7 +285,7 @@ impl Attribute {
     }
 
     pub fn lineinfile(
-        details: LineInFileBlockExpectedState,
+        details: LineInFileExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -293,7 +293,7 @@ impl Attribute {
     }
 
     pub fn ping(
-        details: PingBlockExpectedState,
+        details: PingExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -301,7 +301,7 @@ impl Attribute {
     }
 
     pub fn user(
-        details: UserBlockExpectedState,
+        details: UserExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -309,7 +309,7 @@ impl Attribute {
     }
 
     pub fn group(
-        details: GroupBlockExpectedState,
+        details: GroupExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -317,7 +317,7 @@ impl Attribute {
     }
 
     pub fn cron(
-        details: CronBlockExpectedState,
+        details: CronExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -325,7 +325,7 @@ impl Attribute {
     }
 
     pub fn hostname(
-        details: HostnameBlockExpectedState,
+        details: HostnameExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -333,7 +333,7 @@ impl Attribute {
     }
 
     pub fn apt_repo(
-        details: AptRepoBlockExpectedState,
+        details: AptRepoExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -341,7 +341,7 @@ impl Attribute {
     }
 
     pub fn dnf_repo(
-        details: DnfRepoBlockExpectedState,
+        details: DnfRepoExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -349,7 +349,7 @@ impl Attribute {
     }
 
     pub fn iptables(
-        details: IptablesBlockExpectedState,
+        details: IptablesExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -357,7 +357,7 @@ impl Attribute {
     }
 
     pub fn ollama(
-        details: OllamaBlockExpectedState,
+        details: OllamaExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
@@ -368,22 +368,22 @@ impl Attribute {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum AttributeDetail {
-    Apt(AptBlockExpectedState),
-    AptRepo(AptRepoBlockExpectedState),
-    YumDnf(YumDnfBlockExpectedState),
-    DnfRepo(DnfRepoBlockExpectedState),
-    Pacman(PacmanBlockExpectedState),
-    LineInFile(LineInFileBlockExpectedState),
-    Debug(DebugBlockExpectedState),
-    Ping(PingBlockExpectedState),
-    Service(ServiceBlockExpectedState),
-    Command(CommandBlockExpectedState),
-    User(UserBlockExpectedState),
-    Group(GroupBlockExpectedState),
-    Cron(CronBlockExpectedState),
-    Hostname(HostnameBlockExpectedState),
-    Iptables(IptablesBlockExpectedState),
-    Ollama(OllamaBlockExpectedState),
+    Apt(AptExpectedState),
+    AptRepo(AptRepoExpectedState),
+    YumDnf(YumDnfExpectedState),
+    DnfRepo(DnfRepoExpectedState),
+    Pacman(PacmanExpectedState),
+    LineInFile(LineInFileExpectedState),
+    Debug(DebugExpectedState),
+    Ping(PingExpectedState),
+    Service(ServiceExpectedState),
+    Command(CommandExpectedState),
+    User(UserExpectedState),
+    Group(GroupExpectedState),
+    Cron(CronExpectedState),
+    Hostname(HostnameExpectedState),
+    Iptables(IptablesExpectedState),
+    Ollama(OllamaExpectedState),
 }
 
 impl AttributeDetail {

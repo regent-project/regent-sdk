@@ -1,6 +1,6 @@
 //! Hostname management attribute
 //!
-//! This module provides the `HostnameBlockExpectedState` type for setting and managing
+//! This module provides the `HostnameExpectedState` type for setting and managing
 //! the system hostname.
 //!
 //! **Compatible OS:**
@@ -12,11 +12,11 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::hostname::{HostnameBlockExpectedState, HostnameMethod};
+//! use regent_sdk::state::attribute::system::hostname::{HostnameExpectedState, HostnameMethod};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Set hostname using systemd method
-//! let hostname = HostnameBlockExpectedState::builder("myserver.example.com")
+//! let hostname = HostnameExpectedState::builder("myserver.example.com")
 //!     .with_method(HostnameMethod::Systemd)
 //!     .build()
 //!     .unwrap();
@@ -68,29 +68,29 @@ pub enum HostnameMethod {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct HostnameBlockExpectedState {
+pub struct HostnameExpectedState {
     /// The desired hostname
     name: String,
     /// Method to use for setting the hostname (defaults to auto-detection)
     method: Option<HostnameMethod>,
 }
 
-impl Timeout for HostnameBlockExpectedState {
+impl Timeout for HostnameExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(5)
     }
 }
 
-impl HostnameBlockExpectedState {
-    pub fn new(hostname: &str, method: Option<HostnameMethod>) -> HostnameBlockExpectedState {
-        HostnameBlockExpectedState {
+impl HostnameExpectedState {
+    pub fn new(hostname: &str, method: Option<HostnameMethod>) -> HostnameExpectedState {
+        HostnameExpectedState {
             name: hostname.to_string(),
             method,
         }
     }
 }
 
-impl Check for HostnameBlockExpectedState {
+impl Check for HostnameExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         if self.name.is_empty() {
             return Err(RegentError::IncoherentExpectedState(
@@ -119,7 +119,7 @@ impl Check for HostnameBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -459,7 +459,7 @@ mod tests {
   Method: !Generic
         ";
 
-        let _attributes: Vec<HostnameBlockExpectedState> =
+        let _attributes: Vec<HostnameExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
     }
 

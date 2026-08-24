@@ -1,6 +1,6 @@
 //! Host connectivity check (ping) attribute
 //!
-//! This module provides the `PingBlockExpectedState` type for checking basic connectivity
+//! This module provides the `PingExpectedState` type for checking basic connectivity
 //! to a managed host. This is essentially a no-op attribute that verifies the host is reachable.
 //!
 //! **Compatible OS:** All (cross-platform)
@@ -10,11 +10,11 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::utilities::ping::PingBlockExpectedState;
+//! use regent_sdk::state::attribute::utilities::ping::PingExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Check host connectivity
-//! let ping = PingBlockExpectedState::builder()
+//! let ping = PingExpectedState::builder()
 //!     .build()
 //!     .unwrap();
 //!
@@ -51,9 +51,9 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct PingBlockExpectedState {}
+pub struct PingExpectedState {}
 
-impl Check for PingBlockExpectedState {
+impl Check for PingExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -67,13 +67,13 @@ impl Check for PingBlockExpectedState {
     }
 }
 
-impl Timeout for PingBlockExpectedState {
+impl Timeout for PingExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(5)
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for PingBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for PingExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -147,6 +147,6 @@ mod tests {
         let raw_attributes = "---
     ";
 
-        let _attribute: PingBlockExpectedState = yaml_serde::from_str(raw_attributes).unwrap();
+        let _attribute: PingExpectedState = yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

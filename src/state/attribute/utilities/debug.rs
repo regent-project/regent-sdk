@@ -1,6 +1,6 @@
 //! Debug message attribute
 //!
-//! This module provides the `DebugBlockExpectedState` type for outputting debug messages
+//! This module provides the `DebugExpectedState` type for outputting debug messages
 //! during compliance assessment. Useful for troubleshooting and logging.
 //!
 //! **Compatible OS:** All (cross-platform)
@@ -10,11 +10,11 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::utilities::debug::DebugBlockExpectedState;
+//! use regent_sdk::state::attribute::utilities::debug::DebugExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Output a debug message
-//! let debug_msg = DebugBlockExpectedState::builder("Checking system configuration")
+//! let debug_msg = DebugExpectedState::builder("Checking system configuration")
 //!     .build()
 //!     .unwrap();
 //!
@@ -50,19 +50,19 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct DebugBlockExpectedState {
+pub struct DebugExpectedState {
     /// Debug message to output during compliance assessment
     msg: String,
     // var: Option<String>, // TODO
 }
 
-impl Timeout for DebugBlockExpectedState {
+impl Timeout for DebugExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(1)
     }
 }
 
-impl Check for DebugBlockExpectedState {
+impl Check for DebugExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -76,7 +76,7 @@ impl Check for DebugBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for DebugBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for DebugExpectedState {
     async fn assess_compliance(
         &self,
         _host_handler: &mut Handler,
@@ -149,7 +149,7 @@ mod tests {
 Msg: some content
     ";
 
-        let attribute: DebugBlockExpectedState = yaml_serde::from_str(attribute).unwrap();
+        let attribute: DebugExpectedState = yaml_serde::from_str(attribute).unwrap();
 
         assert_eq!(attribute.msg, "some content".to_string());
     }

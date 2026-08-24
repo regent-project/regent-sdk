@@ -1,6 +1,6 @@
 //! Cron job management attribute
 //!
-//! This module provides the `CronBlockExpectedState` type for managing cron jobs
+//! This module provides the `CronExpectedState` type for managing cron jobs
 //! on Unix-like systems, supporting both user crontabs and system cron.d files.
 //!
 //! **Compatible OS:** Linux (all distributions)
@@ -11,12 +11,12 @@
 //!
 //! ```no_run
 //! use regent_sdk::state::attribute::system::cron::{
-//!     CronBlockExpectedState, CronExpectedState, CronSpecialTime, CronSchedule, CronCommand, CronTarget
+//!     CronExpectedState, CronExpectedStatus, CronSpecialTime, CronSchedule, CronCommand, CronTarget
 //! };
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Schedule a daily backup job for the root user's crontab
-//! let backup = CronBlockExpectedState::present(
+//! let backup = CronExpectedState::present(
 //!     CronSchedule::SpecialTime(CronSpecialTime::Daily),
 //!     CronCommand::Specific("/usr/local/bin/backup.sh".to_string()),
 //!     Some("backup".to_string()),
@@ -24,7 +24,7 @@
 //! );
 //!
 //! // Schedule a weekly cleanup job in /etc/cron.d/ for a specific user
-//! let cleanup = CronBlockExpectedState::present(
+//! let cleanup = CronExpectedState::present(
 //!     CronSchedule::SpecialTime(CronSpecialTime::Weekly),
 //!     CronCommand::Specific("/usr/local/bin/cleanup.sh".to_string()),
 //!     Some("cleanup".to_string()),
@@ -32,7 +32,7 @@
 //! );
 //!
 //! // Ensure a cron job is absent
-//! let remove_old_job = CronBlockExpectedState::absent(
+//! let remove_old_job = CronExpectedState::absent(
 //!     CronSchedule::SpecialTime(CronSpecialTime::Daily),
 //!     CronCommand::Any,
 //!     Some("old_job".to_string()),
@@ -105,7 +105,7 @@ const REGENT_MARKER_PREFIX: &str = "# regent: ";
 /// Desired state of a cron job
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum CronExpectedState {
+pub enum CronExpectedStatus {
     /// Cron job should exist
     Present,
     /// Cron job should not exist
@@ -204,35 +204,35 @@ pub enum CronTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct CronBlockExpectedState {
+pub struct CronExpectedState {
     /// What schedule for this cron job
     schedule: CronSchedule,
     /// Command to execute
     command: CronCommand,
     /// Desired state of the cron job
-    state: CronExpectedState,
+    state: CronExpectedStatus,
     /// Unique identifier for this cron job (used in marker comment)
     name: Option<String>,
     target: CronTarget,
 }
 
-impl Timeout for CronBlockExpectedState {
+impl Timeout for CronExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(5)
     }
 }
 
-impl CronBlockExpectedState {
+impl CronExpectedState {
     pub fn absent(
         schedule: CronSchedule,
         command: CronCommand,
         name: Option<String>,
         target: CronTarget,
-    ) -> CronBlockExpectedState {
-        CronBlockExpectedState {
+    ) -> CronExpectedState {
+        CronExpectedState {
             schedule,
             command,
-            state: CronExpectedState::Absent,
+            state: CronExpectedStatus::Absent,
             name,
             target,
         }
@@ -243,18 +243,18 @@ impl CronBlockExpectedState {
         command: CronCommand,
         name: Option<String>,
         target: CronTarget,
-    ) -> CronBlockExpectedState {
-        CronBlockExpectedState {
+    ) -> CronExpectedState {
+        CronExpectedState {
             schedule,
             command,
-            state: CronExpectedState::Present,
+            state: CronExpectedStatus::Present,
             name,
             target,
         }
     }
 }
 
-impl Check for CronBlockExpectedState {
+impl Check for CronExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -273,7 +273,7 @@ impl Check for CronBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for CronExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -327,7 +327,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState 
         };
 
         match &self.state {
-            CronExpectedState::Absent => {
+            CronExpectedStatus::Absent => {
                 if existing_entry.is_none() {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
@@ -354,7 +354,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CronBlockExpectedState 
                     .unwrap(),
                 ))
             }
-            CronExpectedState::Present => {
+            CronExpectedStatus::Present => {
                 let expected_line = build_cron_line(&self.schedule, cron_d_user, command);
                 let needs_upsert = match existing_entry {
                     None => true,
@@ -665,21 +665,21 @@ mod tests {
     //   State: !Absent
     //         ";
 
-    //         let _attributes: Vec<CronBlockExpectedState> =
+    //         let _attributes: Vec<CronExpectedState> =
     //             yaml_serde::from_str(raw_attributes).unwrap();
     //     }
 
     //     #[test]
     //     fn check_rejects_present_without_job() {
-    //         let result = CronBlockExpectedState::builder("test")
-    //             .with_state(CronExpectedState::Present)
+    //         let result = CronExpectedState::builder("test")
+    //             .with_state(CronExpectedStatus::Present)
     //             .build();
     //         assert!(result.is_err());
     //     }
 
     //     #[test]
     //     fn check_rejects_special_time_with_time_fields() {
-    //         let result = CronBlockExpectedState::builder("test")
+    //         let result = CronExpectedState::builder("test")
     //             .with_job("/bin/true")
     //             .with_special_time(CronSpecialTime::Daily)
     //             .with_minute("0")
@@ -689,15 +689,15 @@ mod tests {
 
     //     #[test]
     //     fn check_accepts_absent_without_job() {
-    //         let result = CronBlockExpectedState::builder("test")
-    //             .with_state(CronExpectedState::Absent)
+    //         let result = CronExpectedState::builder("test")
+    //             .with_state(CronExpectedStatus::Absent)
     //             .build();
     //         assert!(result.is_ok());
     //     }
 
     //     #[test]
     //     fn build_cron_line_standard() {
-    //         let block = CronBlockExpectedState::builder("test")
+    //         let block = CronExpectedState::builder("test")
     //             .with_job("/usr/bin/backup.sh")
     //             .with_minute("0")
     //             .with_hour("2")
@@ -711,7 +711,7 @@ mod tests {
 
     //     #[test]
     //     fn build_cron_line_special_time() {
-    //         let block = CronBlockExpectedState::builder("test")
+    //         let block = CronExpectedState::builder("test")
     //             .with_job("/usr/bin/backup.sh")
     //             .with_special_time(CronSpecialTime::Daily)
     //             .build()
@@ -721,7 +721,7 @@ mod tests {
 
     //     #[test]
     //     fn build_cron_line_cron_d_with_user() {
-    //         let block = CronBlockExpectedState::builder("test")
+    //         let block = CronExpectedState::builder("test")
     //             .with_job("/usr/bin/backup.sh")
     //             .with_minute("30")
     //             .with_hour("3")
@@ -736,7 +736,7 @@ mod tests {
 
     //     #[test]
     //     fn build_cron_line_disabled() {
-    //         let block = CronBlockExpectedState::builder("test")
+    //         let block = CronExpectedState::builder("test")
     //             .with_job("/usr/bin/backup.sh")
     //             .with_minute("0")
     //             .with_hour("1")

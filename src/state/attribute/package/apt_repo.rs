@@ -1,6 +1,6 @@
 //! APT repository management attribute
 //!
-//! This module provides the `AptRepoBlockExpectedState` type for managing APT repository
+//! This module provides the `AptRepoExpectedState` type for managing APT repository
 //! sources in `/etc/apt/sources.list.d/`. Supports both legacy `.list` format and modern
 //! `.sources` (deb822) format.
 //!
@@ -11,12 +11,12 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::apt_repo::{AptRepoBlockExpectedState, AptRepoExpectedState, AptRepoType};
+//! use regent_sdk::state::attribute::package::apt_repo::{AptRepoExpectedState, AptRepoExpectedStatus, AptRepoType};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Add a repository using legacy format
-//! let repo = AptRepoBlockExpectedState::builder("docker")
-//!     .with_state(AptRepoExpectedState::Present)
+//! let repo = AptRepoExpectedState::builder("docker")
+//!     .with_state(AptRepoExpectedStatus::Present)
 //!     .with_repo("deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable")
 //!     .with_update_cache(true)
 //!     .build()
@@ -58,7 +58,7 @@ use std::time::Duration;
 /// Desired state of a repository
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum AptRepoExpectedState {
+pub enum AptRepoExpectedStatus {
     /// Repository should exist
     Present,
     /// Repository should be removed
@@ -99,11 +99,11 @@ impl AptRepoType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub struct AptRepoBlockExpectedState {
+pub struct AptRepoExpectedState {
     /// Filename (without extension) for the repository file in /etc/apt/sources.list.d/
     filename: String,
     /// Desired state of the repository
-    state: AptRepoExpectedState,
+    state: AptRepoExpectedStatus,
     /// Whether to run apt-get update after adding/removing repositories
     #[serde(default)]
     cache_up_to_date: bool,
@@ -139,20 +139,20 @@ pub enum AptRepoFormat {
     },
 }
 
-impl Timeout for AptRepoBlockExpectedState {
+impl Timeout for AptRepoExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(3)
     }
 }
 
-impl AptRepoBlockExpectedState {
+impl AptRepoExpectedState {
     pub fn legacy_format(
         filename: &str,
         repo: &str,
-        state: AptRepoExpectedState,
+        state: AptRepoExpectedStatus,
         cache_up_to_date: bool,
-    ) -> AptRepoBlockExpectedState {
-        AptRepoBlockExpectedState {
+    ) -> AptRepoExpectedState {
+        AptRepoExpectedState {
             filename: filename.to_string(),
             state,
             cache_up_to_date,
@@ -164,7 +164,7 @@ impl AptRepoBlockExpectedState {
 
     pub fn deb822_format(
         filename: &str,
-        state: AptRepoExpectedState,
+        state: AptRepoExpectedStatus,
         types: Vec<AptRepoType>,
         uris: Vec<String>,
         suites: Vec<String>,
@@ -173,8 +173,8 @@ impl AptRepoBlockExpectedState {
         enabled: Option<bool>,
         architectures: Option<Vec<String>>,
         cache_up_to_date: bool,
-    ) -> AptRepoBlockExpectedState {
-        AptRepoBlockExpectedState {
+    ) -> AptRepoExpectedState {
+        AptRepoExpectedState {
             filename: filename.to_string(),
             state,
             cache_up_to_date,
@@ -191,7 +191,7 @@ impl AptRepoBlockExpectedState {
     }
 }
 
-impl Check for AptRepoBlockExpectedState {
+impl Check for AptRepoExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -213,7 +213,7 @@ impl Check for AptRepoBlockExpectedState {
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -234,7 +234,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
         };
 
         match self.state {
-            AptRepoExpectedState::Absent => {
+            AptRepoExpectedStatus::Absent => {
                 if current_content.is_some() {
                     remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
                         AptRepoModuleInternalApiCall::RemoveFile {
@@ -244,7 +244,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoBlockExpectedSta
                     )));
                 }
             }
-            AptRepoExpectedState::Present => {
+            AptRepoExpectedStatus::Present => {
                 let format = self
                     .format
                     .as_ref()
@@ -533,7 +533,7 @@ mod tests {
 - Filename: docker
   State: Absent
         ";
-        let _attrs: Vec<AptRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        let _attrs: Vec<AptRepoExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
 
     #[test]
@@ -552,7 +552,7 @@ mod tests {
       - stable
     SignedBy: /usr/share/keyrings/docker-archive-keyring.gpg
         ";
-        let _attrs: Vec<AptRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        let _attrs: Vec<AptRepoExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
 
     #[test]

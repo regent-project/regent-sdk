@@ -1,6 +1,6 @@
 //! DNF/YUM repository management attribute
 //!
-//! This module provides the `DnfRepoBlockExpectedState` enum for managing DNF/YUM
+//! This module provides the `DnfRepoExpectedState` enum for managing DNF/YUM
 //! repository `.repo` files in `/etc/yum.repos.d/`. The enum-based design ensures
 //! that incoherent state combinations are impossible to represent at compile time.
 //!
@@ -8,7 +8,7 @@
 //!
 //! # Design
 //!
-//! The `DnfRepoBlockExpectedState` enum uses two variants to enforce type safety:
+//! The `DnfRepoExpectedState` enum uses two variants to enforce type safety:
 //!
 //! - **`Present`**: Contains all repository configuration fields including `source` (required),
 //!   `description`, `enabled`, `gpgcheck`, `gpgkey`, `file`, `priority`, `sslverify`, and `exclude` (all optional).
@@ -24,16 +24,16 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::dnf_repo::{DnfRepoBlockExpectedState, DnfRepoSource};
+//! use regent_sdk::state::attribute::package::dnf_repo::{DnfRepoExpectedState, DnfRepoSource};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Using factory methods (recommended for most cases)
-//! let repo = DnfRepoBlockExpectedState::present("docker-ce",
+//! let repo = DnfRepoExpectedState::present("docker-ce",
 //!     DnfRepoSource::Baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()])
 //! );
 //!
 //! // Or using struct literal syntax for full configuration
-//! let repo = DnfRepoBlockExpectedState::Present {
+//! let repo = DnfRepoExpectedState::Present {
 //!     name: "docker-ce".to_string(),
 //!     source: DnfRepoSource::Baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()]),
 //!     description: Some("Docker CE Stable".to_string()),
@@ -47,10 +47,10 @@
 //! };
 //!
 //! // Remove a repository (only name and optional file are available)
-//! let repo_absent = DnfRepoBlockExpectedState::absent("docker-ce");
+//! let repo_absent = DnfRepoExpectedState::absent("docker-ce");
 //!
 //! // Or using struct literal
-//! let repo_absent = DnfRepoBlockExpectedState::Absent {
+//! let repo_absent = DnfRepoExpectedState::Absent {
 //!     name: "docker-ce".to_string(),
 //!     file: None,
 //! };
@@ -111,7 +111,7 @@ use std::time::Duration;
 /// Desired state of a DNF/YUM repository
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum DnfRepoExpectedState {
+pub enum DnfRepoExpectedStatus {
     /// Repository should exist
     Present,
     /// Repository should be removed
@@ -170,7 +170,7 @@ pub enum DnfRepoSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
-pub enum DnfRepoBlockExpectedState {
+pub enum DnfRepoExpectedState {
     /// Repository should be present with full configuration
     #[serde(rename_all = "PascalCase")]
     Present {
@@ -216,28 +216,28 @@ pub enum DnfRepoBlockExpectedState {
     },
 }
 
-impl Timeout for DnfRepoBlockExpectedState {
+impl Timeout for DnfRepoExpectedState {
     fn default_timeout(&self) -> Duration {
         Duration::from_secs(30)
     }
 }
 
-impl DnfRepoBlockExpectedState {
+impl DnfRepoExpectedState {
     /// Get the repository name
     pub fn name(&self) -> &str {
         match self {
-            DnfRepoBlockExpectedState::Present { name, .. } => name,
-            DnfRepoBlockExpectedState::Absent { name, .. } => name,
+            DnfRepoExpectedState::Present { name, .. } => name,
+            DnfRepoExpectedState::Absent { name, .. } => name,
         }
     }
 
     /// Get the repository filename (either custom or default to name)
     pub fn repo_filename(&self) -> String {
         match self {
-            DnfRepoBlockExpectedState::Present { file, name, .. } => {
+            DnfRepoExpectedState::Present { file, name, .. } => {
                 file.as_deref().unwrap_or(name).to_string()
             }
-            DnfRepoBlockExpectedState::Absent { file, name } => {
+            DnfRepoExpectedState::Absent { file, name } => {
                 file.as_deref().unwrap_or(name).to_string()
             }
         }
@@ -246,28 +246,28 @@ impl DnfRepoBlockExpectedState {
     /// Get the source URLs for verification purposes (only available for Present variant)
     pub fn source_urls(&self) -> Option<Vec<String>> {
         match self {
-            DnfRepoBlockExpectedState::Present { source, .. } => Some(match source {
+            DnfRepoExpectedState::Present { source, .. } => Some(match source {
                 DnfRepoSource::Baseurl(urls) => urls.clone(),
                 DnfRepoSource::Mirrorlist(url) => vec![url.clone()],
                 DnfRepoSource::Metalink(url) => vec![url.clone()],
             }),
-            DnfRepoBlockExpectedState::Absent { .. } => None,
+            DnfRepoExpectedState::Absent { .. } => None,
         }
     }
 
     /// Check if this is a Present state
     pub fn is_present(&self) -> bool {
-        matches!(self, DnfRepoBlockExpectedState::Present { .. })
+        matches!(self, DnfRepoExpectedState::Present { .. })
     }
 
     /// Check if this is an Absent state
     pub fn is_absent(&self) -> bool {
-        matches!(self, DnfRepoBlockExpectedState::Absent { .. })
+        matches!(self, DnfRepoExpectedState::Absent { .. })
     }
 
     /// Create a Present state configuration
-    pub fn present(name: &str, source: DnfRepoSource) -> DnfRepoBlockExpectedState {
-        DnfRepoBlockExpectedState::Present {
+    pub fn present(name: &str, source: DnfRepoSource) -> DnfRepoExpectedState {
+        DnfRepoExpectedState::Present {
             name: name.to_string(),
             source,
             description: None,
@@ -282,8 +282,8 @@ impl DnfRepoBlockExpectedState {
     }
 
     /// Create an Absent state configuration
-    pub fn absent(name: &str) -> DnfRepoBlockExpectedState {
-        DnfRepoBlockExpectedState::Absent {
+    pub fn absent(name: &str) -> DnfRepoExpectedState {
+        DnfRepoExpectedState::Absent {
             name: name.to_string(),
             file: None,
         }
@@ -292,7 +292,7 @@ impl DnfRepoBlockExpectedState {
     /// Validate the configuration
     pub fn check(&self) -> Result<(), RegentError> {
         match self {
-            DnfRepoBlockExpectedState::Present { name, .. } => {
+            DnfRepoExpectedState::Present { name, .. } => {
                 if name.is_empty() {
                     return Err(RegentError::IncoherentExpectedState(
                         "Repo name cannot be empty.".to_string(),
@@ -300,7 +300,7 @@ impl DnfRepoBlockExpectedState {
                 }
                 Ok(())
             }
-            DnfRepoBlockExpectedState::Absent { name, .. } => {
+            DnfRepoExpectedState::Absent { name, .. } => {
                 if name.is_empty() {
                     return Err(RegentError::IncoherentExpectedState(
                         "Repo name cannot be empty.".to_string(),
@@ -329,20 +329,20 @@ impl DnfRepoBlockExpectedState {
     }
 }
 
-impl Check for DnfRepoBlockExpectedState {
+impl Check for DnfRepoExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        DnfRepoBlockExpectedState::check(self)
+        DnfRepoExpectedState::check(self)
     }
 
     fn check_host_compatibility(
         &self,
         host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
-        DnfRepoBlockExpectedState::check_host_compatibility(self, host_properties)
+        DnfRepoExpectedState::check_host_compatibility(self, host_properties)
     }
 }
 
-impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -364,7 +364,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
         };
 
         match self {
-            DnfRepoBlockExpectedState::Absent { name, .. } => {
+            DnfRepoExpectedState::Absent { name, .. } => {
                 let section_exists = current_content
                     .as_deref()
                     .and_then(|c| extract_section(c, name))
@@ -384,7 +384,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoBlockExpectedSta
                     ))])?,
                 ))
             }
-            DnfRepoBlockExpectedState::Present {
+            DnfRepoExpectedState::Present {
                 name,
                 source,
                 description,
@@ -761,16 +761,16 @@ mod tests {
 - !Absent
     Name: epel
         ";
-        let attrs: Vec<DnfRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        let attrs: Vec<DnfRepoExpectedState> = yaml_serde::from_str(raw).unwrap();
         assert_eq!(attrs.len(), 2);
         match &attrs[0] {
-            DnfRepoBlockExpectedState::Present { name, .. } => {
+            DnfRepoExpectedState::Present { name, .. } => {
                 assert_eq!(name, "docker-ce-stable");
             }
             _ => panic!("Expected Present variant"),
         }
         match &attrs[1] {
-            DnfRepoBlockExpectedState::Absent { name, .. } => {
+            DnfRepoExpectedState::Absent { name, .. } => {
                 assert_eq!(name, "epel");
             }
             _ => panic!("Expected Absent variant"),
@@ -784,10 +784,10 @@ mod tests {
     Name: epel
     File: custom-repo
         ";
-        let attrs: Vec<DnfRepoBlockExpectedState> = yaml_serde::from_str(raw).unwrap();
+        let attrs: Vec<DnfRepoExpectedState> = yaml_serde::from_str(raw).unwrap();
         assert_eq!(attrs.len(), 1);
         match &attrs[0] {
-            DnfRepoBlockExpectedState::Absent { name, file } => {
+            DnfRepoExpectedState::Absent { name, file } => {
                 assert_eq!(name, "epel");
                 assert_eq!(file, &Some("custom-repo".to_string()));
             }
@@ -797,7 +797,7 @@ mod tests {
 
     #[test]
     fn check_rejects_empty_name_present() {
-        let result = DnfRepoBlockExpectedState::Present {
+        let result = DnfRepoExpectedState::Present {
             name: "".to_string(),
             source: DnfRepoSource::Baseurl(vec!["http://example.com".to_string()]),
             description: None,
@@ -815,7 +815,7 @@ mod tests {
 
     #[test]
     fn check_rejects_empty_name_absent() {
-        let result = DnfRepoBlockExpectedState::Absent {
+        let result = DnfRepoExpectedState::Absent {
             name: "".to_string(),
             file: None,
         }
@@ -825,7 +825,7 @@ mod tests {
 
     #[test]
     fn check_accepts_absent() {
-        let result = DnfRepoBlockExpectedState::Absent {
+        let result = DnfRepoExpectedState::Absent {
             name: "myrepo".to_string(),
             file: None,
         }
@@ -894,7 +894,7 @@ mod tests {
 
     #[test]
     fn repo_filename_defaults_to_name_present() {
-        let block = DnfRepoBlockExpectedState::present(
+        let block = DnfRepoExpectedState::present(
             "myrepo",
             DnfRepoSource::Baseurl(vec!["http://x.com".to_string()]),
         );
@@ -903,7 +903,7 @@ mod tests {
 
     #[test]
     fn repo_filename_uses_file_field_when_set_present() {
-        let block = DnfRepoBlockExpectedState::Present {
+        let block = DnfRepoExpectedState::Present {
             name: "myrepo".to_string(),
             source: DnfRepoSource::Baseurl(vec!["http://x.com".to_string()]),
             description: None,
@@ -920,7 +920,7 @@ mod tests {
 
     #[test]
     fn repo_filename_uses_file_field_when_set_absent() {
-        let block = DnfRepoBlockExpectedState::Absent {
+        let block = DnfRepoExpectedState::Absent {
             name: "myrepo".to_string(),
             file: Some("custom-file".to_string()),
         };
@@ -929,21 +929,21 @@ mod tests {
 
     #[test]
     fn source_urls_returns_none_for_absent() {
-        let block = DnfRepoBlockExpectedState::absent("myrepo");
+        let block = DnfRepoExpectedState::absent("myrepo");
         let urls = block.source_urls();
         assert_eq!(urls, None);
     }
 
     #[test]
     fn is_present_and_is_absent() {
-        let present = DnfRepoBlockExpectedState::present(
+        let present = DnfRepoExpectedState::present(
             "test",
             DnfRepoSource::Baseurl(vec!["http://x.com".to_string()]),
         );
         assert!(present.is_present());
         assert!(!present.is_absent());
 
-        let absent = DnfRepoBlockExpectedState::absent("test");
+        let absent = DnfRepoExpectedState::absent("test");
         assert!(!absent.is_present());
         assert!(absent.is_absent());
     }
@@ -951,13 +951,13 @@ mod tests {
     #[test]
     fn absent_variant_only_has_name_and_file() {
         // The Absent variant should only have name and file fields
-        let absent = DnfRepoBlockExpectedState::Absent {
+        let absent = DnfRepoExpectedState::Absent {
             name: "test".to_string(),
             file: None,
         };
 
         match absent {
-            DnfRepoBlockExpectedState::Absent { name, file } => {
+            DnfRepoExpectedState::Absent { name, file } => {
                 assert_eq!(name, "test");
                 assert_eq!(file, None);
             }

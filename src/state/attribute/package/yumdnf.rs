@@ -1,6 +1,6 @@
 //! YUM/DNF package management attribute
 //!
-//! This module provides the `YumDnfBlockExpectedState` type for managing RHEL/CentOS/Fedora
+//! This module provides the `YumDnfExpectedState` type for managing RHEL/CentOS/Fedora
 //! packages using the YUM or DNF package manager.
 //!
 //! **Compatible OS:** Linux (Fedora, CentOS, RHEL-based distributions)
@@ -10,17 +10,17 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::yumdnf::{YumDnfBlockExpectedState, PackageExpectedState};
+//! use regent_sdk::state::attribute::package::yumdnf::{YumDnfExpectedState, PackageExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install httpd package
-//! let httpd = YumDnfBlockExpectedState::package_state("httpd", PackageExpectedState::Present);
+//! let httpd = YumDnfExpectedState::package_state("httpd", PackageExpectedState::Present);
 //!
 //! // Remove a package
-//! let nginx = YumDnfBlockExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//! let nginx = YumDnfExpectedState::package_state("nginx", PackageExpectedState::Absent);
 //!
 //! // Trigger a full system upgrade
-//! let upgrade = YumDnfBlockExpectedState::full_system_upgrade();
+//! let upgrade = YumDnfExpectedState::full_system_upgrade();
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::yumdnf(httpd, Privilege::WithSudo, None))
@@ -112,7 +112,7 @@ pub enum PackageExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
-pub enum YumDnfBlockExpectedState {
+pub enum YumDnfExpectedState {
     /// Perform a full system upgrade (dnf/yum update)
     SystemUpToDate,
     /// Manage a specific package's state
@@ -125,7 +125,7 @@ pub enum YumDnfBlockExpectedState {
     },
 }
 
-impl Timeout for YumDnfBlockExpectedState {
+impl Timeout for YumDnfExpectedState {
     fn default_timeout(&self) -> Duration {
         match self {
             Self::SystemUpToDate => Duration::from_secs(300),
@@ -137,20 +137,20 @@ impl Timeout for YumDnfBlockExpectedState {
     }
 }
 
-impl YumDnfBlockExpectedState {
-    pub fn full_system_upgrade() -> YumDnfBlockExpectedState {
-        YumDnfBlockExpectedState::SystemUpToDate
+impl YumDnfExpectedState {
+    pub fn full_system_upgrade() -> YumDnfExpectedState {
+        YumDnfExpectedState::SystemUpToDate
     }
 
-    pub fn package_state(package: &str, state: PackageExpectedState) -> YumDnfBlockExpectedState {
-        YumDnfBlockExpectedState::PackageState {
+    pub fn package_state(package: &str, state: PackageExpectedState) -> YumDnfExpectedState {
+        YumDnfExpectedState::PackageState {
             package: package.to_string(),
             state,
         }
     }
 }
 
-impl Check for YumDnfBlockExpectedState {
+impl Check for YumDnfExpectedState {
     fn check(&self) -> Result<(), RegentError> {
         Ok(())
     }
@@ -173,7 +173,7 @@ impl Check for YumDnfBlockExpectedState {
 }
 
 #[allow(unused_assignments)] // 'package_manager' is never actually read, only borrowed
-impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfBlockExpectedState {
+impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
@@ -450,11 +450,11 @@ mod tests {
 - SystemUpToDate
     ";
 
-        let attributes: Vec<YumDnfBlockExpectedState> =
+        let attributes: Vec<YumDnfExpectedState> =
             yaml_serde::from_str(raw_attributes).unwrap();
         assert_eq!(
             attributes[0],
-            YumDnfBlockExpectedState::PackageState {
+            YumDnfExpectedState::PackageState {
                 package: "httpd".to_string(),
                 state: PackageExpectedState::Present
             }
@@ -462,13 +462,13 @@ mod tests {
 
         assert_eq!(
             attributes[1],
-            YumDnfBlockExpectedState::PackageState {
+            YumDnfExpectedState::PackageState {
                 package: "httpd".to_string(),
                 state: PackageExpectedState::Absent
             }
         );
 
-        assert_eq!(attributes[2], YumDnfBlockExpectedState::SystemUpToDate);
+        assert_eq!(attributes[2], YumDnfExpectedState::SystemUpToDate);
     }
 
     #[test]
@@ -477,14 +477,14 @@ mod tests {
         let raw_attribute = "---
 Package: httpd
     ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<YumDnfExpectedState>(raw_attribute).is_err());
 
         // Missing Package field - should fail deserialization
         let raw_attribute = "---
 Package:
 State: Absent
     ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<YumDnfExpectedState>(raw_attribute).is_err());
 
         // Unknown key - should fail deserialization
         let raw_attribute = "---
@@ -492,6 +492,6 @@ Package: httpd
 State: Absent
 unknown_key: unknown_value
     ";
-        assert!(yaml_serde::from_str::<YumDnfBlockExpectedState>(raw_attribute).is_err());
+        assert!(yaml_serde::from_str::<YumDnfExpectedState>(raw_attribute).is_err());
     }
 }
