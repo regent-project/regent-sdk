@@ -198,6 +198,15 @@ impl ServiceBlockExpectedState {
     }
 
     /// Create an enabled-only configuration (no state management, only enablement)
+    pub fn started_and_enabled(name: &str) -> ServiceBlockExpectedState {
+        ServiceBlockExpectedState::State {
+            name: name.to_string(),
+            state: Some(ServiceExpectedState::Started),
+            enabled: true,
+        }
+    }
+
+    /// Create an enabled-only configuration (no state management, only enablement)
     pub fn enabled(name: &str, enabled: bool) -> ServiceBlockExpectedState {
         ServiceBlockExpectedState::State {
             name: name.to_string(),
