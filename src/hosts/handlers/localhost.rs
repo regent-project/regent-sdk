@@ -87,32 +87,25 @@ impl HostHandler for LocalHostHandler {
     async fn is_this_command_available(
         &mut self,
         command: &str,
-        _privilege: &Privilege,
+        privilege: &Privilege,
     ) -> Result<bool, RegentError> {
-        // TODO : use privilege (some commands do no exist for every user (PATH and so on...))
-        let check_cmd_result = Command::new("sh")
-            .arg("-c")
-            .arg(format!("command -v {}", command))
-            .output()
+
+        let check_cmd_content = match privilege {
+            Privilege::None => format!("command -v {}", command),
+            Privilege::WithSudo => format!("sudo sh -c \"command -v {}\"", command),
+            Privilege::WithSudoRs => format!("sudo-rs sh -c \"command -v {}\"", command),
+        };
+
+        let check_cmd_result = self
+            .run_command(check_cmd_content.as_str(), &Privilege::None)
             .await;
 
         match check_cmd_result {
             Ok(cmd_result) => {
-                match cmd_result.status.code() {
-                    Some(code) => {
-                        if code == 0 {
-                            return Ok(true);
-                        } else {
-                            return Ok(false);
-                        }
-                    }
-                    None => {
-                        // Process terminated by a signal -> consider this as a failure to run the command to completion
-                        Err(RegentError::FailureToRunCommand(format!(
-                            "Process terminated by a signal : {:?}",
-                            cmd_result
-                        )))
-                    }
+                if cmd_result.return_code == 0 {
+                    Ok(true)
+                } else {
+                    Ok(false)
                 }
             }
             Err(e) => {
