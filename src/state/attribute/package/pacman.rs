@@ -148,6 +148,13 @@ impl PacmanExpectedState {
             state,
         }
     }
+
+    pub fn package_present(package: &str) -> PacmanExpectedState {
+        PacmanExpectedState::PackageState {
+            package: package.to_string(),
+            state: PackageExpectedState::Present,
+        }
+    }
 }
 
 impl Check for PacmanExpectedState {

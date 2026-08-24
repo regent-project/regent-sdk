@@ -148,6 +148,13 @@ impl AptExpectedState {
             state,
         }
     }
+
+    pub fn package_present(package: &str) -> AptExpectedState {
+        AptExpectedState::PackageState {
+            package: package.to_string(),
+            state: PackageExpectedState::Present,
+        }
+    }
 }
 
 impl Check for AptExpectedState {
