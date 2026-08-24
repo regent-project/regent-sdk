@@ -4,6 +4,7 @@
 //! managing connections to target hosts and executing compliance operations.
 
 use serde::{Deserialize, Serialize};
+use tracing::Instrument;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::Level;
@@ -654,61 +655,79 @@ impl ManagedHost {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
-
+        
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
-
+        
         let mut already_compliant = true;
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
-
+        
         for attribute in expected_state.attributes.clone().iter_mut() {
-            let span = span!(Level::INFO, "attribute", name = attribute.name());
-            let _enter = span.enter();
+            let attribute_span = span!(Level::INFO, "attribute", name = attribute.name());
 
-            // Taking context into account before working on the Attribute
-            match attribute.consider_context(&self.context) {
-                Ok(context_aware_attribute) => {
-                    match context_aware_attribute
-                        .assess(
-                            &mut self.handler,
-                            &self.host_properties,
-                            &self.secret_providers,
-                        )
-                        .await
-                    {
-                        Ok(attribute_compliance_assessment) => {
-                            match attribute_compliance_assessment {
-                                AttributeComplianceAssessment::Compliant => {
-                                    if logging {
-                                        info!(target: "run",assesment_outcome = "Compliant", "Attribute already compliant");
+            // We execute the entire loop iteration inside an instrumented async block for tracing consistency
+            let iteration_result = async {
+                // Taking context into account before working on the Attribute
+                match attribute.consider_context(&self.context) {
+                    Ok(context_aware_attribute) => {
+                        match context_aware_attribute
+                            .assess(
+                                &mut self.handler,
+                                &self.host_properties,
+                                &self.secret_providers,
+                            )
+                            .await
+                        {
+                            Ok(attribute_compliance_assessment) => {
+                                match attribute_compliance_assessment {
+                                    AttributeComplianceAssessment::Compliant => {
+                                        if logging {
+                                            info!(target: "run", "Compliant");
+                                        }
+                                        Ok(Some(Vec::new())) // Compliant, no remediations
                                     }
-                                }
-                                AttributeComplianceAssessment::NonCompliant(remediations) => {
-                                    if logging {
-                                        warn!(target: "run",assesment_outcome = "NonCompliant", remediations = ?remediations.remediations(), "Not compliant but remediations are possible");
+                                    AttributeComplianceAssessment::NonCompliant(remediations) => {
+                                        if logging {
+                                            warn!(target: "run", remediations = ?remediations.remediations(), "Not compliant");
+                                        }
+                                        Ok(Some(remediations.into_inner()))
                                     }
-                                    already_compliant = false;
-                                    final_remediations_list.extend(remediations.into_inner());
-                                }
-                                AttributeComplianceAssessment::NonCompliantFatal(details) => {
-                                    if logging {
-                                        error!(target: "run",assesment_outcome = "NonCompliantFatal", details, "Not compliant but no remediation possible");
+                                    AttributeComplianceAssessment::NonCompliantFatal(details) => {
+                                        if logging {
+                                            error!(target: "run", details, "Not compliant and no remediation possible");
+                                        }
+                                        Ok(None) // Non-compliant fatal, can't remediate
                                     }
-                                    already_compliant = false;
                                 }
                             }
-                        }
-                        Err(details) => {
-                            return Err(details);
+                            Err(details) => Err(details),
                         }
                     }
+                    Err(details) => {
+                        let content = match &details {
+                            RegentError::FailureToConsiderContext(content) => content,
+                            _ => &format!("{:?}", details),
+                        };
+                        error!("{}", content);
+                        Err(details)
+                    }
+                }
+            }
+            .instrument(attribute_span) // <-- Captures EVERYTHING inside the async block
+            .await;
+
+            // Process the control-flow state safely outside the span tracking lifecycle
+            match iteration_result {
+                Ok(Some(remediations)) => {
+                    if !remediations.is_empty() {
+                        already_compliant = false;
+                        final_remediations_list.extend(remediations);
+                    }
+                }
+                Ok(None) => {
+                    already_compliant = false;
                 }
                 Err(details) => {
-                    let content = match &details {
-                        RegentError::FailureToConsiderContext(content) => content,
-                        _ => &format!("{:?}", details),
-                    };
-                    error!("{}", content);
                     return Err(details);
                 }
             }
@@ -762,108 +781,120 @@ impl ManagedHost {
         let mut actions_taken: Vec<Action> = Vec::new();
 
         for attribute in &expected_state.attributes {
-            let span = span!(Level::INFO, "attribute", name = attribute.name());
-            let _enter = span.enter();
-            match attribute.consider_context(&self.context) {
-                Ok(context_aware_attribute) => {
-                    let timeout_duration = context_aware_attribute.timeout()?;
+            let attribute_span = span!(Level::INFO, "attribute", name = attribute.name());
 
-                    match context_aware_attribute
-                        .assess(
-                            &mut self.handler,
-                            &self.host_properties,
-                            &self.secret_providers,
-                        )
-                        .await
-                    {
-                        Ok(attribute_compliance) => {
-                            let outcome = attribute_compliance.clone();
-                            match attribute_compliance {
-                                AttributeComplianceAssessment::Compliant => {
-                                    info!(target: "run",assesment_outcome = ?outcome, "Attribute already met");
-                                    // Nothing to do
-                                }
-                                AttributeComplianceAssessment::NonCompliant(remediations) => {
-                                    warn!(target: "run",assesment_outcome = "NonCompliant", remediations = ?remediations.remediations(), "Not compliant but remediations are possible");
+            // Wrap the logic into an instrumented async block to facilitate tracing
+            let iteration_result = async {
+                match attribute.consider_context(&self.context) {
+                    Ok(context_aware_attribute) => {
+                        let timeout_duration = context_aware_attribute.timeout()?;
 
-                                    // Host is not compliant as there are remediations to perform
-                                    // Host status switches from AlreadyCompliant to ReachComplianceSuccess by default
-                                    final_host_status = HostStatus::ReachComplianceSuccess;
+                        match context_aware_attribute
+                            .assess(
+                                &mut self.handler,
+                                &self.host_properties,
+                                &self.secret_providers,
+                            )
+                            .await
+                        {
+                            Ok(attribute_compliance) => {
+                                match attribute_compliance {
+                                    AttributeComplianceAssessment::Compliant => {
+                                        info!(target: "run", "Compliant");
+                                        // Return progress updates back to the parent collector
+                                        Ok(LoopControl::Continue)
+                                    }
+                                    AttributeComplianceAssessment::NonCompliant(remediations) => {
+                                        warn!(target: "run", remediations = ?remediations.remediations(), "Not compliant");
 
-                                    // Try to remedy
+                                        let mut local_failed = false;
+                                        let mut local_actions = Vec::new();
 
-                                    for remediation in remediations.iter() {
-                                        match remediation
-                                            .reach_compliance(
-                                                &mut self.handler,
-                                                &self.host_properties,
-                                                &self.secret_providers,
-                                                timeout_duration,
-                                            )
-                                            .await
-                                        {
-                                            Ok(internal_api_call_outcome) => {
-                                                actions_taken.push(Action::from(
-                                                    remediation.clone(),
-                                                    Some(internal_api_call_outcome.clone()),
-                                                ));
+                                        for remediation in remediations.iter() {
+                                            match remediation
+                                                .reach_compliance(
+                                                    &mut self.handler,
+                                                    &self.host_properties,
+                                                    &self.secret_providers,
+                                                    timeout_duration,
+                                                )
+                                                .await
+                                            {
+                                                Ok(internal_api_call_outcome) => {
+                                                    local_actions.push(Action::from(
+                                                        remediation.clone(),
+                                                        Some(internal_api_call_outcome.clone()),
+                                                    ));
 
-                                                match &internal_api_call_outcome {
-                                                    InternalApiCallOutcome::Success(details) => {
-                                                        info!(target: "run",remediation_outcome = "Success", "{:?} : {}", remediation, details.clone().unwrap_or("no details".to_string()));
-                                                    }
-                                                    InternalApiCallOutcome::AllowedFailure(
-                                                        details,
-                                                    ) => {
-                                                        info!(target: "run",remediation_outcome = "AllowedFailure", "Allowed failure occured : {}", details);
-                                                    }
-                                                    InternalApiCallOutcome::Failure(details) => {
-                                                        reaching_compliance_failed = true;
-                                                        final_host_status =
-                                                            HostStatus::ReachComplianceFailed;
-
-                                                        warn!(
-                                                            remediation_outcome = "Failure",
-                                                            "Attribute not met : {}", details
-                                                        );
-
-                                                        // Stop processing more remediations for this attribute
-                                                        break;
+                                                    match &internal_api_call_outcome {
+                                                        InternalApiCallOutcome::Success(details) => {
+                                                            info!(target: "run", remediation_outcome = "Success", "{:?} : {}", remediation, details.clone().unwrap_or("no details".to_string()));
+                                                        }
+                                                        InternalApiCallOutcome::AllowedFailure(details) => {
+                                                            info!(target: "run", remediation_outcome = "AllowedFailure", "Allowed failure occured : {}", details);
+                                                        }
+                                                        InternalApiCallOutcome::Failure(details) => {
+                                                            local_failed = true;
+                                                            warn!(remediation_outcome = "Failure", "Attribute not met : {}", details);
+                                                            // Break the local remediation sub-loop
+                                                            break;
+                                                        }
                                                     }
                                                 }
-                                            }
-                                            Err(details) => {
-                                                warn!("Failed to apply remediation");
-                                                return Err(details);
+                                                Err(details) => {
+                                                    warn!("Failed to apply remediation");
+                                                    return Err(details);
+                                                }
                                             }
                                         }
-                                    }
 
-                                    // TODO : Variabilize this behavior to make it possible to go beyond a failure
-                                    // (would have to be updated again in a "DependsOn" implementation)
-                                    if reaching_compliance_failed {
-                                        // Stop processing more attributes
-                                        break;
+                                        Ok(LoopControl::Remediated { 
+                                            failed: local_failed, 
+                                            actions: local_actions 
+                                        })
                                     }
-                                }
-                                AttributeComplianceAssessment::NonCompliantFatal(details) => {
-                                    error!(target: "run",assesment_outcome = "NonCompliantFatal", details, "Not compliant but no remediation possible");
-                                    final_host_status = HostStatus::ReachComplianceFailed;
+                                    AttributeComplianceAssessment::NonCompliantFatal(details) => {
+                                        error!(target: "run", details, "Not compliant and no remediation possible");
+                                        Ok(LoopControl::Fatal)
+                                    }
                                 }
                             }
+                            Err(details) => {
+                                warn!(reason = ?details, "Failed assessment");
+                                Err(details)
+                            }
                         }
-                        Err(details) => {
-                            warn!(reason = ?details, "Failed assessment");
-                            return Err(details);
-                        }
+                    }
+                    Err(details) => {
+                        let content = match &details {
+                            RegentError::FailureToConsiderContext(content) => content,
+                            _ => &format!("{:?}", details),
+                        };
+                        error!("{}", content);
+                        Err(details)
+                    }
+                }
+            }
+            .instrument(attribute_span) // <-- Seamlessly maintains 'attribute' tracing span across everything
+            .await;
+
+            // Process loop control and state changes outside of the tracing block context
+            match iteration_result {
+                Ok(LoopControl::Continue) => {}
+                Ok(LoopControl::Fatal) => {
+                    final_host_status = HostStatus::ReachComplianceFailed;
+                }
+                Ok(LoopControl::Remediated { failed, actions }) => {
+                    actions_taken.extend(actions);
+                    if failed {
+                        // reaching_compliance_failed = true;
+                        final_host_status = HostStatus::ReachComplianceFailed;
+                        break; // Stop processing further attributes due to failure
+                    } else {
+                        final_host_status = HostStatus::ReachComplianceSuccess;
                     }
                 }
                 Err(details) => {
-                    let content = match &details {
-                        RegentError::FailureToConsiderContext(content) => content,
-                        _ => &format!("{:?}", details),
-                    };
-                    error!("{}", content);
                     return Err(details);
                 }
             }
@@ -981,4 +1012,12 @@ pub enum InternalApiCallOutcome {
     ///
     /// This allows for "best effort" compliance where some failures are acceptable.
     AllowedFailure(String),
+}
+
+
+// Internal state tracking helper for out-of-span control flow
+enum LoopControl {
+    Continue,
+    Remediated { failed: bool, actions: Vec<Action> },
+    Fatal,
 }
