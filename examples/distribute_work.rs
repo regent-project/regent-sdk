@@ -1,4 +1,4 @@
-use regent_sdk::attribute::package::pacman::{PackageExpectedState, PacmanBlockExpectedState};
+use regent_sdk::attribute::package::pacman::PacmanExpectedState;
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::TargetUser;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
@@ -40,7 +40,7 @@ fn create_a_regent_task() -> String {
 
     // Describe the expected state
     let apache_expected_state =
-        PacmanBlockExpectedState::package_state("apache", PackageExpectedState::Present);
+        PacmanExpectedState::package_present("apache");
 
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::pacman(

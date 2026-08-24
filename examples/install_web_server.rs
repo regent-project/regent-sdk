@@ -1,5 +1,5 @@
 use regent_sdk::Privilege;
-use regent_sdk::attribute::package::apt::{AptBlockExpectedState, PackageExpectedState};
+use regent_sdk::attribute::package::apt::AptExpectedState;
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::TargetUser;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
@@ -26,7 +26,7 @@ async fn main() {
 
     // Describe the expected state
     let apache_expected_state =
-        AptBlockExpectedState::package_state("apache2", PackageExpectedState::Present);
+        AptExpectedState::package_present("apache2");
 
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::apt(

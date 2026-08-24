@@ -1,5 +1,5 @@
 use regent_sdk::Privilege;
-use regent_sdk::attribute::system::service::{ServiceBlockExpectedState, ServiceExpectedState};
+use regent_sdk::attribute::system::service::ServiceExpectedState;
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::ssh2::Ssh2Auth;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
@@ -31,7 +31,7 @@ async fn main() {
 
     // Describe the expected state
     let httpd_service_active_and_enabled =
-        ServiceBlockExpectedState::state("httpd", ServiceExpectedState::Started, true);
+        ServiceExpectedState::started_and_enabled("httpd");
 
     let localhost_expected_state = ExpectedState::new()
         .with_attribute(Attribute::service(
