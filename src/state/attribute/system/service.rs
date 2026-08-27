@@ -185,11 +185,7 @@ impl Timeout for ServiceExpectedState {
 
 impl ServiceExpectedState {
     /// Create a state configuration with running state and boot enablement
-    pub fn state(
-        name: &str,
-        state: ServiceExpectedStatus,
-        enabled: bool,
-    ) -> ServiceExpectedState {
+    pub fn state(name: &str, state: ServiceExpectedStatus, enabled: bool) -> ServiceExpectedState {
         ServiceExpectedState::State {
             name: name.to_string(),
             state: Some(state),
@@ -338,41 +334,68 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                             match windows_service_is_active(host_handler, &name).await {
                                 Ok(current_service_activity) => {
                                     match (current_service_activity, expected_state) {
-                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Stopped) => {
+                                        (
+                                            ServiceActivityStatus::Active,
+                                            ServiceExpectedStatus::Started,
+                                        )
+                                        | (
+                                            ServiceActivityStatus::Inactive,
+                                            ServiceExpectedStatus::Stopped,
+                                        ) => {
                                             // Service already in expected state, nothing to do
                                         }
-                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Stopped) => {
+                                        (
+                                            ServiceActivityStatus::Active,
+                                            ServiceExpectedStatus::Stopped,
+                                        ) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
-                                                    ServiceModuleInternalApiCall::Stop(name.clone()),
+                                                    ServiceModuleInternalApiCall::Stop(
+                                                        name.clone(),
+                                                    ),
                                                     privilege.clone(),
                                                 ),
                                             ));
                                         }
-                                        (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Started) => {
+                                        (
+                                            ServiceActivityStatus::Inactive,
+                                            ServiceExpectedStatus::Started,
+                                        ) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
-                                                    ServiceModuleInternalApiCall::Start(name.clone()),
+                                                    ServiceModuleInternalApiCall::Start(
+                                                        name.clone(),
+                                                    ),
                                                     privilege.clone(),
                                                 ),
                                             ));
                                         }
-                                        (ServiceActivityStatus::ServiceNotFound, _expected_state) => {
-                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                               format!("service not found") 
-                                            ));
+                                        (
+                                            ServiceActivityStatus::ServiceNotFound,
+                                            _expected_state,
+                                        ) => {
+                                            return Ok(
+                                                AttributeComplianceAssessment::NonCompliantFatal(
+                                                    format!("service not found"),
+                                                ),
+                                            );
                                         }
-                                        (ServiceActivityStatus::UnsupportedCase(details), _expected_state) => {
-                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                               format!("{details}") 
-                                            ));
+                                        (
+                                            ServiceActivityStatus::UnsupportedCase(details),
+                                            _expected_state,
+                                        ) => {
+                                            return Ok(
+                                                AttributeComplianceAssessment::NonCompliantFatal(
+                                                    format!("{details}"),
+                                                ),
+                                            );
                                         }
                                     }
                                 }
                                 Err(error_details) => {
-                                    return Err(RegentError::FailedTaskDryRun(
-                                        format!("Unable to check service activity : {error_details}")
-                                    ));
+                                    return Err(RegentError::FailedTaskDryRun(format!(
+                                        "Unable to check service activity : {error_details}"
+                                    )));
                                 }
                             }
                         }
@@ -381,41 +404,55 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                         match windows_service_is_enabled(host_handler, &name).await {
                             Ok(current_service_enabling) => {
                                 match (current_service_enabling, *enabled) {
-                                    (ServiceEnablingStatus::Enabled, true) | (ServiceEnablingStatus::Disabled, false) => {
+                                    (ServiceEnablingStatus::Enabled, true)
+                                    | (ServiceEnablingStatus::Disabled, false) => {
                                         // Service already in expected state, nothing to do
                                     }
                                     (ServiceEnablingStatus::Enabled, false) => {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Disable(name.clone()),
-                                            privilege.clone(),
-                                        )));
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Enable(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Disable(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Enable(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                     (ServiceEnablingStatus::Disabled, true) => {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Enable(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Enable(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                     (ServiceEnablingStatus::ServiceNotFound, _expected_state) => {
-                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                            format!("service not found") 
-                                        ));
+                                        return Ok(
+                                            AttributeComplianceAssessment::NonCompliantFatal(
+                                                format!("service not found"),
+                                            ),
+                                        );
                                     }
-                                    (ServiceEnablingStatus::UnsupportedCase(details), _expected_state) => {
-                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                            format!("{details}") 
-                                        ));
+                                    (
+                                        ServiceEnablingStatus::UnsupportedCase(details),
+                                        _expected_state,
+                                    ) => {
+                                        return Ok(
+                                            AttributeComplianceAssessment::NonCompliantFatal(
+                                                format!("{details}"),
+                                            ),
+                                        );
                                     }
                                 }
                             }
                             Err(error_details) => {
-                                return Err(RegentError::FailedTaskDryRun(
-                                    format!("Unable to check service activity : {error_details}")
-                                ));
+                                return Err(RegentError::FailedTaskDryRun(format!(
+                                    "Unable to check service activity : {error_details}"
+                                )));
                             }
                         }
                     }
@@ -425,41 +462,68 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                             match service_is_active(host_handler, &name).await {
                                 Ok(current_service_activity) => {
                                     match (current_service_activity, expected_state) {
-                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Started) | (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Stopped) => {
+                                        (
+                                            ServiceActivityStatus::Active,
+                                            ServiceExpectedStatus::Started,
+                                        )
+                                        | (
+                                            ServiceActivityStatus::Inactive,
+                                            ServiceExpectedStatus::Stopped,
+                                        ) => {
                                             // Service already in expected state, nothing to do
                                         }
-                                        (ServiceActivityStatus::Active, ServiceExpectedStatus::Stopped) => {
+                                        (
+                                            ServiceActivityStatus::Active,
+                                            ServiceExpectedStatus::Stopped,
+                                        ) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
-                                                    ServiceModuleInternalApiCall::Stop(name.clone()),
+                                                    ServiceModuleInternalApiCall::Stop(
+                                                        name.clone(),
+                                                    ),
                                                     privilege.clone(),
                                                 ),
                                             ));
                                         }
-                                        (ServiceActivityStatus::Inactive, ServiceExpectedStatus::Started) => {
+                                        (
+                                            ServiceActivityStatus::Inactive,
+                                            ServiceExpectedStatus::Started,
+                                        ) => {
                                             remediations.push(Remediation::Service(
                                                 ServiceApiCall::from(
-                                                    ServiceModuleInternalApiCall::Start(name.clone()),
+                                                    ServiceModuleInternalApiCall::Start(
+                                                        name.clone(),
+                                                    ),
                                                     privilege.clone(),
                                                 ),
                                             ));
                                         }
-                                        (ServiceActivityStatus::ServiceNotFound, _expected_state) => {
-                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                               format!("service not found") 
-                                            ));
+                                        (
+                                            ServiceActivityStatus::ServiceNotFound,
+                                            _expected_state,
+                                        ) => {
+                                            return Ok(
+                                                AttributeComplianceAssessment::NonCompliantFatal(
+                                                    format!("service not found"),
+                                                ),
+                                            );
                                         }
-                                        (ServiceActivityStatus::UnsupportedCase(details), _expected_state) => {
-                                            return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                               format!("{details}") 
-                                            ));
+                                        (
+                                            ServiceActivityStatus::UnsupportedCase(details),
+                                            _expected_state,
+                                        ) => {
+                                            return Ok(
+                                                AttributeComplianceAssessment::NonCompliantFatal(
+                                                    format!("{details}"),
+                                                ),
+                                            );
                                         }
                                     }
                                 }
                                 Err(error_details) => {
-                                    return Err(RegentError::FailedTaskDryRun(
-                                        format!("Unable to check service activity : {error_details}")
-                                    ));
+                                    return Err(RegentError::FailedTaskDryRun(format!(
+                                        "Unable to check service activity : {error_details}"
+                                    )));
                                 }
                             }
                         }
@@ -468,41 +532,55 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                         match service_is_enabled(host_handler, &name).await {
                             Ok(current_service_enabling) => {
                                 match (current_service_enabling, *enabled) {
-                                    (ServiceEnablingStatus::Enabled, true) | (ServiceEnablingStatus::Disabled, false) => {
+                                    (ServiceEnablingStatus::Enabled, true)
+                                    | (ServiceEnablingStatus::Disabled, false) => {
                                         // Service already in expected state, nothing to do
                                     }
                                     (ServiceEnablingStatus::Enabled, false) => {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Disable(name.clone()),
-                                            privilege.clone(),
-                                        )));
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Enable(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Disable(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Enable(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                     (ServiceEnablingStatus::Disabled, true) => {
-                                        remediations.push(Remediation::Service(ServiceApiCall::from(
-                                            ServiceModuleInternalApiCall::Enable(name.clone()),
-                                            privilege.clone(),
-                                        )));
+                                        remediations.push(Remediation::Service(
+                                            ServiceApiCall::from(
+                                                ServiceModuleInternalApiCall::Enable(name.clone()),
+                                                privilege.clone(),
+                                            ),
+                                        ));
                                     }
                                     (ServiceEnablingStatus::ServiceNotFound, _expected_state) => {
-                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                            format!("service not found") 
-                                        ));
+                                        return Ok(
+                                            AttributeComplianceAssessment::NonCompliantFatal(
+                                                format!("service not found"),
+                                            ),
+                                        );
                                     }
-                                    (ServiceEnablingStatus::UnsupportedCase(details), _expected_state) => {
-                                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                            format!("{details}") 
-                                        ));
+                                    (
+                                        ServiceEnablingStatus::UnsupportedCase(details),
+                                        _expected_state,
+                                    ) => {
+                                        return Ok(
+                                            AttributeComplianceAssessment::NonCompliantFatal(
+                                                format!("{details}"),
+                                            ),
+                                        );
                                     }
                                 }
                             }
                             Err(error_details) => {
-                                return Err(RegentError::FailedTaskDryRun(
-                                    format!("Unable to check service activity : {error_details}")
-                                ));
+                                return Err(RegentError::FailedTaskDryRun(format!(
+                                    "Unable to check service activity : {error_details}"
+                                )));
                             }
                         }
                     }
@@ -770,9 +848,7 @@ async fn service_is_active<Handler: HostHandler>(
             0 => Ok(ServiceActivityStatus::Active),
             3 => Ok(ServiceActivityStatus::Inactive),
             4 => Ok(ServiceActivityStatus::ServiceNotFound),
-            _ => Ok(ServiceActivityStatus::UnsupportedCase(
-                format!("{:?}", r)
-            )),
+            _ => Ok(ServiceActivityStatus::UnsupportedCase(format!("{:?}", r))),
         },
         Err(e) => Err(format!("Unable to check active state of {}: {:?}", name, e)),
     }
@@ -790,9 +866,7 @@ async fn service_is_enabled<Handler: HostHandler>(
             0 => Ok(ServiceEnablingStatus::Enabled),
             1 | 3 => Ok(ServiceEnablingStatus::Disabled),
             4 => Ok(ServiceEnablingStatus::ServiceNotFound),
-            _ => Ok(ServiceEnablingStatus::UnsupportedCase(
-                format!("{:?}", r)
-            )),
+            _ => Ok(ServiceEnablingStatus::UnsupportedCase(format!("{:?}", r))),
         },
         Err(e) => Err(format!(
             "Unable to check enabled state of {}: {:?}",
@@ -818,9 +892,10 @@ async fn windows_service_is_active<Handler: HostHandler>(
                 if r.stdout.contains("does not exist") || r.stderr.contains("does not exist") {
                     return Ok(ServiceActivityStatus::ServiceNotFound);
                 } else {
-                    return Ok(ServiceActivityStatus::UnsupportedCase(
-                        format!("Unable to check service enabling status (command issue): {:?}", r)
-                    ));
+                    return Ok(ServiceActivityStatus::UnsupportedCase(format!(
+                        "Unable to check service enabling status (command issue): {:?}",
+                        r
+                    )));
                 }
             }
 
@@ -832,9 +907,10 @@ async fn windows_service_is_active<Handler: HostHandler>(
             } else if output.contains("stopped") || output.contains("pending") {
                 Ok(ServiceActivityStatus::Inactive)
             } else {
-                Ok(ServiceActivityStatus::UnsupportedCase(
-                    format!("Unable to check service activity (output parsing issue): {:?}", r)
-                ))
+                Ok(ServiceActivityStatus::UnsupportedCase(format!(
+                    "Unable to check service activity (output parsing issue): {:?}",
+                    r
+                )))
             }
         }
         Err(e) => Err(format!("Unable to check active state of {}: {:?}", name, e)),
@@ -857,9 +933,10 @@ async fn windows_service_is_enabled<Handler: HostHandler>(
                 if r.stdout.contains("does not exist") || r.stderr.contains("does not exist") {
                     return Ok(ServiceEnablingStatus::ServiceNotFound);
                 } else {
-                    return Ok(ServiceEnablingStatus::UnsupportedCase(
-                        format!("Unable to check service enabling status (command issue): {:?}", r)
-                    ));
+                    return Ok(ServiceEnablingStatus::UnsupportedCase(format!(
+                        "Unable to check service enabling status (command issue): {:?}",
+                        r
+                    )));
                 }
             }
 
@@ -871,9 +948,10 @@ async fn windows_service_is_enabled<Handler: HostHandler>(
             } else if output.contains("disabled") || output.contains("3") || output.contains("4") {
                 Ok(ServiceEnablingStatus::Disabled)
             } else {
-                Ok(ServiceEnablingStatus::UnsupportedCase(
-                    format!("Unable to check service enabling status (output parsing issue): {:?}", r)
-                ))
+                Ok(ServiceEnablingStatus::UnsupportedCase(format!(
+                    "Unable to check service enabling status (output parsing issue): {:?}",
+                    r
+                )))
             }
         }
         Err(e) => Err(format!(
@@ -911,17 +989,16 @@ mod tests {
     }
 }
 
-
 enum ServiceActivityStatus {
     Active,
     Inactive,
     ServiceNotFound,
-    UnsupportedCase(String)
+    UnsupportedCase(String),
 }
 
 enum ServiceEnablingStatus {
     Enabled,
     Disabled,
     ServiceNotFound,
-    UnsupportedCase(String)
+    UnsupportedCase(String),
 }

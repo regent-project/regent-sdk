@@ -1,8 +1,8 @@
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
-use tracing::Instrument;
 use std::collections::HashMap;
 use tokio::task::JoinSet;
+use tracing::Instrument;
 
 use crate::ExpectedState;
 use crate::error::RegentError;
@@ -330,7 +330,6 @@ impl LivingInventory {
         }
     }
 
-    
     pub async fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
@@ -351,19 +350,25 @@ impl LivingInventory {
             let current_job_span = job_span.clone();
             let host_span = span!(parent: &current_job_span, Level::INFO, "host", id = host_id);
 
-            set.spawn(async move {
-                debug!(id = host_id, "Assessing compliance");
-                match managed_host.assess_compliance(&expected_state_clone, true).await {
-                    Ok(managed_host_status) => {
-                        debug!("Compliance assessment complete");
-                        Ok((host_id.to_string(), managed_host_status))
-                    }
-                    Err(details) => {
-                        error!("Failed to assess compliance : {:?}", details);
-                        Err((host_id, details))
+            set.spawn(
+                async move {
+                    debug!(id = host_id, "Assessing compliance");
+                    match managed_host
+                        .assess_compliance(&expected_state_clone, true)
+                        .await
+                    {
+                        Ok(managed_host_status) => {
+                            debug!("Compliance assessment complete");
+                            Ok((host_id.to_string(), managed_host_status))
+                        }
+                        Err(details) => {
+                            error!("Failed to assess compliance : {:?}", details);
+                            Err((host_id, details))
+                        }
                     }
                 }
-            }.instrument(host_span));
+                .instrument(host_span),
+            );
         }
 
         let results = set.join_all().await;
@@ -411,40 +416,42 @@ impl LivingInventory {
 
         for (host_id, mut managed_host) in hosts {
             let expected_state_clone = expected_state.clone();
-            
+
             let current_job_span = job_span.clone();
             let host_span = span!(parent: &current_job_span, Level::INFO, "host", id = host_id);
-            
-            set.spawn(async move {
 
-                info!(target: "run",
-                    "Starting to enforce compliance (described by {} attribute(s))",
-                    expected_state_clone.attributes.len()
-                );
-                match managed_host.reach_compliance(&expected_state_clone).await {
-                    Ok(managed_host_status) => {
-                        match managed_host_status.state {
-                            HostStatus::AlreadyCompliant => {
-                                info!(target: "run","Already compliant");
+            set.spawn(
+                async move {
+                    info!(target: "run",
+                        "Starting to enforce compliance (described by {} attribute(s))",
+                        expected_state_clone.attributes.len()
+                    );
+                    match managed_host.reach_compliance(&expected_state_clone).await {
+                        Ok(managed_host_status) => {
+                            match managed_host_status.state {
+                                HostStatus::AlreadyCompliant => {
+                                    info!(target: "run","Already compliant");
+                                }
+                                HostStatus::NotCompliant => {
+                                    warn!("Not compliant");
+                                }
+                                HostStatus::ReachComplianceSuccess => {
+                                    info!(target: "run","Compliance reached")
+                                }
+                                HostStatus::ReachComplianceFailed => {
+                                    warn!("Failed to reach compliance");
+                                }
                             }
-                            HostStatus::NotCompliant => {
-                                warn!("Not compliant");
-                            }
-                            HostStatus::ReachComplianceSuccess => {
-                                info!(target: "run","Compliance reached")
-                            }
-                            HostStatus::ReachComplianceFailed => {
-                                warn!("Failed to reach compliance");
-                            }
+                            Ok((managed_host, managed_host_status))
                         }
-                        Ok((managed_host, managed_host_status))
-                    }
-                    Err(details) => {
-                        warn!("Failed to reach compliance");
-                        Err((managed_host, details))
+                        Err(details) => {
+                            warn!("Failed to reach compliance");
+                            Err((managed_host, details))
+                        }
                     }
                 }
-            }.instrument(host_span));
+                .instrument(host_span),
+            );
         }
 
         let results = set.join_all().await;

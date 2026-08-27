@@ -25,8 +25,7 @@ async fn main() {
     assert!(managed_host.connect().await.is_ok());
 
     // Describe the expected state
-    let apache_expected_state =
-        AptExpectedState::package_present("apache2");
+    let apache_expected_state = AptExpectedState::package_present("apache2");
 
     let expected_state = ExpectedState::new()
         .with_attribute(Attribute::apt(

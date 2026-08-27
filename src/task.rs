@@ -113,7 +113,11 @@ impl RegentTask {
         managed_host.connect().await?;
 
         let host_status = match self.job {
-            Job::Assess => managed_host.assess_compliance(&self.expected_state, true).await?,
+            Job::Assess => {
+                managed_host
+                    .assess_compliance(&self.expected_state, true)
+                    .await?
+            }
             Job::Reach => managed_host.reach_compliance(&self.expected_state).await?,
         };
 

@@ -529,8 +529,7 @@ mod tests {
   State: !Absent
         ";
 
-        let attributes: Vec<GroupExpectedState> =
-            yaml_serde::from_str(raw_attributes).unwrap();
+        let attributes: Vec<GroupExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
 
         println!("{:#?}", attributes);
     }

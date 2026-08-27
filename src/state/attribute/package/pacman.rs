@@ -408,8 +408,7 @@ mod tests {
 - SystemUpgrade
     ";
 
-        let attributes: Vec<PacmanExpectedState> =
-            yaml_serde::from_str(raw_attributes).unwrap();
+        let attributes: Vec<PacmanExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
 
         assert_eq!(
             attributes[0],

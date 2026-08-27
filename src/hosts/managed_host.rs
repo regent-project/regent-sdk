@@ -4,9 +4,9 @@
 //! managing connections to target hosts and executing compliance operations.
 
 use serde::{Deserialize, Serialize};
-use tracing::Instrument;
 use std::collections::HashMap;
 use std::time::Duration;
+use tracing::Instrument;
 use tracing::Level;
 use tracing::span;
 #[allow(unused)]
@@ -663,18 +663,18 @@ impl ManagedHost {
     pub async fn assess_compliance(
         &mut self,
         expected_state: &ExpectedState,
-        logging: bool
+        logging: bool,
     ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
-        
+
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
-        
+
         let mut already_compliant = true;
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
-        
+
         for attribute in expected_state.attributes.clone().iter_mut() {
             let attribute_span = span!(Level::INFO, "attribute", name = attribute.name());
 
@@ -861,9 +861,9 @@ impl ManagedHost {
                                             }
                                         }
 
-                                        Ok(LoopControl::Remediated { 
-                                            failed: local_failed, 
-                                            actions: local_actions 
+                                        Ok(LoopControl::Remediated {
+                                            failed: local_failed,
+                                            actions: local_actions
                                         })
                                     }
                                     AttributeComplianceAssessment::NonCompliantFatal(details) => {
@@ -1026,7 +1026,6 @@ pub enum InternalApiCallOutcome {
     /// This allows for "best effort" compliance where some failures are acceptable.
     AllowedFailure(String),
 }
-
 
 // Internal state tracking helper for out-of-span control flow
 enum LoopControl {

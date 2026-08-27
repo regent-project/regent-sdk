@@ -459,8 +459,7 @@ mod tests {
   Method: !Generic
         ";
 
-        let _attributes: Vec<HostnameExpectedState> =
-            yaml_serde::from_str(raw_attributes).unwrap();
+        let _attributes: Vec<HostnameExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
     }
 
     #[test]

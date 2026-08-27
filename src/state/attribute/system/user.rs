@@ -945,8 +945,7 @@ mod tests {
   State: !Absent
         ";
 
-        let _attributes: Vec<UserExpectedState> =
-            yaml_serde::from_str(raw_attributes).unwrap();
+        let _attributes: Vec<UserExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
     }
 
     #[test]
@@ -962,8 +961,7 @@ State: !Present
       - docker
 ";
 
-        let yaml_defined: UserExpectedState =
-            yaml_serde::from_str(raw_yaml_attribute).unwrap();
+        let yaml_defined: UserExpectedState = yaml_serde::from_str(raw_yaml_attribute).unwrap();
 
         let rusty_defined = UserExpectedState::present_with_details(
             "alice",

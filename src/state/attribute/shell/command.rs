@@ -256,7 +256,6 @@ mod tests {
         let raw_attributes = "---
 - Cmd: ls -ltrh";
 
-        let _attributes: Vec<CommandExpectedState> =
-            yaml_serde::from_str(raw_attributes).unwrap();
+        let _attributes: Vec<CommandExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
     }
 }

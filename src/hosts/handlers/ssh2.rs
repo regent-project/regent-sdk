@@ -4,7 +4,7 @@ use russh::Preferred;
 use russh::client::AuthResult;
 use russh::client::{Config, Handle, Handler};
 use russh::keys::key::PrivateKeyWithHashAlg;
-use russh::keys::{load_secret_key, PublicKeyOrCertificate};
+use russh::keys::{PublicKeyOrCertificate, load_secret_key};
 use russh::{Channel, ChannelMsg};
 use serde::Deserialize;
 use serde::Serialize;

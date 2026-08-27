@@ -450,8 +450,7 @@ mod tests {
 - SystemUpToDate
     ";
 
-        let attributes: Vec<YumDnfExpectedState> =
-            yaml_serde::from_str(raw_attributes).unwrap();
+        let attributes: Vec<YumDnfExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
         assert_eq!(
             attributes[0],
             YumDnfExpectedState::PackageState {

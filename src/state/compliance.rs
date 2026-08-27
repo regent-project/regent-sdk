@@ -135,7 +135,7 @@ pub enum AttributeComplianceAssessment {
     /// The attribute knows the host is not compliant but can act on it if asked.
     NonCompliant(RemediationsList),
     /// The attribute knows the host is not compliant but can't do anything about it (out of scope of the attribute, unsupported case).
-    NonCompliantFatal(String)
+    NonCompliantFatal(String),
 }
 
 impl AttributeComplianceAssessment {

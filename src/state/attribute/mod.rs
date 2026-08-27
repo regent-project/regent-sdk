@@ -236,11 +236,7 @@ impl Attribute {
         self
     }
 
-    pub fn apt(
-        details: AptExpectedState,
-        privilege: Privilege,
-        name: Option<String>,
-    ) -> Attribute {
+    pub fn apt(details: AptExpectedState, privilege: Privilege, name: Option<String>) -> Attribute {
         Attribute::from(AttributeDetail::Apt(details), privilege, name)
     }
 
@@ -915,7 +911,9 @@ impl AttributeDetail {
             }
             AttributeComplianceAssessment::NonCompliantFatal(details) => {
                 Ok(AttributeComplianceResult::from(
-                    AttributeComplianceStatus::NonCompliantFatal(details), None))
+                    AttributeComplianceStatus::NonCompliantFatal(details),
+                    None,
+                ))
             }
         }
     }

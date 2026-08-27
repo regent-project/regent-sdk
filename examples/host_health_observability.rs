@@ -14,8 +14,7 @@ use regent_sdk::{ManagedHost, Privilege};
 async fn main() {
     // Build up the expected configuration of this host.
     // You can fetch this from a remote location (http endpoint, git, ftp...).
-    let httpd_service_active_and_enabled =
-        ServiceExpectedState::started_and_enabled("httpd");
+    let httpd_service_active_and_enabled = ServiceExpectedState::started_and_enabled("httpd");
 
     let localhost_expected_state = ExpectedState::new()
         .with_attribute(Attribute::service(
