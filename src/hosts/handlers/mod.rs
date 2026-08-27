@@ -18,6 +18,7 @@ use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
 use crate::{LocalHostHandler, Ssh2HostHandler};
+use crate::hosts::privilege::Credentials;
 
 // Intermediary representation of a WhichUser
 // WhichUser holds secrets, TargetUser holds references to secrets
@@ -30,6 +31,8 @@ use crate::{LocalHostHandler, Ssh2HostHandler};
 pub enum TargetUserKind {
     /// Use the currently authenticated user for the connection.
     CurrentUser,
+    /// Use a specific user, identified by its direct login/password values.
+    RawUser(Credentials),
     /// Use a specific user, identified by a secret reference.
     User(SecretReference),
 }
@@ -65,8 +68,6 @@ impl TargetUser {
     /// # Example
     ///
     /// ```no_run
-    /// use regent_sdk::hosts::handlers::TargetUser;
-    ///
     /// let target = TargetUser::current_user();
     /// ```
     pub fn current_user() -> Self {
@@ -75,18 +76,29 @@ impl TargetUser {
         }
     }
 
-    /// Create a target user for a specific user.
+    /// Create a target user for a specific user using a secret reference.
     ///
     /// # Example
     ///
     /// ```no_run
-    /// use regent_sdk::hosts::handlers::TargetUser;
-    ///
     /// let target = TargetUser::user("admin_password", Some("files".to_string()));
     /// ```
     pub fn user(sec_ref: &str, provider: Option<String>) -> Self {
         Self {
             user_kind: TargetUserKind::User(SecretReference::from(sec_ref, provider)),
+        }
+    }
+
+    /// Create a target user for a specific user using its direct credentials.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// let target = TargetUser::user_raw("login", "some_password");
+    /// ```
+    pub fn user_raw(login: &str, password: &str) -> Self {
+        Self {
+            user_kind: TargetUserKind::RawUser(Credentials::from(login, password)),
         }
     }
 }

@@ -279,6 +279,19 @@ impl ManagedHostBuilder {
                                     ))),
                                 }
                             }
+                            TargetUserKind::RawUser(credentials) => {
+                                // No secret required
+                                Ok(ManagedHost::new(
+                                    self.id,
+                                    &self.endpoint,
+                                    Handler::localhost(LocalHostHandler::from(
+                                        WhichUser::UsernamePassword(credentials),
+                                    )),
+                                    self.host_vars,
+                                    self.host_properties,
+                                    optional_secret_provider,
+                                ))
+                            }
                         }
                     }
                     ConnectionMethod::Ssh2(ssh2_auth_reference) => {
