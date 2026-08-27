@@ -271,11 +271,8 @@ impl HostHandler for Ssh2HostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<bool, RegentError> {
-        let check_cmd_content = match privilege {
-            Privilege::None => format!("command -v {}", command),
-            Privilege::WithSudo => format!("sudo sh -c \"command -v {}\"", command),
-            Privilege::WithSudoRs => format!("sudo-rs sh -c \"command -v {}\"", command),
-        };
+        let check_cmd_content = format!("sh -c \"command -v {}\"", command);
+
         let check_cmd_result = self
             .run_command(check_cmd_content.as_str(), &Privilege::None)
             .await;
