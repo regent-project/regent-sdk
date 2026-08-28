@@ -25,6 +25,7 @@ use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::LoginKeyRef;
 use crate::hosts::privilege::Privilege;
 // use crate::secrets::SecretProvider;
+use crate::hosts::handlers::shell_quote;
 use crate::secrets::SecretReference;
 
 // #[derive(Clone)]
@@ -271,10 +272,9 @@ impl HostHandler for Ssh2HostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<bool, RegentError> {
-        let check_cmd_content = format!("sh -c \"command -v {}\"", command);
-
+        let check_cmd_content = format!("command -v {}", shell_quote(command));
         let check_cmd_result = self
-            .run_command(check_cmd_content.as_str(), &Privilege::None)
+            .run_command(check_cmd_content.as_str(), privilege)
             .await;
 
         match check_cmd_result {
@@ -300,11 +300,11 @@ impl HostHandler for Ssh2HostHandler {
             Ssh2HostHandler::NotConnected(_auth_method) => {
                 return Err(RegentError::NotConnectedToHost);
             }
-            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+            Ssh2HostHandler::Connected(auth_method, session_handle) => {
                 match session_handle.channel_open_session().await {
                     Ok(mut channel) => {
-                        let final_command =
-                            final_command(command, privilege, &WhichUser::CurrentUser);
+                        let effective_user = which_user_for_auth_method(auth_method);
+                        let final_command = final_command(command, privilege, &effective_user);
 
                         if let Err(details) = channel.exec(true, final_command).await {
                             return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
@@ -673,6 +673,17 @@ impl std::fmt::Debug for Ssh2AuthMethod {
                 write!(f, "Key(({:?}, *REDACTED*))", login_key_path.username())
             }
         }
+    }
+}
+
+// A key-authenticated session has no password to offer, so privileged commands
+// fall back to relying on passwordless (NOPASSWD) sudo, same as a plain current-user session.
+fn which_user_for_auth_method(auth_method: &Ssh2AuthMethod) -> WhichUser {
+    match auth_method {
+        Ssh2AuthMethod::UsernamePassword(credentials) => {
+            WhichUser::CurrentUserWithSudoPassword(credentials.password().to_string())
+        }
+        Ssh2AuthMethod::Key(_) => WhichUser::CurrentUser,
     }
 }
 

@@ -326,60 +326,100 @@ impl HostHandler for Handler {
 //     // Ssh2(NewSsh2ConnectionDetails),
 // }
 
-// TODO : add some syntax checks
+/// Quote a string as a single, literal POSIX shell word.
+///
+/// Wraps `input` in single quotes and escapes any embedded single quote using the
+/// standard `'\''` trick (close the quoted string, emit an escaped quote, reopen the
+/// quoted string). The result is always safe to splice into a shell command line as
+/// one argument, regardless of what bytes `input` contains (spaces, `$`, backticks,
+/// `"`, `;`, `|`, newlines, other embedded single quotes, etc.) — none of it will be
+/// interpreted by the shell.
+pub fn shell_quote(input: &str) -> String {
+    let mut quoted = String::with_capacity(input.len() + 2);
+    quoted.push('\'');
+    for c in input.chars() {
+        if c == '\'' {
+            quoted.push_str("'\\''");
+        } else {
+            quoted.push(c);
+        }
+    }
+    quoted.push('\'');
+    quoted
+}
+
+// Note: `su` has no askpass equivalent (it reads only from the controlling tty or stdin), so
+// this cannot be used for the plain `WhichUser::UsernamePassword` + `Privilege::None` (`su`)
+// case — that one still pipes the password via stdin.
+fn sudo_via_askpass(
+    sudo_binary: &str,
+    target_user: Option<&str>,
+    password: &str,
+    cmd: &str,
+) -> String {
+    let user_flag = match target_user {
+        Some(username) => format!("-u {} ", shell_quote(username)),
+        None => String::new(),
+    };
+
+    // Relying on ASKPASS means creating a temporary script which must provide the actual password
+    // What is does :
+    // - creates temporary script file with mktemp and deletes it ASAP with trap
+    // - in this file, use printf to output actual password
+    // - this file is given 700 permissions
+    // - runs sudo/sudo-rs with SUDO_ASKPASS env var set
+    // - avoid GUI prompts wiht "-n" option for sudo and "unset DISPLAY WAYLAND_DISPLAY"
+    let inner = format!(
+        "ASKPASS_HELPER=$(mktemp) && trap 'rm -f \"$ASKPASS_HELPER\"' EXIT && \
+printf '#!/bin/sh\\nprintf %%s \"${var}\"\\n' > \"$ASKPASS_HELPER\" && chmod 700 \"$ASKPASS_HELPER\" && \
+unset DISPLAY WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR && \
+{var}={pw} SUDO_ASKPASS=\"$ASKPASS_HELPER\" SUDO_FORCE_ASKPASS=1 {sudo} -n -A {user_flag}sh -c {cmd}",
+        var = "REGENT_SUDO_PASSWORD", // temporary environment variable used to pass password to sudo (avoids insecure "echo $PASSWORD | sudo -S ...")
+        pw = shell_quote(password),
+        sudo = sudo_binary,
+        user_flag = user_flag,
+        cmd = shell_quote(cmd),
+    );
+
+    format!("sh -c {} 2>&1", shell_quote(&inner))
+}
+
 pub fn final_command(cmd: &str, privilege: &Privilege, user: &WhichUser) -> String {
     match user {
         WhichUser::CurrentUser => match privilege {
             Privilege::None => format!("{} 2>&1", cmd),
-            Privilege::WithSudo => format!("sudo {} 2>&1", cmd),
-            Privilege::WithSudoRs => format!("sudo-rs {} 2>&1", cmd),
+            Privilege::WithSudo => format!("sudo -n sh -c {} 2>&1", shell_quote(cmd)),
+            Privilege::WithSudoRs => format!("sudo-rs -n sh -c {} 2>&1", shell_quote(cmd)),
         },
-        WhichUser::UsernamePassword(credentials) => match privilege {
-            Privilege::None => format!(
-                "echo {} | su - {} -c \"{}\" 2>&1", // echo <otherpwd> | su - otheruser -c "my command line"
-                credentials.password(),
-                credentials.username(),
-                cmd
-            ),
-            Privilege::WithSudo => format!(
-                "echo {} | sudo -S -u {} {} 2>&1",
-                credentials.password(),
-                credentials.username(),
-                cmd
-            ),
-            Privilege::WithSudoRs => format!(
-                "export PASS=\"{}\"; export SUDO_ASKPASS=\"/usr/bin/bash -c \\\"echo $PASS | base64 -d\\\"\"; sudo-rs -A -u {} {}",
-                credentials.password(),
-                credentials.username(),
-                cmd
-            ),
+        WhichUser::CurrentUserWithSudoPassword(password) => match privilege {
+            Privilege::None => format!("{} 2>&1", cmd),
+            Privilege::WithSudo => sudo_via_askpass("sudo", None, password, cmd),
+            Privilege::WithSudoRs => sudo_via_askpass("sudo-rs", None, password, cmd),
         },
+        WhichUser::UsernamePassword(credentials) => {
+            let quoted_username = shell_quote(credentials.username());
+            let quoted_password = shell_quote(credentials.password());
+            let quoted_cmd = shell_quote(cmd);
+            match privilege {
+                // su - otheruser -c 'my command line', password piped in non-interactively.
+                // (su has no askpass mechanism, unlike sudo/sudo-rs below.)
+                Privilege::None => format!(
+                    "printf '%s\\n' {} | su - {} -c {} 2>&1",
+                    quoted_password, quoted_username, quoted_cmd
+                ),
+                Privilege::WithSudo => sudo_via_askpass(
+                    "sudo",
+                    Some(credentials.username()),
+                    credentials.password(),
+                    cmd,
+                ),
+                Privilege::WithSudoRs => sudo_via_askpass(
+                    "sudo-rs",
+                    Some(credentials.username()),
+                    credentials.password(),
+                    cmd,
+                ),
+            }
+        }
     }
-
-    // match privilege {
-    //     Privilege::None => {
-    //         let final_cmd = format!("{} 2>&1", cmd);
-    //         return final_cmd;
-    //     }
-    //     // Privilege::WithSuAsUser(credentials) => {
-    //     //     let final_cmd = format!("echo {} | su - {} -c {} 2>&1", credentials.password(), credentials.username(), cmd);
-    //     //     return final_cmd;
-    //     // }
-    //     Privilege::WithSudo => {
-    //         let final_cmd = format!("sudo {} 2>&1", cmd);
-    //         return final_cmd;
-    //     }
-    //     // Privilege::WithSudoAsUser(credentials) => {
-    //     //     let final_cmd = format!("echo {} | sudo -S -u {} {} 2>&1", credentials.password(), credentials.username(), cmd);
-    //     //     return final_cmd;
-    //     // }
-    //     Privilege::WithSudoRs => {
-    //         let final_cmd = format!("sudo-rs {} 2>&1", cmd);
-    //         return final_cmd;
-    //     }
-    //     // Privilege::WithSudoRsAsUser(credentials) => {
-    //     //     let final_cmd = format!("echo {} | sudo-rs -u {} {} 2>&1", credentials.password(), credentials.username(), cmd);
-    //     //     return final_cmd;
-    //     // }
-    // }
 }

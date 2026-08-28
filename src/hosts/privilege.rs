@@ -61,13 +61,22 @@ pub enum Privilege {
 /// assert_eq!(creds.username(), "admin");
 /// assert_eq!(creds.password(), "secret_password");
 /// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct Credentials {
     /// The username for authentication.
     username: String,
     /// The password for authentication.
     password: String,
+}
+
+impl std::fmt::Debug for Credentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Credentials")
+            .field("username", &self.username)
+            .field("password", &format_args!("*REDACTED*"))
+            .finish()
+    }
 }
 
 impl Credentials {

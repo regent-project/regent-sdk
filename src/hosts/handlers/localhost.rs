@@ -1,19 +1,20 @@
 //! Local host connection handler
 //!
-//! This module provides the [`LocalHostHandler`] for executing operations
-//! on the local machine. It implements the [`HostHandler`] trait and provides
+//! This module provides the [LocalHostHandler] for executing operations
+//! on the local machine. It implements the [HostHandler] trait and provides
 //! command execution, file retrieval, and connection management for local operations.
 
 use crate::error::RegentError;
 use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::HostHandler;
-use crate::hosts::handlers::final_command;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
+use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
 
+use crate::hosts::handlers::shell_quote;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 use std::path::PathBuf;
 use tokio::process::Command;
 // use std::process::Command;
@@ -27,7 +28,7 @@ use tokio::process::Command;
 ///
 /// # Example
 ///
-/// ```no_run
+/// no_run
 /// use regent_sdk::{LocalHostHandler, command::CommandResult};
 /// use regent_sdk::hosts::handlers::localhost::WhichUser;
 /// use regent_sdk::hosts::privilege::Privilege;
@@ -39,7 +40,7 @@ use tokio::process::Command;
 /// // Run a command
 /// let result = handler.run_command("echo hello", &Privilege::None).unwrap();
 /// assert_eq!(result.stdout, "hello\n");
-/// ```
+///
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalHostHandler {
     /// The user context for command execution.
@@ -53,7 +54,7 @@ impl LocalHostHandler {
     ///
     /// # Example
     ///
-    /// ```no_run
+    /// no_run
     /// use regent_sdk::{LocalHostHandler};
     /// use regent_sdk::hosts::handlers::localhost::WhichUser;
     ///
@@ -62,7 +63,7 @@ impl LocalHostHandler {
     ///
     /// // Create handler with specific credentials
     /// // let handler = LocalHostHandler::from(WhichUser::UsernamePassword(creds));
-    /// ```
+    ///
     pub fn from(user: WhichUser) -> Self {
         Self { user }
     }
@@ -90,7 +91,7 @@ impl HostHandler for LocalHostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<bool, RegentError> {
-        let check_cmd_content = format!("command -v {}", command);
+        let check_cmd_content = format!("command -v {}", shell_quote(command));
 
         let check_cmd_result = self
             .run_command(check_cmd_content.as_str(), &Privilege::None)
@@ -115,41 +116,72 @@ impl HostHandler for LocalHostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError> {
-        let final_command = final_command(command, privilege, &self.user);
-
-        info!("FINAL COMMAND : {}", final_command);
-        
-        let result = Command::new("sh")
-        .arg("-c")
-        .arg(final_command)
-        .output()
-        .await;
-    info!("FINAL RESULT : {:?}", result);
-    
-        match result {
-            Ok(output) => {
-                match output.status.code() {
-                    Some(code) => Ok(CommandResult {
-                        return_code: code.into(),
-                        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                    }),
-                    None => {
-                        // Process terminated by a signal -> consider this as a failure to run the command to completion
-                        Err(RegentError::FailureToRunCommand(format!(
-                            "Process terminated by a signal : {:?}",
-                            output
-                        )))
-                    }
-                }
+        let result = match (privilege, &self.user) {
+            (Privilege::None, _) => {
+                Command::new("sh")
+                    .arg("-c")
+                    .arg(command)
+                    .kill_on_drop(true)
+                    .output()
+                    .await
             }
+            (Privilege::WithSudo | Privilege::WithSudoRs, WhichUser::CurrentUser) => {
+                // Expecting a working NOPASSD sudoers file here
+                Command::new(match privilege {
+                    Privilege::WithSudoRs => "sudo-rs",
+                    _ => "sudo",
+                })
+                .arg("-n")
+                .arg("sh")
+                .arg("-c")
+                .arg(command)
+                .env_remove("DISPLAY")
+                .env_remove("WAYLAND_DISPLAY")
+                .env_remove("DBUS_SESSION_BUS_ADDRESS")
+                .env_remove("XDG_RUNTIME_DIR")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+                .await
+            }
+            (Privilege::WithSudo, WhichUser::CurrentUserWithSudoPassword(password)) => {
+                run_with_sudo("sudo", password, command).await
+            }
+            (Privilege::WithSudoRs, WhichUser::CurrentUserWithSudoPassword(password)) => {
+                run_with_sudo("sudo-rs", password, command).await
+            }
+            (Privilege::WithSudo, WhichUser::UsernamePassword(credentials)) => {
+                run_with_sudo("sudo", credentials.password(), command).await
+            }
+            (Privilege::WithSudoRs, WhichUser::UsernamePassword(credentials)) => {
+                run_with_sudo("sudo-rs", credentials.password(), command).await
+            }
+        };
+
+        match result {
+            Ok(output) => match output.status.code() {
+                Some(code) => Ok(CommandResult {
+                    return_code: code.into(),
+                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                    stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                }),
+                None => Err(RegentError::FailureToRunCommand(format!(
+                    "Process terminated by a signal : {:?}",
+                    output
+                ))),
+            },
             Err(e) => Err(RegentError::FailureToRunCommand(format!("{}", e))),
         }
     }
 
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
-        match Command::new("cmd").args(&["/C", command]).output().await {
+        match Command::new("cmd")
+            .args(&["/C", command])
+            .kill_on_drop(true)
+            .output()
+            .await
+        {
             Ok(output) => match output.status.code() {
                 Some(code) => Ok(CommandResult {
                     return_code: code.into(),
@@ -184,16 +216,20 @@ impl HostHandler for LocalHostHandler {
     }
 }
 
-/// Specifies which user to execute commands as on the local machine.
+/// Specifies which user to execute commands as, and how to authenticate privilege escalation.
 ///
 /// # Variants
 ///
-/// - `CurrentUser`: Execute commands as the current process user
-/// - `UsernamePassword`: Execute commands as a specific user with credentials
+/// - CurrentUser: Execute commands as the current process/session user. Privilege escalation
+///   (sudo/sudo-rs) is attempted non-interactively and must be passwordless (NOPASSWD).
+/// - CurrentUserWithSudoPassword: Same identity as CurrentUser (no su), but this password
+///   is piped to sudo/sudo-rs non-interactively for privilege escalation.
+/// - UsernamePassword: Switch to a specific, different user via su using these credentials,
+///   also used with sudo/sudo-rs if required.
 ///
 /// # Example
 ///
-/// ```no_run
+/// no_run
 /// use regent_sdk::hosts::handlers::localhost::WhichUser;
 /// use regent_sdk::hosts::privilege::Credentials;
 ///
@@ -201,13 +237,56 @@ impl HostHandler for LocalHostHandler {
 /// let user = WhichUser::CurrentUser;
 ///
 /// // Execute as specific user
-/// let creds = Credentials::new("admin", "password");
+/// let creds = Credentials::from("admin", "password");
 /// let user = WhichUser::UsernamePassword(creds);
-/// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+#[derive(Clone, Serialize, Deserialize)]
 pub enum WhichUser {
     /// Execute commands as the current user.
     CurrentUser,
+    /// Execute as the current user, but use this password to escalate via sudo/sudo-rs.
+    CurrentUserWithSudoPassword(String),
     /// Execute commands as a specific user with provided credentials.
     UsernamePassword(Credentials),
+}
+
+impl std::fmt::Debug for WhichUser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            WhichUser::CurrentUser => write!(f, "CurrentUser"),
+            WhichUser::CurrentUserWithSudoPassword(_) => {
+                write!(f, "CurrentUserWithSudoPassword(*REDACTED*)")
+            }
+            WhichUser::UsernamePassword(credentials) => {
+                write!(f, "UsernamePassword({:?})", credentials)
+            }
+        }
+    }
+}
+
+async fn run_with_sudo(
+    sudo_binary: &str,
+    password: &str,
+    command: &str,
+) -> Result<std::process::Output, std::io::Error> {
+    let mut child = Command::new(sudo_binary)
+        .arg("-S") // Read password from stdin
+        .arg("sh")
+        .arg("-c")
+        .arg(command)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DBUS_SESSION_BUS_ADDRESS")
+        .env_remove("XDG_RUNTIME_DIR")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(password.as_bytes()).await?;
+        stdin.write_all(b"\n").await?;
+    }
+
+    child.wait_with_output().await
 }
