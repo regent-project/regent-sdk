@@ -348,7 +348,7 @@ pub fn final_command(cmd: &str, privilege: &Privilege, user: &WhichUser) -> Stri
                 cmd
             ),
             Privilege::WithSudoRs => format!(
-                "echo {} | sudo-rs -S -u {} {} 2>&1",
+                "export PASS=\"{}\"; export SUDO_ASKPASS=\"/usr/bin/bash -c \\\"echo $PASS | base64 -d\\\"\"; sudo-rs -A -u {} {}",
                 credentials.password(),
                 credentials.username(),
                 cmd

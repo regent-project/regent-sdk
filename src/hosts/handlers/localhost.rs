@@ -13,6 +13,7 @@ use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
 
 use serde::{Deserialize, Serialize};
+use tracing::info;
 use std::path::PathBuf;
 use tokio::process::Command;
 // use std::process::Command;
@@ -116,12 +117,15 @@ impl HostHandler for LocalHostHandler {
     ) -> Result<CommandResult, RegentError> {
         let final_command = final_command(command, privilege, &self.user);
 
+        info!("FINAL COMMAND : {}", final_command);
+        
         let result = Command::new("sh")
-            .arg("-c")
-            .arg(final_command)
-            .output()
-            .await;
-
+        .arg("-c")
+        .arg(final_command)
+        .output()
+        .await;
+    info!("FINAL RESULT : {:?}", result);
+    
         match result {
             Ok(output) => {
                 match output.status.code() {
