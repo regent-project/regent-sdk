@@ -676,7 +676,7 @@ impl ManagedHost {
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
 
         for attribute in expected_state.attributes.clone().iter_mut() {
-            let attribute_span = span!(Level::INFO, "attribute", name = attribute.name());
+            let attribute_span = span!(Level::INFO, "attribute", attr_name = attribute.name());
 
             // We execute the entire loop iteration inside an instrumented async block for tracing consistency
             let iteration_result = async {
@@ -794,7 +794,7 @@ impl ManagedHost {
         let mut actions_taken: Vec<Action> = Vec::new();
 
         for attribute in &expected_state.attributes {
-            let attribute_span = span!(Level::INFO, "attribute", name = attribute.name());
+            let attribute_span = span!(Level::INFO, "attribute", attr_name = attribute.name());
 
             // Wrap the logic into an instrumented async block to facilitate tracing
             let iteration_result = async {
