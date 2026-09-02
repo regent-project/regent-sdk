@@ -44,6 +44,8 @@ use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::ai::ollama::OllamaApiCall;
 use crate::state::attribute::ai::ollama::OllamaExpectedState;
+use crate::state::attribute::network::dns::DnsApiCall;
+use crate::state::attribute::network::dns::DnsExpectedState;
 use crate::state::attribute::network::iptables::IptablesApiCall;
 use crate::state::attribute::network::iptables::IptablesExpectedState;
 use crate::state::attribute::package::apt::AptApiCall;
@@ -108,6 +110,7 @@ impl Attribute {
                 AttributeDetail::AptRepo(_) => "AptRepo".to_string(),
                 AttributeDetail::YumDnf(_) => "YumDnf".to_string(),
                 AttributeDetail::DnfRepo(_) => "DnfRepo".to_string(),
+                AttributeDetail::Dns(_) => "Dns".to_string(),
                 AttributeDetail::Pacman(_) => "Pacman".to_string(),
                 AttributeDetail::Service(_) => "Service".to_string(),
                 AttributeDetail::Command(_) => "Command".to_string(),
@@ -344,6 +347,14 @@ impl Attribute {
         Attribute::from(AttributeDetail::DnfRepo(details), privilege, name)
     }
 
+    pub fn dns(
+        details: DnsExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Dns(details), privilege, name)
+    }
+
     pub fn iptables(
         details: IptablesExpectedState,
         privilege: Privilege,
@@ -368,6 +379,7 @@ pub enum AttributeDetail {
     AptRepo(AptRepoExpectedState),
     YumDnf(YumDnfExpectedState),
     DnfRepo(DnfRepoExpectedState),
+    Dns(DnsExpectedState),
     Pacman(PacmanExpectedState),
     LineInFile(LineInFileExpectedState),
     Debug(DebugExpectedState),
@@ -389,6 +401,7 @@ impl AttributeDetail {
             AttributeDetail::AptRepo(details) => details.default_timeout(),
             AttributeDetail::YumDnf(details) => details.default_timeout(),
             AttributeDetail::DnfRepo(details) => details.default_timeout(),
+            AttributeDetail::Dns(details) => details.default_timeout(),
             AttributeDetail::Pacman(details) => details.default_timeout(),
             AttributeDetail::LineInFile(details) => details.default_timeout(),
             AttributeDetail::Debug(details) => details.default_timeout(),
@@ -473,6 +486,16 @@ impl AttributeDetail {
                     .await
             }
             AttributeDetail::DnfRepo(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Dns(expected_state_criteria) => {
                 expected_state_criteria
                     .assess_compliance(
                         host_handler,
@@ -751,6 +774,17 @@ impl AttributeDetail {
                                 return Err(details);
                             }
                         },
+                        Remediation::Dns(attribute_api_call) => match attribute_api_call
+                            .call(host_handler, host_properties, optional_secret_provider)
+                            .await
+                        {
+                            Ok(internal_api_call_outcome) => {
+                                (remediation_ref.clone(), internal_api_call_outcome)
+                            }
+                            Err(details) => {
+                                return Err(details);
+                            }
+                        },
                         Remediation::LineInFile(attribute_api_call) => match attribute_api_call
                             .call(host_handler, host_properties, optional_secret_provider)
                             .await
@@ -923,6 +957,7 @@ impl AttributeDetail {
             AttributeDetail::Apt(expected_state_block) => expected_state_block.check(),
             AttributeDetail::AptRepo(expected_state_block) => expected_state_block.check(),
             AttributeDetail::YumDnf(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Dns(expected_state_block) => expected_state_block.check(),
             AttributeDetail::DnfRepo(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Pacman(expected_state_block) => expected_state_block.check(),
             AttributeDetail::LineInFile(expected_state_block) => expected_state_block.check(),
@@ -948,6 +983,7 @@ pub enum Remediation {
     AptRepo(AptRepoApiCall),
     YumDnf(YumDnfApiCall),
     DnfRepo(DnfRepoApiCall),
+    Dns(DnsApiCall),
     LineInFile(LineInFileApiCall),
     Debug(DebugApiCall),
     Ping(PingApiCall),
@@ -969,6 +1005,7 @@ impl std::fmt::Debug for Remediation {
             Remediation::Apt(api_call) => write!(f, "{}", api_call.display()),
             Remediation::AptRepo(api_call) => write!(f, "{}", api_call.display()),
             Remediation::YumDnf(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Dns(api_call) => write!(f, "{}", api_call.display()),
             Remediation::DnfRepo(api_call) => write!(f, "{}", api_call.display()),
             Remediation::LineInFile(api_call) => write!(f, "{}", api_call.display()),
             Remediation::Debug(api_call) => write!(f, "{}", api_call.display()),
@@ -1048,6 +1085,11 @@ impl Remediation {
                     .call(host_handler, host_properties, optional_secret_provider)
                     .await
             }
+            Remediation::Dns(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
             Remediation::LineInFile(api_call) => {
                 api_call
                     .call(host_handler, host_properties, optional_secret_provider)
@@ -1114,6 +1156,7 @@ impl Remediation {
             Remediation::AptRepo(api_call) => api_call.display(),
             Remediation::YumDnf(api_call) => api_call.display(),
             Remediation::DnfRepo(api_call) => api_call.display(),
+            Remediation::Dns(api_call) => api_call.display(),
             Remediation::LineInFile(api_call) => api_call.display(),
             Remediation::Debug(api_call) => api_call.display(),
             Remediation::Ping(api_call) => api_call.display(),
