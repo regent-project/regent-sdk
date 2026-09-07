@@ -28,15 +28,26 @@
 //! ```no_run
 //! use regent_sdk::state::attribute::network::dns::DnsExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
+//! use std::net::IpAddr;
 //!
 //! // Assert www.example.com resolves to 93.184.216.34 via a specific server
-//! let dns = DnsExpectedState::check_response_and_server("www.example.com", "93.184.216.34", "8.8.8.8");
+//! let dns = DnsExpectedState::check_response_and_server(
+//!     "www.example.com",
+//!     "93.184.216.34".parse().unwrap(),
+//!     "8.8.8.8".parse().unwrap(),
+//! );
 //!
 //! // Assert www.example.com resolves to a known address using OS-configured servers
-//! let dns_os = DnsExpectedState::check_response("www.example.com", "93.184.216.34");
+//! let dns_os = DnsExpectedState::check_response(
+//!     "www.example.com",
+//!     "93.184.216.34".parse().unwrap(),
+//! );
 //!
 //! // Assert www.example.com resolves at all, querying a specific server
-//! let dns_server = DnsExpectedState::check_server("www.example.com", "8.8.8.8");
+//! let dns_server = DnsExpectedState::check_server(
+//!     "www.example.com",
+//!     "8.8.8.8".parse().unwrap(),
+//! );
 //!
 //! // Assert www.example.com resolves at all, using OS-configured servers
 //! let dns_simple = DnsExpectedState::simple_check("www.example.com");
@@ -109,6 +120,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
+use std::net::IpAddr;
 use std::time::Duration;
 
 /// Desired DNS resolution state.
@@ -123,18 +135,18 @@ pub enum DnsExpectedState {
     CheckResponseAndServer {
         /// DNS name to resolve.
         dns_name: String,
-        /// Expected resolved address/result.
-        response: String,
+        /// Expected resolved address.
+        response: IpAddr,
         /// DNS server to query (`@server` passed to `dig`).
-        server: String,
+        server: IpAddr,
     },
     /// Check that `dns_name` resolves to `response` using OS-configured servers.
     #[serde(rename_all = "PascalCase")]
     CheckResponse {
         /// DNS name to resolve.
         dns_name: String,
-        /// Expected resolved address/result.
-        response: String,
+        /// Expected resolved address.
+        response: IpAddr,
     },
     /// Check that `dns_name` resolves using `server`; any successful response is accepted.
     #[serde(rename_all = "PascalCase")]
@@ -142,7 +154,7 @@ pub enum DnsExpectedState {
         /// DNS name to resolve.
         dns_name: String,
         /// DNS server to query (`@server` passed to `dig`).
-        server: String,
+        server: IpAddr,
     },
     /// Check that `dns_name` resolves using OS-configured servers; any successful response is accepted.
     #[serde(rename_all = "PascalCase")]
@@ -157,31 +169,31 @@ impl DnsExpectedState {
     /// resolves to `response` using `server`.
     pub fn check_response_and_server(
         dns_name: &str,
-        response: &str,
-        server: &str,
+        response: IpAddr,
+        server: IpAddr,
     ) -> DnsExpectedState {
         DnsExpectedState::CheckResponseAndServer {
             dns_name: dns_name.to_string(),
-            response: response.to_string(),
-            server: server.to_string(),
+            response,
+            server,
         }
     }
 
     /// Create a `CheckResponse` configuration: assert that `dns_name` resolves to
     /// `response` using OS-configured servers.
-    pub fn check_response(dns_name: &str, response: &str) -> DnsExpectedState {
+    pub fn check_response(dns_name: &str, response: IpAddr) -> DnsExpectedState {
         DnsExpectedState::CheckResponse {
             dns_name: dns_name.to_string(),
-            response: response.to_string(),
+            response,
         }
     }
 
     /// Create a `CheckServer` configuration: assert that `dns_name` resolves (any
     /// successful response) using `server`.
-    pub fn check_server(dns_name: &str, server: &str) -> DnsExpectedState {
+    pub fn check_server(dns_name: &str, server: IpAddr) -> DnsExpectedState {
         DnsExpectedState::CheckServer {
             dns_name: dns_name.to_string(),
-            server: server.to_string(),
+            server,
         }
     }
 
@@ -238,15 +250,21 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
                 dns_name,
                 response,
                 server,
-            } => (dns_name, Some(server.to_string()), Some(response.to_string())),
-            DnsExpectedState::CheckResponse { dns_name, response } => (dns_name, None, Some(response.to_string())),
+            } => (
+                dns_name,
+                Some(*server),
+                Some(*response),
+            ),
+            DnsExpectedState::CheckResponse { dns_name, response } => {
+                (dns_name, None, Some(*response))
+            }
             DnsExpectedState::CheckServer { dns_name, server } => {
-                (dns_name, Some(server.to_string()), None)
+                (dns_name, Some(*server), None)
             }
             DnsExpectedState::SimpleCheck { dns_name } => (dns_name, None, None),
         };
 
-        let responses: Vec<String> = match host_handler
+        let responses: Vec<IpAddr> = match host_handler
             .run_command(&final_dns_query(dns_name, server), &Privilege::None)
             .await
         {
@@ -256,7 +274,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
                     command_result
                         .stdout
                         .lines()
-                        .map(|line| line.to_string())
+                        .filter_map(|line| line.trim().parse().ok())
                         .collect()
                 } else {
                     return Err(RegentError::FailedDryRunEvaluation(format!(
@@ -276,7 +294,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
         // If no response, the name didn't resolve to anything
         if responses.is_empty() {
             return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                "Name doesnt\'t resolve".to_string()
+                "Name doesn't resolve".to_string(),
             ));
         } else {
             match expected_response {
@@ -284,9 +302,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
                     if responses.contains(&expected_response) {
                         return Ok(AttributeComplianceAssessment::Compliant);
                     } else {
-                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                            format!("Name resolves but expected response not found among results ({:?})", responses)
-                        ))
+                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
+                            "Name resolves but expected response not found among results ({:?})",
+                            responses
+                        )));
                     }
                 }
                 None => {
@@ -295,16 +314,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
                 }
             }
         }
-
     }
 }
 
-/// Remediation API call for the DNS attribute.
-///
 /// This is a placeholder type: DNS misconfiguration cannot be remediated
 /// automatically, so the assess step never produces a `DnsApiCall`. Any method
-/// invoked on this type returns an `InternalLogicError` to surface the fact that
-/// it should never have been reached.
+/// invoked on this type returns an `InternalLogicError` to signal a bug.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DnsApiCall {}
 
@@ -338,15 +353,13 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DnsApiCall {
         _host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // This should never be called as the Assess step should never produce remediations.
-        // That's why we return directly a logic error here.
         Err(RegentError::InternalLogicError(
             "(call) DnsApiCall should not have been called as we cannot remediate automatically a wrong DNS configuration".to_string()
         ))
     }
 }
 
-fn final_dns_query(dns_name: &str, server: Option<String>) -> String {
+fn final_dns_query(dns_name: &str, server: Option<IpAddr>) -> String {
     match server {
         Some(server_address) => {
             format!("dig @{server_address} +short {dns_name}")
