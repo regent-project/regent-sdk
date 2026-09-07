@@ -44,6 +44,7 @@ use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::ai::ollama::OllamaApiCall;
 use crate::state::attribute::ai::ollama::OllamaExpectedState;
+use crate::state::attribute::network::dhcp::DhcpExpectedState;
 use crate::state::attribute::network::dns::DnsApiCall;
 use crate::state::attribute::network::dns::DnsExpectedState;
 use crate::state::attribute::network::iptables::IptablesApiCall;
@@ -111,6 +112,7 @@ impl Attribute {
                 AttributeDetail::YumDnf(_) => "YumDnf".to_string(),
                 AttributeDetail::DnfRepo(_) => "DnfRepo".to_string(),
                 AttributeDetail::Dns(_) => "Dns".to_string(),
+                AttributeDetail::Dhcp(_) => "Dhcp".to_string(),
                 AttributeDetail::Pacman(_) => "Pacman".to_string(),
                 AttributeDetail::Service(_) => "Service".to_string(),
                 AttributeDetail::Command(_) => "Command".to_string(),
@@ -347,12 +349,12 @@ impl Attribute {
         Attribute::from(AttributeDetail::DnfRepo(details), privilege, name)
     }
 
-    pub fn dns(
-        details: DnsExpectedState,
-        privilege: Privilege,
-        name: Option<String>,
-    ) -> Attribute {
+    pub fn dns(details: DnsExpectedState, privilege: Privilege, name: Option<String>) -> Attribute {
         Attribute::from(AttributeDetail::Dns(details), privilege, name)
+    }
+
+    pub fn dhcp(details: DhcpExpectedState, privilege: Privilege, name: Option<String>) -> Attribute {
+        Attribute::from(AttributeDetail::Dhcp(details), privilege, name)
     }
 
     pub fn iptables(
@@ -380,6 +382,7 @@ pub enum AttributeDetail {
     YumDnf(YumDnfExpectedState),
     DnfRepo(DnfRepoExpectedState),
     Dns(DnsExpectedState),
+    Dhcp(DhcpExpectedState),
     Pacman(PacmanExpectedState),
     LineInFile(LineInFileExpectedState),
     Debug(DebugExpectedState),
@@ -402,6 +405,7 @@ impl AttributeDetail {
             AttributeDetail::YumDnf(details) => details.default_timeout(),
             AttributeDetail::DnfRepo(details) => details.default_timeout(),
             AttributeDetail::Dns(details) => details.default_timeout(),
+            AttributeDetail::Dhcp(details) => details.default_timeout(),
             AttributeDetail::Pacman(details) => details.default_timeout(),
             AttributeDetail::LineInFile(details) => details.default_timeout(),
             AttributeDetail::Debug(details) => details.default_timeout(),
@@ -496,6 +500,16 @@ impl AttributeDetail {
                     .await
             }
             AttributeDetail::Dns(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Dhcp(expected_state_criteria) => {
                 expected_state_criteria
                     .assess_compliance(
                         host_handler,
@@ -958,6 +972,7 @@ impl AttributeDetail {
             AttributeDetail::AptRepo(expected_state_block) => expected_state_block.check(),
             AttributeDetail::YumDnf(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Dns(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Dhcp(expected_state_block) => expected_state_block.check(),
             AttributeDetail::DnfRepo(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Pacman(expected_state_block) => expected_state_block.check(),
             AttributeDetail::LineInFile(expected_state_block) => expected_state_block.check(),
