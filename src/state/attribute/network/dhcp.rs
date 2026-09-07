@@ -187,9 +187,7 @@ pub enum DhcpCheckBehavior {
     },
     /// Host gets back a configuration, any server can reply as long as the response is the one expected
     #[serde(rename_all = "PascalCase")]
-    CheckResponse {
-        response: ExpectedDhcpResponse,
-    },
+    CheckResponse { response: ExpectedDhcpResponse },
     /// This server must respond, any valid response will do
     #[serde(rename_all = "PascalCase")]
     CheckServer {
@@ -206,7 +204,7 @@ pub enum DhcpCheckBehavior {
 pub struct DhcpExpectedState {
     parent_interface: String,
     mac_address: Option<String>,
-    check: DhcpCheckBehavior
+    check: DhcpCheckBehavior,
 }
 
 impl DhcpExpectedState {
@@ -477,7 +475,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DhcpExpectedState {
 
         let probe_result = host_handler
             .run_command(
-                &final_dhcp_query(&virtual_interface, probe_timeout_secs, &lease_file, &pid_file),
+                &final_dhcp_query(
+                    &virtual_interface,
+                    probe_timeout_secs,
+                    &lease_file,
+                    &pid_file,
+                ),
                 &privilege,
             )
             .await;
@@ -775,7 +778,9 @@ fn create_virtual_interface_cmd(
         Some(mac) => format!(
             "ip link add link {parent} name {virtual_interface} address {mac} type macvlan mode bridge"
         ),
-        None => format!("ip link add link {parent} name {virtual_interface} type macvlan mode bridge"),
+        None => {
+            format!("ip link add link {parent} name {virtual_interface} type macvlan mode bridge")
+        }
     }
 }
 
@@ -882,7 +887,10 @@ fn parse_dhcp_response(raw_output: &str) -> Result<DhcpResponse, String> {
                 let dns_part = &line[pos..];
                 if let Some(space_pos) = dns_part.find(' ') {
                     let raw = dns_part[space_pos + 1..].trim_end_matches(';');
-                    eval_dns.extend(raw.split_whitespace().filter_map(|s| s.parse::<IpAddr>().ok()));
+                    eval_dns.extend(
+                        raw.split_whitespace()
+                            .filter_map(|s| s.parse::<IpAddr>().ok()),
+                    );
                 }
             }
         }
@@ -906,11 +914,7 @@ pub struct ExpectedDhcpResponse {
 
 impl ExpectedDhcpResponse {
     pub fn new(ip: IpAddr, mask: IpAddr, dns: Vec<IpAddr>) -> ExpectedDhcpResponse {
-        ExpectedDhcpResponse {
-            ip,
-            mask,
-            dns,
-        }
+        ExpectedDhcpResponse { ip, mask, dns }
     }
 }
 

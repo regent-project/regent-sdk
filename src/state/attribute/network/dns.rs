@@ -250,17 +250,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
                 dns_name,
                 response,
                 server,
-            } => (
-                dns_name,
-                Some(*server),
-                Some(*response),
-            ),
+            } => (dns_name, Some(*server), Some(*response)),
             DnsExpectedState::CheckResponse { dns_name, response } => {
                 (dns_name, None, Some(*response))
             }
-            DnsExpectedState::CheckServer { dns_name, server } => {
-                (dns_name, Some(*server), None)
-            }
+            DnsExpectedState::CheckServer { dns_name, server } => (dns_name, Some(*server), None),
             DnsExpectedState::SimpleCheck { dns_name } => (dns_name, None, None),
         };
 

@@ -353,7 +353,11 @@ impl Attribute {
         Attribute::from(AttributeDetail::Dns(details), privilege, name)
     }
 
-    pub fn dhcp(details: DhcpExpectedState, privilege: Privilege, name: Option<String>) -> Attribute {
+    pub fn dhcp(
+        details: DhcpExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
         Attribute::from(AttributeDetail::Dhcp(details), privilege, name)
     }
 
