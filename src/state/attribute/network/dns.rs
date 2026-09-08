@@ -11,36 +11,32 @@
 //! - Linux - uses `dig +short`
 //! - Any host where `dig` is available
 //!
-//! # Variants
-//!
-//! `DnsExpectedState` is an untagged, PascalCase enum. Pick the variant that
-//! matches what you want to assert:
-//!
-//! - `CheckResponseAndServer`: name must resolve to a given response using a given server
-//! - `CheckResponse`: name must resolve to a given response using OS-configured servers
-//! - `CheckServer`: name must resolve (any response) using a given server
-//! - `SimpleCheck`: name must resolve (any response) using OS-configured servers
-//!
 //! # Examples
 //!
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::network::dns::DnsExpectedState;
+//! use regent_sdk::state::attribute::network::dns::{DnsExpectedState, DnsRecordType};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //! use std::net::IpAddr;
 //!
-//! // Assert www.example.com resolves to 93.184.216.34 via a specific server
+//! // Assert www.example.com resolves to 93.184.216.34 (A record) via a specific server
 //! let dns = DnsExpectedState::check_response_and_server(
 //!     "www.example.com",
-//!     "93.184.216.34".parse().unwrap(),
+//!     DnsRecordType::A("93.184.216.34".parse().unwrap()),
 //!     "8.8.8.8".parse().unwrap(),
 //! );
 //!
-//! // Assert www.example.com resolves to a known address using OS-configured servers
+//! // Assert www.example.com resolves to a known AAAA record using OS-configured servers
 //! let dns_os = DnsExpectedState::check_response(
 //!     "www.example.com",
-//!     "93.184.216.34".parse().unwrap(),
+//!     DnsRecordType::Aaaa("2606:2800:220:1:248:1893:25c8:1946".parse().unwrap()),
+//! );
+//!
+//! // Assert alias.example.com is a CNAME for www.example.com using OS-configured servers
+//! let dns_cname = DnsExpectedState::check_response(
+//!     "alias.example.com",
+//!     DnsRecordType::Cname("www.example.com".to_string()),
 //! );
 //!
 //! // Assert www.example.com resolves at all, querying a specific server
@@ -67,7 +63,8 @@
 //!     Privilege: !None
 //!     Detail: !Dns
 //!       DnsName: www.example.com
-//!       Response: 93.184.216.34
+//!       ExpectedResponse:
+//!         A: 93.184.216.34
 //!       Server: 8.8.8.8
 //! ```
 //!
@@ -75,11 +72,24 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Name: www.example.com resolves to 93.184.216.34
+//!   - Name: www.example.com resolves to an AAAA record
 //!     Privilege: !None
 //!     Detail: !Dns
 //!       DnsName: www.example.com
-//!       Response: 93.184.216.34
+//!       ExpectedResponse:
+//!         Aaaa: 2606:2800:220:1:248:1893:25c8:1946
+//! ```
+//!
+//! A CNAME response is expressed as a string:
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: alias.example.com is a CNAME for www.example.com
+//!     Privilege: !None
+//!     Detail: !Dns
+//!       DnsName: alias.example.com
+//!       ExpectedResponse:
+//!         Cname: www.example.com
 //! ```
 //!
 //! `CheckServer` - assert a name resolves at all via a specific server:
@@ -113,7 +123,7 @@
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
-use crate::hosts::properties::HostProperties;
+use crate::hosts::properties::{HostProperties, OsKind};
 use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
@@ -123,73 +133,65 @@ use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::time::Duration;
 
-/// Desired DNS resolution state.
-///
-/// See the module-level documentation for YAML examples.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum DnsRecordType {
+    A(IpAddr),
+    Aaaa(IpAddr),
+    Cname(String),
+}
+
+impl DnsRecordType {
+    fn dig_arg_equivalent(&self) -> &'static str {
+        match self {
+            DnsRecordType::A(_) => "A",
+            DnsRecordType::Aaaa(_) => "AAAA",
+            DnsRecordType::Cname(_) => "CNAME",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(rename_all = "PascalCase")]
 pub enum DnsExpectedState {
-    /// Check that `dns_name` resolves to `response` using `server`.
     #[serde(rename_all = "PascalCase")]
     CheckResponseAndServer {
-        /// DNS name to resolve.
         dns_name: String,
-        /// Expected resolved address.
-        response: IpAddr,
-        /// DNS server to query (`@server` passed to `dig`).
+        expected_response: DnsRecordType,
         server: IpAddr,
     },
-    /// Check that `dns_name` resolves to `response` using OS-configured servers.
     #[serde(rename_all = "PascalCase")]
     CheckResponse {
-        /// DNS name to resolve.
         dns_name: String,
-        /// Expected resolved address.
-        response: IpAddr,
+        expected_response: DnsRecordType,
     },
-    /// Check that `dns_name` resolves using `server`; any successful response is accepted.
     #[serde(rename_all = "PascalCase")]
-    CheckServer {
-        /// DNS name to resolve.
-        dns_name: String,
-        /// DNS server to query (`@server` passed to `dig`).
-        server: IpAddr,
-    },
-    /// Check that `dns_name` resolves using OS-configured servers; any successful response is accepted.
+    CheckServer { dns_name: String, server: IpAddr },
     #[serde(rename_all = "PascalCase")]
-    SimpleCheck {
-        /// DNS name to resolve.
-        dns_name: String,
-    },
+    SimpleCheck { dns_name: String },
 }
 
 impl DnsExpectedState {
-    /// Create a `CheckResponseAndServer` configuration: assert that `dns_name`
-    /// resolves to `response` using `server`.
     pub fn check_response_and_server(
         dns_name: &str,
-        response: IpAddr,
+        expected_response: DnsRecordType,
         server: IpAddr,
     ) -> DnsExpectedState {
         DnsExpectedState::CheckResponseAndServer {
             dns_name: dns_name.to_string(),
-            response,
+            expected_response,
             server,
         }
     }
 
-    /// Create a `CheckResponse` configuration: assert that `dns_name` resolves to
-    /// `response` using OS-configured servers.
-    pub fn check_response(dns_name: &str, response: IpAddr) -> DnsExpectedState {
+    pub fn check_response(dns_name: &str, expected_response: DnsRecordType) -> DnsExpectedState {
         DnsExpectedState::CheckResponse {
             dns_name: dns_name.to_string(),
-            response,
+            expected_response,
         }
     }
 
-    /// Create a `CheckServer` configuration: assert that `dns_name` resolves (any
-    /// successful response) using `server`.
     pub fn check_server(dns_name: &str, server: IpAddr) -> DnsExpectedState {
         DnsExpectedState::CheckServer {
             dns_name: dns_name.to_string(),
@@ -197,8 +199,6 @@ impl DnsExpectedState {
         }
     }
 
-    /// Create a `SimpleCheck` configuration: assert that `dns_name` resolves (any
-    /// successful response) using OS-configured servers.
     pub fn simple_check(dns_name: &str) -> DnsExpectedState {
         DnsExpectedState::SimpleCheck {
             dns_name: dns_name.to_string(),
@@ -208,16 +208,79 @@ impl DnsExpectedState {
 
 impl Check for DnsExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        // TODO : Add checks on all potentially present but empty strings
+        let (dns_name, expected_response) = match &self {
+            DnsExpectedState::CheckResponseAndServer {
+                dns_name,
+                expected_response,
+                server: _,
+            } => (dns_name, Some(expected_response)),
+            DnsExpectedState::CheckResponse {
+                dns_name,
+                expected_response,
+            } => (dns_name, Some(expected_response)),
+            DnsExpectedState::CheckServer {
+                dns_name,
+                server: _,
+            } => (dns_name, None),
+            DnsExpectedState::SimpleCheck { dns_name } => (dns_name, None),
+        };
+
+        if dns_name.trim().is_empty() {
+            return Err(RegentError::IncoherentExpectedState(
+                "DnsName is empty".to_string(),
+            ));
+        }
+        if !is_valid_dns_name(dns_name) {
+            return Err(RegentError::IncoherentExpectedState(format!(
+                "DnsName '{dns_name}' is not a valid DNS name"
+            )));
+        }
+
+        if let Some(expected_response) = expected_response {
+            match expected_response {
+                DnsRecordType::A(ip) => {
+                    if !ip.is_ipv4() {
+                        return Err(RegentError::IncoherentExpectedState(format!(
+                            "A record expects an IPv4 address but got {ip}"
+                        )));
+                    }
+                }
+                DnsRecordType::Aaaa(ip) => {
+                    if !ip.is_ipv6() {
+                        return Err(RegentError::IncoherentExpectedState(format!(
+                            "AAAA record expects an IPv6 address but got {ip}"
+                        )));
+                    }
+                }
+                DnsRecordType::Cname(target) => {
+                    if target.trim().is_empty() {
+                        return Err(RegentError::IncoherentExpectedState(
+                            "CNAME response is empty".to_string(),
+                        ));
+                    }
+                    if !is_valid_dns_name(target) {
+                        return Err(RegentError::IncoherentExpectedState(format!(
+                            "CNAME response '{target}' is not a valid DNS name"
+                        )));
+                    }
+                }
+            }
+        }
+
         Ok(())
     }
 
     fn check_host_compatibility(
         &self,
-        _host_properties: &HostProperties,
+        host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
-        // Windows ?
-        Ok(())
+        match host_properties.os_kind() {
+            OsKind::Linux(_) => Ok(()),
+            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+                "Host is {:?} but DNS resolution is only supported on Linux",
+                incompatible_os_kind
+            ))),
+        }
     }
 }
 
@@ -231,10 +294,15 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         _privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host
+        if let Some(properties) = host_properties {
+            self.check_host_compatibility(properties)?;
+        }
+
         if let Err(details) = host_handler
             .is_this_command_available("dig", &Privilege::None)
             .await
@@ -248,35 +316,36 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
         let (dns_name, server, expected_response) = match &self {
             DnsExpectedState::CheckResponseAndServer {
                 dns_name,
-                response,
+                expected_response,
                 server,
-            } => (dns_name, Some(*server), Some(*response)),
-            DnsExpectedState::CheckResponse { dns_name, response } => {
-                (dns_name, None, Some(*response))
-            }
+            } => (dns_name, Some(*server), Some(expected_response)),
+            DnsExpectedState::CheckResponse {
+                dns_name,
+                expected_response,
+            } => (dns_name, None, Some(expected_response)),
             DnsExpectedState::CheckServer { dns_name, server } => (dns_name, Some(*server), None),
             DnsExpectedState::SimpleCheck { dns_name } => (dns_name, None, None),
         };
 
-        let responses: Vec<IpAddr> = match host_handler
-            .run_command(&final_dns_query(dns_name, server), &Privilege::None)
+        // Query the specific record type when an expected response is given, so
+        // that A/AAAA/CNAME answers are each matched against the right kind of
+        // value. When no response is expected we let `dig` use its default
+        // lookup and only care whether anything came back.
+        let record_type = match expected_response {
+            Some(response) => Some(response.dig_arg_equivalent()),
+            None => None,
+        };
+
+        let dns_name = normalize_name(dns_name);
+
+        let command_result = match host_handler
+            .run_command(
+                &final_dns_query(&dns_name, server, record_type),
+                &Privilege::None,
+            )
             .await
         {
-            Ok(command_result) => {
-                if command_result.return_code == 0 {
-                    // Turn the response into the return type of this function
-                    command_result
-                        .stdout
-                        .lines()
-                        .filter_map(|line| line.trim().parse().ok())
-                        .collect()
-                } else {
-                    return Err(RegentError::FailedDryRunEvaluation(format!(
-                        "Failed dig command: {:?}",
-                        command_result
-                    )));
-                }
-            }
+            Ok(command_result) => command_result,
             Err(details) => {
                 return Err(RegentError::FailedDryRunEvaluation(format!(
                     "Unable to run dig command: {:?}",
@@ -285,35 +354,81 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
             }
         };
 
+        if command_result.return_code != 0 {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "Failed dig command: {:?}",
+                command_result
+            )));
+        }
+
+        // Trim and drop empty lines so a blank `dig +short` output is treated as
+        // "no answer" regardless of the record type.
+        let responses: Vec<&str> = command_result
+            .stdout
+            .lines()
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty())
+            .collect();
+
         // If no response, the name didn't resolve to anything
         if responses.is_empty() {
             return Ok(AttributeComplianceAssessment::NonCompliantFatal(
                 "Name doesn't resolve".to_string(),
             ));
-        } else {
-            match expected_response {
-                Some(expected_response) => {
-                    if responses.contains(&expected_response) {
-                        return Ok(AttributeComplianceAssessment::Compliant);
+        }
+
+        match expected_response {
+            None => {
+                // Just checking resolution, any response is accepted
+                Ok(AttributeComplianceAssessment::Compliant)
+            }
+            Some(expected_response_details) => match expected_response_details {
+                DnsRecordType::A(expected) => {
+                    let parsed: Vec<IpAddr> =
+                        responses.iter().filter_map(|l| l.parse().ok()).collect();
+                    if parsed.contains(expected) {
+                        Ok(AttributeComplianceAssessment::Compliant)
                     } else {
-                        return Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
-                            "Name resolves but expected response not found among results ({:?})",
+                        Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
+                            "Name resolves but expected A record {expected} not found among results ({:?})",
                             responses
-                        )));
+                        )))
                     }
                 }
-                None => {
-                    // Just checking resolution, any response is accepted
-                    return Ok(AttributeComplianceAssessment::Compliant);
+                DnsRecordType::Aaaa(expected) => {
+                    let parsed: Vec<IpAddr> =
+                        responses.iter().filter_map(|l| l.parse().ok()).collect();
+                    if parsed.contains(expected) {
+                        Ok(AttributeComplianceAssessment::Compliant)
+                    } else {
+                        Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
+                            "Name resolves but expected AAAA record {expected} not found among results ({:?})",
+                            responses
+                        )))
+                    }
                 }
-            }
+                DnsRecordType::Cname(expected) => {
+                    let expected_normalized_version = normalize_name(expected);
+                    if responses
+                        .iter()
+                        .any(|line| normalize_name(line) == expected_normalized_version)
+                    {
+                        Ok(AttributeComplianceAssessment::Compliant)
+                    } else {
+                        Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
+                            "Name resolves but expected CNAME record {expected} not found among results ({:?})",
+                            responses
+                        )))
+                    }
+                }
+            },
         }
     }
 }
 
 /// This is a placeholder type: DNS misconfiguration cannot be remediated
-/// automatically, so the assess step never produces a `DnsApiCall`. Any method
-/// invoked on this type returns an `InternalLogicError` to signal a bug.
+/// automatically, so the assess step never produces a DnsApiCall. Any method
+/// invoked on this type returns an InternalLogicError to signal a bug.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DnsApiCall {}
 
@@ -353,13 +468,36 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DnsApiCall {
     }
 }
 
-fn final_dns_query(dns_name: &str, server: Option<IpAddr>) -> String {
+fn final_dns_query(dns_name: &str, server: Option<IpAddr>, record_type: Option<&str>) -> String {
+    let record_type_arg = match record_type {
+        Some(record) => format!(" {record}"),
+        None => String::new(),
+    };
     match server {
         Some(server_address) => {
-            format!("dig @{server_address} +short {dns_name}")
+            format!("dig @{server_address} +short {dns_name}{record_type_arg}")
         }
         None => {
-            format!("dig +short {dns_name}")
+            format!("dig +short {dns_name}{record_type_arg}")
         }
     }
+}
+
+fn normalize_name(name: &str) -> String {
+    name.trim().trim_end_matches('.').to_ascii_lowercase()
+}
+
+fn is_valid_dns_name(name: &str) -> bool {
+    let name = name.trim_end_matches('.');
+
+    !name.is_empty()
+        && name.len() <= 253
+        && !name.contains("..")
+        && name.chars().all(|character| {
+            character.is_ascii_alphanumeric()
+                || character == '-'
+                || character == '_'
+                || character == '.'
+                || character == '*'
+        })
 }
