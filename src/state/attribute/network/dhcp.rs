@@ -1,19 +1,35 @@
 //! DHCP lease probing attribute
 //!
-//! This module provides the `DhcpExpectedState` type for verifying that a host's
+//! This module provides theDhcpExpectedState type for verifying that a host's
 //! network interface can obtain a DHCP lease as expected. It is an
 //! assessment-only attribute: it reports compliance but never produces
 //! remediations, because a wrong DHCP configuration cannot be fixed automatically
 //! by the SDK.
 //!
-//! To avoid altering the host's real interface configuration, the assessment does
-//! not run `dhclient` directly on the target interface. Instead it creates a
-//! short-lived macvlan virtual interface on top of it, runs a one-shot `dhclient`
-//! probe on that virtual interface, then removes it. The probe's lease and pid
-//! files are isolated under `/tmp` so the host's real DHCP state is never touched.
+//! # How the probe avoids altering the host
 //!
-//! The attribute relies on the `dhclient`, `ip`, and `timeout` commands being
-//! available on the target host, and requires `sudo`/`sudo-rs` privileges.
+//! The assessment never runsdhclient on the target interface itself. Instead it:
+//!
+//! 1. creates a short-lived macvlan virtual interface on top of the parent one,
+//! 2. runs a one-shotdhclient probe on that virtual interface with
+//!   -sf /bin/true`, which suppressesdhclient-script entirely. This is what
+//!    makes the probe read-only: the default script assigns the offered address,
+//!    installs the routes carried by therouters option (including a default
+//!    route) and rewrites/etc/resolv.conf — and that last change would outlive
+//!    the probe,
+//! 3. reads the offered configuration back from its own isolated lease file, so the
+//!    host's real DHCP lease state is never read or written,
+//! 4. releases the lease (`dhclient -r`) so the address returns to the server's pool
+//!    and nodhclient daemon is left behind (`-1 without-d daemonizes once a
+//!    lease is acquired), then deletes the virtual interface and the temporary
+//!    directory.
+//!
+//! Lease and pid files live inside amktemp -d directory, created root-owned with
+//!0700 permissions, so a local unprivileged user cannot redirect these
+//! root-owned writes through a symlink.
+//!
+//! The attribute relies on thedhclient`,ip`,timeout andmktemp commands
+//! being available on the target host, and requiressudo`/`sudo-rs privileges.
 //!
 //! **Compatible OS:** Linux (wired ethernet interfaces only).
 //!
@@ -21,10 +37,12 @@
 //! cannot get an independent DHCP identity over a managed-mode Wi-Fi link (the AP
 //! only delivers to the single associated MAC).
 //!
-//! - `CheckResponseAndServer`: lease must match a given response and come from a given server
-//! - `CheckResponse`: lease must match a given response from any server
-//! - `CheckServer`: lease must come from a given server (any valid response)
-//! - `SimpleCheck`: any valid lease from any server
+//! # Variants
+//!
+//! -CheckResponseAndServer`: lease must match a given response and come from a given server
+//! -CheckResponse`: lease must match a given response from any server
+//! -CheckServer`: lease must come from a given server (any valid response)
+//! -SimpleCheck`: any valid lease from any server
 //!
 //! # Examples
 //!
@@ -73,7 +91,7 @@
 //!
 //! ## YAML API
 //!
-//! `CheckResponseAndServer` - assert an interface gets a given lease from a given server:
+//! CheckResponseAndServer - assert an interface gets a given lease from a given server:
 //!
 //! ```yaml
 //! Attributes:
@@ -92,7 +110,7 @@
 //!         RogueServerAllowed: false
 //! ```
 //!
-//! With an explicit MAC for the virtual interface (omit `MacAddress` to let the
+//! With an explicit MAC for the virtual interface (omit MacAddressto let the
 //! kernel assign one):
 //!
 //! ```yaml
@@ -112,7 +130,7 @@
 //!         RogueServerAllowed: false
 //! ```
 //!
-//! `CheckResponse` - assert an interface gets a given lease from any server:
+//! CheckResponse- assert an interface gets a given lease from any server:
 //!
 //! ```yaml
 //! Attributes:
@@ -129,7 +147,7 @@
 //!             - 8.8.4.4
 //! ```
 //!
-//! `CheckServer` - assert an interface gets a lease from a given server:
+//! CheckServer- assert an interface gets a lease from a given server:
 //!
 //! ```yaml
 //! Attributes:
@@ -142,7 +160,7 @@
 //!         RogueServerAllowed: false
 //! ```
 //!
-//! `SimpleCheck` - assert an interface gets a lease from any server:
+//! SimpleCheck- assert an interface gets a lease from any server:
 //!
 //! ```yaml
 //! Attributes:
@@ -157,10 +175,11 @@
 //!
 //! This attribute is assessment-only. If the interface does not get an expected
 //! lease, compliance is reported as `NonCompliantFatal`, but no remediation is
-//! generated. The associated `DnsApiCall` always returns an `InternalLogicError`
+//! generated. The associated `DhcpApiCallalways returns anInternalLogicError`
 //! because DHCP configuration cannot be remediated automatically.
 
 use crate::error::RegentError;
+use crate::hosts::handlers::shell_quote;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
@@ -170,31 +189,30 @@ use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::compliance::AttributeComplianceAssessment;
+use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::time::Duration;
 
+const PROBE_DIR_PREFIX: &str = "/tmp/regent-dhcp-";
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum DhcpCheckBehavior {
-    /// Only a given configuration from a given server is accepted
     #[serde(rename_all = "PascalCase")]
     CheckResponseAndServer {
         response: ExpectedDhcpResponse,
         server: IpAddr,
         rogue_server_allowed: bool,
     },
-    /// Host gets back a configuration, any server can reply as long as the response is the one expected
     #[serde(rename_all = "PascalCase")]
     CheckResponse { response: ExpectedDhcpResponse },
-    /// This server must respond, any valid response will do
     #[serde(rename_all = "PascalCase")]
     CheckServer {
         server: IpAddr,
         rogue_server_allowed: bool,
     },
-    /// Host gets back a configuration, any valid response from any server will do
     #[serde(rename_all = "PascalCase")]
     SimpleCheck,
 }
@@ -325,7 +343,7 @@ impl Check for DhcpExpectedState {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but iptables is only supported on Linux",
+                "Host is {:?} but the DHCP attribute is only supported on Linux",
                 incompatible_os_kind
             ))),
         }
@@ -342,77 +360,62 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DhcpExpectedState {
     async fn assess_compliance(
         &self,
         host_handler: &mut Handler,
-        _host_properties: &Option<HostProperties>,
+        host_properties: &Option<HostProperties>,
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
         if matches!(privilege, Privilege::None) {
-            return Err(RegentError::WrongInitialization(format!(
-                "DHCP assesment needs sudo/sudo-rs privileges"
-            )));
+            return Err(RegentError::WrongInitialization(
+                "DHCP assessment needs sudo/sudo-rs privileges".to_string(),
+            ));
         }
 
-        if let Err(details) = host_handler
-            .is_this_command_available("dhclient", &Privilege::None)
-            .await
-        {
-            return Err(RegentError::FailedDryRunEvaluation(format!(
-                "command dig no available on this host : {:?}",
-                details
-            )));
+        if let Some(properties) = host_properties {
+            self.check_host_compatibility(properties)?;
         }
 
-        if let Err(details) = host_handler
-            .is_this_command_available("ip", &Privilege::None)
-            .await
-        {
-            return Err(RegentError::FailedDryRunEvaluation(format!(
-                "command ip not available on this host : {:?}",
-                details
-            )));
+        for required_command in ["dhclient", "ip", "timeout", "mktemp"] {
+            let command_available = host_handler
+                .is_this_command_available(required_command, privilege)
+                .await
+                .unwrap_or(false);
+
+            if !command_available {
+                return Err(RegentError::FailedDryRunEvaluation(format!(
+                    "command {required_command} not available on this host"
+                )));
+            }
         }
 
-        if let Err(details) = host_handler
-            .is_this_command_available("timeout", &Privilege::None)
-            .await
-        {
-            return Err(RegentError::FailedDryRunEvaluation(format!(
-                "command timeout not available on this host : {:?}",
-                details
-            )));
-        }
-
-        let parent_interface = self.parent_interface.clone();
-        let mac_address = self.mac_address.clone();
+        let parent_interface = self.parent_interface.as_str();
+        let mac_address = self.mac_address.as_deref();
 
         match host_handler
             .run_command(
-                &is_wireless_interface_cmd(&parent_interface),
+                &is_wireless_interface_cmd(parent_interface),
                 &Privilege::None,
             )
             .await
         {
             Ok(result) if result.return_code == 0 => {
                 return Err(RegentError::IncompatibleHost(format!(
-                    "{parent_interface} is a wireless interface; the DHCP probe uses a \
-                     macvlan virtual interface, which is not supported over Wi-Fi"
+                    "{parent_interface} is a wireless interface (not supported)"
                 )));
             }
             Ok(_) => { /* not wireless: proceed */ }
             Err(details) => {
                 return Err(RegentError::FailedDryRunEvaluation(format!(
-                    "Unable to determine whether {parent_interface} is wireless: {:?}",
+                    "Unable to determine if {parent_interface} is wireless: {:?}",
                     details
                 )));
             }
         }
 
         // When the user provides a MAC address, make sure it is not already in use
-        // by a real interface on the host. Reusing an existing MAC would create L2
-        // conflicts (two interfaces answering to the same address on the same wire).
-        if let Some(mac) = &mac_address {
+        // by a real interface on the host.
+        if let Some(mac) = mac_address {
             match host_handler
-                .run_command(&mac_in_use_check_cmd(mac), &Privilege::None)
+                .run_command(&mac_in_use_check_cmd(mac), privilege)
                 .await
             {
                 Ok(result) if result.return_code == 0 => {
@@ -431,104 +434,57 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DhcpExpectedState {
             }
         }
 
-        let virtual_interface = virtual_interface_name(&parent_interface);
-        let (lease_file, pid_file) = probe_tmp_file_paths(&virtual_interface);
-
-        let _ = host_handler
-            .run_command(&cleanup_probe_files_cmd(&lease_file, &pid_file), &privilege)
-            .await;
-        let _ = host_handler
-            .run_command(&delete_interface_cmd(&virtual_interface), &privilege)
-            .await;
-
-        if let Err(details) = host_handler
-            .run_command(
-                &create_virtual_interface_cmd(
-                    &parent_interface,
-                    &virtual_interface,
-                    mac_address.as_deref(),
-                ),
-                &privilege,
-            )
+        // Isolate the probe's lease and pid files in a root-owned 0700 directory.
+        // Created before anything else that needs cleaning up.
+        let probe_dir = match host_handler
+            .run_command(&create_probe_dir_cmd(), privilege)
             .await
         {
-            return Err(RegentError::FailedDryRunEvaluation(format!(
-                "Failed to create virtual interface {virtual_interface} on {parent_interface} for DHCP probing: {:?}",
-                details
-            )));
-        }
-
-        if let Err(details) = host_handler
-            .run_command(&bring_up_interface_cmd(&virtual_interface), &privilege)
-            .await
-        {
-            let _ = host_handler
-                .run_command(&delete_interface_cmd(&virtual_interface), &privilege)
-                .await;
-            return Err(RegentError::FailedDryRunEvaluation(format!(
-                "Failed to bring up virtual interface {virtual_interface} for DHCP probing: {:?}",
-                details
-            )));
-        }
-
-        let probe_timeout_secs = self.default_timeout().as_secs();
-
-        let probe_result = host_handler
-            .run_command(
-                &final_dhcp_query(
-                    &virtual_interface,
-                    probe_timeout_secs,
-                    &lease_file,
-                    &pid_file,
-                ),
-                &privilege,
-            )
-            .await;
-
-        // Cleanup: remove the virtual interface and the isolated probe files
-        // unconditionally.
-        let _ = host_handler
-            .run_command(&delete_interface_cmd(&virtual_interface), &privilege)
-            .await;
-        let _ = host_handler
-            .run_command(&cleanup_probe_files_cmd(&lease_file, &pid_file), &privilege)
-            .await;
-
-        let dhcp_response = match probe_result {
-            Ok(command_result) => {
-                // 124 is the exit status used by the `timeout` command when the
-                // wrapped command exceeded its time limit.
-                if command_result.return_code == 124 {
-                    return Err(RegentError::TimeOutReached(format!(
-                        "dhclient on {virtual_interface} did not finish within {probe_timeout_secs}s"
-                    )));
-                }
-                if command_result.return_code == 0 {
-                    let raw_stdout_and_stderr = command_result.stdout + &command_result.stderr;
-
-                    match parse_dhcp_response(&raw_stdout_and_stderr) {
-                        Ok(dhcp_response) => dhcp_response,
-                        Err(details) => {
-                            return Err(RegentError::FailedDryRunEvaluation(format!(
-                                "Failed to parse dhclient command result: {}",
-                                details
-                            )));
-                        }
-                    }
-                } else {
-                    return Err(RegentError::FailedDryRunEvaluation(format!(
-                        "Failed dhclient command: {:?}",
-                        command_result
-                    )));
-                }
+            Ok(result) if result.return_code == 0 => extract_probe_dir(&result.stdout)?,
+            Ok(result) => {
+                return Err(RegentError::FailedDryRunEvaluation(format!(
+                    "Failed to create the temporary directory for the DHCP probe: {:?}",
+                    result
+                )));
             }
             Err(details) => {
                 return Err(RegentError::FailedDryRunEvaluation(format!(
-                    "Unable to run dhclient command: {:?}",
+                    "Unable to create the temporary directory for the DHCP probe: {:?}",
                     details
                 )));
             }
         };
+
+        let virtual_interface = virtual_interface_name();
+        let lease_file = format!("{probe_dir}/probe.leases");
+        let pid_file = format!("{probe_dir}/probe.pid");
+        let probe_timeout_secs = self.default_timeout().as_secs();
+
+        let probe_outcome = probe_dhcp_lease(
+            host_handler,
+            privilege,
+            parent_interface,
+            mac_address,
+            &virtual_interface,
+            &lease_file,
+            &pid_file,
+            probe_timeout_secs,
+        )
+        .await;
+
+        // Cleanup runs whatever the probe did, and is safe to run unconditionally:
+        // the virtual interface name is random, so nothing but this probe can own it.
+        cleanup_probe(
+            host_handler,
+            privilege,
+            &virtual_interface,
+            &probe_dir,
+            &lease_file,
+            &pid_file,
+        )
+        .await;
+
+        let dhcp_response = probe_outcome?;
 
         match &self.check {
             DhcpCheckBehavior::CheckResponseAndServer {
@@ -536,66 +492,24 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DhcpExpectedState {
                 server,
                 rogue_server_allowed,
             } => {
-                // Did the expected server answered ?
-                match dhcp_response.responding_servers.get(server) {
-                    Some(_expected_server) => {
-                        match (dhcp_response.responding_servers.len(), rogue_server_allowed) {
-                            (0, _) => {
-                                // Nobody answered ?
-                                Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
-                                    "No responding server at all"
-                                )))
-                            }
-                            (1, _) | (_, true) => {
-                                match dhcp_response.responding_servers.get(server) {
-                                    Some(_expected_server) => {
-                                        match (
-                                            dhcp_response.responding_servers.len(),
-                                            rogue_server_allowed,
-                                        ) {
-                                            (0, _) => {
-                                                // Nobody answered ?
-                                                Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                                    format!("No responding server at all")
-                                                ))
-                                            }
-                                            (1, _) | (_, true) => {
-                                                Ok(AttributeComplianceAssessment::Compliant)
-                                            }
-                                            (_, false) => Ok(
-                                                AttributeComplianceAssessment::NonCompliantFatal(
-                                                    format!(
-                                                        "Expected server answered but there are also rogue DHCP servers ({:?})",
-                                                        dhcp_response
-                                                    ),
-                                                ),
-                                            ),
-                                        }
-                                    }
-                                    None => Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                                        format!(
-                                            "Expected server not among responding_servers ({:?})",
-                                            dhcp_response
-                                        ),
-                                    )),
-                                }
-                            }
-                            (_, false) => {
-                                Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
-                                    "Expected server answered but there are also rogue DHCP servers ({:?})",
-                                    dhcp_response
-                                )))
-                            }
-                        }
+                if let Some(why) =
+                    assess_responding_servers(&dhcp_response, server, *rogue_server_allowed)
+                {
+                    return Ok(AttributeComplianceAssessment::NonCompliantFatal(why));
+                }
+
+                match dhcp_response.matches_expected_response(response) {
+                    ComparisonOutcome::Matches => Ok(AttributeComplianceAssessment::Compliant),
+                    ComparisonOutcome::Different(why) => {
+                        Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
+                            "Unexpected response. {}",
+                            why
+                        )))
                     }
-                    None => Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
-                        "Expected server not among responding_servers ({:?})",
-                        dhcp_response
-                    ))),
                 }
             }
             DhcpCheckBehavior::CheckResponse { response } => {
-                match dhcp_response.matches_expected_response(&response) {
+                match dhcp_response.matches_expected_response(response) {
                     ComparisonOutcome::Matches => Ok(AttributeComplianceAssessment::Compliant),
                     ComparisonOutcome::Different(why) => {
                         Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
@@ -608,56 +522,34 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DhcpExpectedState {
             DhcpCheckBehavior::CheckServer {
                 server,
                 rogue_server_allowed,
-            } => {
-                // Did the expected server answered ?
-                match dhcp_response.responding_servers.get(server) {
-                    Some(_expected_server) => {
-                        match (dhcp_response.responding_servers.len(), rogue_server_allowed) {
-                            (0, _) => {
-                                // Nobody answered ?
-                                Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
-                                    "No responding server at all"
-                                )))
-                            }
-                            (1, _) | (_, true) => Ok(AttributeComplianceAssessment::Compliant),
-                            (_, false) => {
-                                Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
-                                    "Expected server answered but there are also rogue DHCP servers ({:?})",
-                                    dhcp_response
-                                )))
-                            }
-                        }
-                    }
-                    None => Ok(AttributeComplianceAssessment::NonCompliantFatal(format!(
-                        "Expected server not among responding_servers ({:?})",
-                        dhcp_response
-                    ))),
-                }
-            }
+            } => match assess_responding_servers(&dhcp_response, server, *rogue_server_allowed) {
+                Some(why) => Ok(AttributeComplianceAssessment::NonCompliantFatal(why)),
+                None => Ok(AttributeComplianceAssessment::Compliant),
+            },
             DhcpCheckBehavior::SimpleCheck => {
-                // Nothing special here, we are just interested in getting a response, any value will do
+                // Nothing special here, we are just interested in getting a lease,
+                // andprobe_dhcp_leaseonly returns once it parsed an address.
                 Ok(AttributeComplianceAssessment::Compliant)
             }
         }
     }
 }
 
-/// This is a placeholder type: DNS misconfiguration cannot be remediated
-/// automatically, so the assess step never produces a `DnsApiCall`.
-/// Each part returns an `InternalLogicError` to signal a bug.
+/// This is a placeholder type: DHCP misconfiguration cannot be remediated
+/// automatically. Each part returns an InternalLogicError to signal a bug.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DnsApiCall {}
+pub struct DhcpApiCall {}
 
-impl DnsApiCall {
+impl DhcpApiCall {
     pub fn display(&self) -> String {
         return format!("Should not have been called");
     }
 }
 
-impl Check for DnsApiCall {
+impl Check for DhcpApiCall {
     fn check(&self) -> Result<(), RegentError> {
         Err(RegentError::InternalLogicError(
-            "(check) DnsApiCall should not have been called as we cannot remediate automatically a wrong DNS configuration".to_string()
+            "(check) DhcpApiCall should not have been called as we cannot remediate automatically a wrong DHCP configuration".to_string()
         ))
     }
 
@@ -666,12 +558,12 @@ impl Check for DnsApiCall {
         _host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
         Err(RegentError::InternalLogicError(
-            "(check_host_compatibility) DnsApiCall should not have been called as we cannot remediate automatically a wrong DNS configuration".to_string()
+            "(check_host_compatibility) DhcpApiCall should not have been called as we cannot remediate automatically a wrong DHCP configuration".to_string()
         ))
     }
 }
 
-impl<Handler: HostHandler> ReachCompliance<Handler> for DnsApiCall {
+impl<Handler: HostHandler> ReachCompliance<Handler> for DhcpApiCall {
     async fn call(
         &self,
         _host_handler: &mut Handler,
@@ -679,9 +571,167 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DnsApiCall {
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
         Err(RegentError::InternalLogicError(
-            "(call) DnsApiCall should not have been called as we cannot remediate automatically a wrong DNS configuration".to_string()
+            "(call) DhcpApiCall should not have been called as we cannot remediate automatically a wrong DHCP configuration".to_string()
         ))
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn probe_dhcp_lease<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+    parent_interface: &str,
+    mac_address: Option<&str>,
+    virtual_interface: &str,
+    lease_file: &str,
+    pid_file: &str,
+    timeout_secs: u64,
+) -> Result<DhcpResponse, RegentError> {
+    match host_handler
+        .run_command(
+            &create_virtual_interface_cmd(parent_interface, virtual_interface, mac_address),
+            privilege,
+        )
+        .await
+    {
+        Ok(result) if result.return_code == 0 => {}
+        Ok(result) => {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "Failed to create virtual interface {virtual_interface} on {parent_interface} for DHCP probing: {:?}",
+                result
+            )));
+        }
+        Err(details) => {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "Unable to create virtual interface {virtual_interface} on {parent_interface} for DHCP probing: {:?}",
+                details
+            )));
+        }
+    }
+
+    match host_handler
+        .run_command(&bring_up_interface_cmd(virtual_interface), privilege)
+        .await
+    {
+        Ok(result) if result.return_code == 0 => {}
+        Ok(result) => {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "Failed to bring up virtual interface {virtual_interface} for DHCP probing: {:?}",
+                result
+            )));
+        }
+        Err(details) => {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "Unable to bring up virtual interface {virtual_interface} for DHCP probing: {:?}",
+                details
+            )));
+        }
+    }
+
+    let probe_result = match host_handler
+        .run_command(
+            &dhcp_probe_cmd(virtual_interface, timeout_secs, lease_file, pid_file),
+            privilege,
+        )
+        .await
+    {
+        Ok(result) => result,
+        Err(details) => {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "Unable to run dhclient command: {:?}",
+                details
+            )));
+        }
+    };
+
+    // TIMEOUT_EXIT_STATUS = 124
+    if probe_result.return_code == 124 {
+        return Err(RegentError::TimeOutReached(format!(
+            "dhclient on {virtual_interface} did not finish within {timeout_secs}s"
+        )));
+    }
+
+    if probe_result.return_code != 0 {
+        return Err(RegentError::FailedDryRunEvaluation(format!(
+            "Failed dhclient command: {:?}",
+            probe_result
+        )));
+    }
+
+    // Which servers answered
+    let raw_stdout_and_stderr = probe_result.stdout + &probe_result.stderr;
+    let responding_servers = parse_responding_servers(&raw_stdout_and_stderr);
+
+    // What was offered, on the other hand, comes from the lease file: with
+    //-sf /bin/trueno script runs, so the options never show up in the output.
+    let raw_lease = match host_handler
+        .run_command(&read_lease_file_cmd(lease_file), privilege)
+        .await
+    {
+        Ok(result) if result.return_code == 0 => result.stdout,
+        Ok(result) => {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "dhclient acquired a lease on {virtual_interface} but its lease file could not be read: {:?}",
+                result
+            )));
+        }
+        Err(details) => {
+            return Err(RegentError::FailedDryRunEvaluation(format!(
+                "dhclient acquired a lease on {virtual_interface} but its lease file could not be read: {:?}",
+                details
+            )));
+        }
+    };
+
+    let lease = parse_lease_file(&raw_lease);
+
+    if lease.ip.is_none() {
+        return Err(RegentError::FailedDryRunEvaluation(format!(
+            "dhclient acquired a lease on {virtual_interface} but no address could be parsed \
+             out of its lease file"
+        )));
+    }
+
+    Ok(DhcpResponse {
+        ip: lease.ip,
+        mask: lease.mask,
+        dns: lease.dns,
+        responding_servers,
+    })
+}
+
+/// Every step is allowed to fail: the probe may have stopped early, and this runs on
+/// the error path too.
+async fn cleanup_probe<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+    virtual_interface: &str,
+    probe_dir: &str,
+    lease_file: &str,
+    pid_file: &str,
+) {
+    // Release before deleting the interface: the address goes back to the server's
+    // pool, and the dhclient that-1 left daemonized is stopped.
+    let _ = host_handler
+        .run_command(
+            &release_lease_cmd(virtual_interface, lease_file, pid_file),
+            privilege,
+        )
+        .await;
+
+    // Belt and braces: if the release could not run, still stop whatever client is
+    // holding the pid file.
+    let _ = host_handler
+        .run_command(&stop_dhclient_cmd(pid_file), privilege)
+        .await;
+
+    let _ = host_handler
+        .run_command(&delete_interface_cmd(virtual_interface), privilege)
+        .await;
+
+    let _ = host_handler
+        .run_command(&remove_probe_dir_cmd(probe_dir), privilege)
+        .await;
 }
 
 #[derive(Debug)]
@@ -728,45 +778,100 @@ impl DhcpResponse {
     }
 }
 
-fn final_dhcp_query(
-    interface: &str,
-    timeout_secs: u64,
-    lease_file: &str,
-    pid_file: &str,
-) -> String {
+fn assess_responding_servers(
+    dhcp_response: &DhcpResponse,
+    expected_server: &IpAddr,
+    rogue_server_allowed: bool,
+) -> Option<String> {
+    if dhcp_response.responding_servers.is_empty() {
+        return Some("No responding server at all".to_string());
+    }
+
+    if !dhcp_response.responding_servers.contains(expected_server) {
+        return Some(format!(
+            "Expected server {expected_server} not among responding servers ({:?})",
+            dhcp_response.responding_servers
+        ));
+    }
+
+    if !rogue_server_allowed && dhcp_response.responding_servers.len() > 1 {
+        return Some(format!(
+            "Expected server {expected_server} answered but there are also rogue DHCP servers ({:?})",
+            dhcp_response.responding_servers
+        ));
+    }
+
+    None
+}
+
+fn dhcp_probe_cmd(interface: &str, timeout_secs: u64, lease_file: &str, pid_file: &str) -> String {
     // -1: one-shot, exit 0 after acquiring a lease (or exit 2 after one failed
-    // attempt). The `-d` (foreground) flag is intentionally NOT used: in one-shot
+    // attempt). The -d (foreground) flag is intentionally NOT used: in one-shot
     // mode it makes dhclient stay in the foreground managing the lease instead
     // of exiting, which would cause every successful probe to run until the
-    // `timeout` wrapper kills it. Without `-d`, dhclient exits promptly on
-    // success; on no answer it retransmits until `timeout` cuts it (rc 124).
+    // timeout wrapper kills it. Without -d, dhclient returns promptly on
+    // success; on no answer it retransmits until timeout cuts it (rc 124).
+    // -sf /bin/true is what keeps the probe read-only.
     format!(
-        "timeout {timeout_secs} dhclient -1 -v -cf /dev/null -lf {lease_file} -pf {pid_file} {interface}"
+        "timeout {timeout_secs} dhclient -1 -v -sf /bin/true -cf /dev/null -lf {} -pf {} {}",
+        shell_quote(lease_file),
+        shell_quote(pid_file),
+        shell_quote(interface)
     )
 }
 
-/// Paths for the isolated dhclient lease and pid files used during a probe.
-/// They live under /tmp so the probe never reads or writes the host's real
-/// dhcp lease state: this guarantees a fresh DHCP exchange every run and avoids
-/// leaving state behind in the host's persistent dhcp directories.
-fn probe_tmp_file_paths(virtual_interface: &str) -> (String, String) {
-    let lease = format!("/tmp/regent-dhcp-{virtual_interface}.leases");
-    let pid = format!("/tmp/regent-dhcp-{virtual_interface}.pid");
-    (lease, pid)
+fn release_lease_cmd(interface: &str, lease_file: &str, pid_file: &str) -> String {
+    format!(
+        "timeout 5 dhclient -r -sf /bin/true -cf /dev/null -lf {} -pf {} {}",
+        shell_quote(lease_file),
+        shell_quote(pid_file),
+        shell_quote(interface)
+    )
 }
 
-fn cleanup_probe_files_cmd(lease_file: &str, pid_file: &str) -> String {
-    format!("rm -f {lease_file} {pid_file}")
+fn stop_dhclient_cmd(pid_file: &str) -> String {
+    format!("timeout 5 dhclient -x -pf {}", shell_quote(pid_file))
 }
 
-/// Linux interface names are limited to 15 characters (IFNAMSIZ). Derive a virtual
-/// interface name from the parent by prefixing it with "v" and truncating the parent
-/// part so the total length never exceeds the limit.
-fn virtual_interface_name(parent: &str) -> String {
-    const MAX_IFACE_LEN: usize = 15;
-    let max_parent_len = MAX_IFACE_LEN - "v".len();
-    let truncated: String = parent.chars().take(max_parent_len).collect();
-    format!("v{truncated}")
+fn read_lease_file_cmd(lease_file: &str) -> String {
+    format!("cat {}", shell_quote(lease_file))
+}
+
+fn create_probe_dir_cmd() -> String {
+    format!("mktemp -d {PROBE_DIR_PREFIX}XXXXXX")
+}
+
+fn remove_probe_dir_cmd(probe_dir: &str) -> String {
+    format!("rm -rf {}", shell_quote(probe_dir))
+}
+
+/// The ssh2 handler folds stderr into stdout, so the output may carry unrelated
+/// lines: keep the last line that looks like the path that was asked for.
+fn extract_probe_dir(raw_output: &str) -> Result<String, RegentError> {
+    raw_output
+        .lines()
+        .map(str::trim)
+        .rfind(|line| line.starts_with(PROBE_DIR_PREFIX) && !line.contains(char::is_whitespace))
+        .map(str::to_string)
+        .ok_or_else(|| {
+            RegentError::FailedDryRunEvaluation(format!(
+                "Could not find the temporary directory for the DHCP probe in mktemp output: {:?}",
+                raw_output
+            ))
+        })
+}
+
+/// Linux caps interface names at 15 characters (IFNAMSIZ); this one is 9.
+fn virtual_interface_name() -> String {
+    format!(
+        "rgt{}",
+        nanoid!(
+            6,
+            &[
+                '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
+            ]
+        )
+    )
 }
 
 fn create_virtual_interface_cmd(
@@ -776,39 +881,38 @@ fn create_virtual_interface_cmd(
 ) -> String {
     match mac_address {
         Some(mac) => format!(
-            "ip link add link {parent} name {virtual_interface} address {mac} type macvlan mode bridge"
+            "ip link add link {} name {} address {} type macvlan mode bridge",
+            shell_quote(parent),
+            shell_quote(virtual_interface),
+            shell_quote(mac)
         ),
-        None => {
-            format!("ip link add link {parent} name {virtual_interface} type macvlan mode bridge")
-        }
+        None => format!(
+            "ip link add link {} name {} type macvlan mode bridge",
+            shell_quote(parent),
+            shell_quote(virtual_interface)
+        ),
     }
 }
 
 fn bring_up_interface_cmd(interface: &str) -> String {
-    format!("ip link set {interface} up")
+    format!("ip link set {} up", shell_quote(interface))
 }
 
 fn delete_interface_cmd(interface: &str) -> String {
-    format!("ip link delete {interface}")
+    format!("ip link delete {}", shell_quote(interface))
 }
 
-/// Returns 0 (success) if the given interface is wireless, non-zero otherwise.
-/// Relies on the /sys/class/net/<iface>/wireless/ directory the kernel exposes
-/// for wireless netdevs.
 fn is_wireless_interface_cmd(interface: &str) -> String {
-    format!("test -d /sys/class/net/{interface}/wireless")
+    format!(
+        "test -d {}",
+        shell_quote(&format!("/sys/class/net/{interface}/wireless"))
+    )
 }
 
-/// Returns 0 if the given MAC address is already in use by an interface on the
-/// host, non-zero otherwise. Uses `ip -o link show` piped through a case-insensitive
-/// fixed-string grep for the MAC.
 fn mac_in_use_check_cmd(mac: &str) -> String {
-    format!("ip -o link show | grep -iF '{mac}'")
+    format!("ip -o link show | grep -iF {}", shell_quote(mac))
 }
 
-/// Validate an `ExpectedDhcpResponse`: the DNS list must not contain duplicates.
-/// Empty or malformed IP fields are rejected at deserialization time by serde
-/// (which parses them as `IpAddr`).
 fn check_expected_response(response: &ExpectedDhcpResponse) -> Result<(), RegentError> {
     let mut seen = HashSet::new();
     for entry in &response.dns {
@@ -821,8 +925,6 @@ fn check_expected_response(response: &ExpectedDhcpResponse) -> Result<(), Regent
     Ok(())
 }
 
-/// Check that a string is a valid MAC address: exactly 6 hex octets separated by
-/// colons (e.g. `aa:bb:cc:dd:ee:ff`). Hex digits are case-insensitive.
 fn is_valid_mac_address(mac: &str) -> bool {
     let octets: Vec<&str> = mac.split(':').collect();
     octets.len() == 6
@@ -831,77 +933,87 @@ fn is_valid_mac_address(mac: &str) -> bool {
             .all(|octet| octet.len() == 2 && octet.chars().all(|c| c.is_ascii_hexdigit()))
 }
 
-fn parse_dhcp_response(raw_output: &str) -> Result<DhcpResponse, String> {
+fn parse_responding_servers(raw_output: &str) -> HashSet<IpAddr> {
     let mut responding_servers = HashSet::new();
+
     for line in raw_output.lines() {
-        if line.contains("DHCPOFFER") {
-            if let Some(pos) = line.find("from ") {
-                let ip_part = &line[pos + 5..];
-                let ip_str: String = ip_part
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit() || *c == '.')
-                    .collect();
-                if let Ok(ip) = ip_str.parse() {
-                    responding_servers.insert(ip);
-                }
-            } else {
-                let tokens: Vec<&str> = line.split_whitespace().collect();
-                if let Some(last) = tokens.last() {
-                    let cleaned = last.trim_matches(|c| c == '(' || c == ')' || c == ';');
-                    if let Ok(ip) = cleaned.parse() {
-                        responding_servers.insert(ip);
-                    }
-                }
+        if !line.contains("DHCPOFFER") && !line.contains("DHCPACK") {
+            continue;
+        }
+
+        if let Some(pos) = line.find("from ") {
+            let ip_part = &line[pos + "from ".len()..];
+            let ip_str: String = ip_part
+                .chars()
+                .take_while(|c| c.is_ascii_digit() || *c == '.')
+                .collect();
+            if let Ok(ip) = ip_str.parse() {
+                responding_servers.insert(ip);
+                continue;
+            }
+        }
+
+        let tokens: Vec<&str> = line.split_whitespace().collect();
+        if let Some(last) = tokens.last() {
+            let cleaned = last.trim_matches(|c| c == '(' || c == ')' || c == ';');
+            if let Ok(ip) = cleaned.parse() {
+                responding_servers.insert(ip);
             }
         }
     }
 
-    let mut eval_ip: Option<IpAddr> = None;
-    let mut eval_mask: Option<IpAddr> = None;
-    let mut eval_dns: Vec<IpAddr> = Vec::new();
+    responding_servers
+}
 
-    for line in raw_output.lines() {
-        if line.contains("yiaddr") && eval_ip.is_none() {
-            if let Some(pos) = line.find("yiaddr ") {
-                let ip_part = &line[pos + 7..];
-                let ip_str: String = ip_part
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit() || *c == '.')
-                    .collect();
-                eval_ip = ip_str.parse().ok();
+#[derive(Debug, Default, PartialEq)]
+struct DhcpLease {
+    ip: Option<IpAddr>,
+    mask: Option<IpAddr>,
+    dns: Vec<IpAddr>,
+}
+
+/// The relevant statements look like this, inside a lease { ... } block:
+///
+/// ```text
+/// lease {
+///   interface "rgt0a1b2c";
+///   fixed-address 10.0.0.5;
+///   option subnet-mask 255.255.255.0;
+///   option domain-name-servers 8.8.8.8,8.8.4.4;
+/// }
+/// ```
+///
+/// A lease file can hold several blocks appended over the course of an exchange, so
+/// the last value seen for each statement wins: that is the most recent lease.
+fn parse_lease_file(raw_lease: &str) -> DhcpLease {
+    let mut lease = DhcpLease::default();
+
+    for line in raw_lease.lines() {
+        let statement = line.trim().trim_end_matches(';').trim();
+        // Bothfixed-address 1.2.3.4; andoption subnet-mask 1.2.3.0; shapes.
+        let statement = statement.strip_prefix("option ").unwrap_or(statement);
+
+        if let Some(value) = statement.strip_prefix("fixed-address ") {
+            if let Ok(ip) = value.trim().parse() {
+                lease.ip = Some(ip);
             }
-        }
-        if line.contains("bound to") && eval_ip.is_none() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                eval_ip = parts[2].parse().ok();
+        } else if let Some(value) = statement.strip_prefix("subnet-mask ") {
+            if let Ok(mask) = value.trim().parse() {
+                lease.mask = Some(mask);
             }
-        }
-        if line.to_lowercase().contains("subnet-mask") && eval_mask.is_none() {
-            if let Some(last) = line.split_whitespace().last() {
-                eval_mask = last.trim_end_matches(';').parse().ok();
-            }
-        }
-        if line.to_lowercase().contains("domain-name-servers") {
-            if let Some(pos) = line.find("domain-name-servers") {
-                let dns_part = &line[pos..];
-                if let Some(space_pos) = dns_part.find(' ') {
-                    let raw = dns_part[space_pos + 1..].trim_end_matches(';');
-                    eval_dns.extend(
-                        raw.split_whitespace()
-                            .filter_map(|s| s.parse::<IpAddr>().ok()),
-                    );
-                }
+        } else if let Some(value) = statement.strip_prefix("domain-name-servers ") {
+            // Lease files separate these with commas, unlike most other options.
+            let servers: Vec<IpAddr> = value
+                .split(',')
+                .filter_map(|entry| entry.trim().parse().ok())
+                .collect();
+            if !servers.is_empty() {
+                lease.dns = servers;
             }
         }
     }
 
-    Ok(DhcpResponse {
-        ip: eval_ip,
-        mask: eval_mask,
-        dns: eval_dns,
-        responding_servers,
-    })
+    lease
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
