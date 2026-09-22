@@ -75,6 +75,8 @@ use crate::state::attribute::utilities::lineinfile::LineInFileApiCall;
 use crate::state::attribute::utilities::lineinfile::LineInFileExpectedState;
 use crate::state::attribute::utilities::ping::PingApiCall;
 use crate::state::attribute::utilities::ping::PingExpectedState;
+use crate::state::attribute::utilities::template::TemplateApiCall;
+use crate::state::attribute::utilities::template::TemplateExpectedState;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::AttributeComplianceResult;
 use crate::state::compliance::AttributeComplianceStatus;
@@ -125,6 +127,7 @@ impl Attribute {
                 AttributeDetail::Hostname(_) => "Hostname".to_string(),
                 AttributeDetail::Iptables(_) => "Iptables".to_string(),
                 AttributeDetail::Ollama(_) => "Ollama".to_string(),
+                AttributeDetail::Template(_) => "Template".to_string(),
             },
         }
     }
@@ -156,7 +159,7 @@ impl Attribute {
                 }
             };
         match serde_json::from_str::<Attribute>(&context_wise_serialized_self) {
-            Ok(context_aware_attribute) => {
+            Ok(mut context_aware_attribute) => {
                 // Validate the configuration after template rendering to ensure
                 // that template variables produced valid configuration
                 context_aware_attribute.check().map_err(|e| {
@@ -376,6 +379,14 @@ impl Attribute {
     ) -> Attribute {
         Attribute::from(AttributeDetail::Ollama(details), privilege, name) // Used 'timeout' in 'from' method
     }
+
+    pub fn template(
+        details: TemplateExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Template(details), privilege, name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -399,6 +410,7 @@ pub enum AttributeDetail {
     Hostname(HostnameExpectedState),
     Iptables(IptablesExpectedState),
     Ollama(OllamaExpectedState),
+    Template(TemplateExpectedState),
 }
 
 impl AttributeDetail {
@@ -422,6 +434,7 @@ impl AttributeDetail {
             AttributeDetail::Hostname(details) => details.default_timeout(),
             AttributeDetail::Iptables(details) => details.default_timeout(),
             AttributeDetail::Ollama(details) => details.default_timeout(),
+            AttributeDetail::Template(details) => details.default_timeout(),
         }
     }
 
@@ -634,6 +647,16 @@ impl AttributeDetail {
                     .await
             }
             AttributeDetail::Ollama(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Template(expected_state_criteria) => {
                 expected_state_criteria
                     .assess_compliance(
                         host_handler,
@@ -944,6 +967,19 @@ impl AttributeDetail {
                                 }
                             }
                         }
+                        Remediation::Template(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
                     };
 
                     actions_taken.push((remediation, internal_api_call_outcome.clone()));
@@ -990,6 +1026,7 @@ impl AttributeDetail {
             AttributeDetail::Hostname(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Iptables(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Ollama(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Template(expected_state_block) => expected_state_block.check(),
         }
     }
 }
@@ -1014,6 +1051,7 @@ pub enum Remediation {
     Hostname(HostnameApiCall),
     Iptables(IptablesApiCall),
     Ollama(OllamaApiCall),
+    Template(TemplateApiCall),
 }
 
 impl std::fmt::Debug for Remediation {
@@ -1037,6 +1075,7 @@ impl std::fmt::Debug for Remediation {
             Remediation::Hostname(api_call) => write!(f, "{}", api_call.display()),
             Remediation::Iptables(api_call) => write!(f, "{}", api_call.display()),
             Remediation::Ollama(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Template(api_call) => write!(f, "{}", api_call.display()),
         }
     }
 }
@@ -1164,6 +1203,11 @@ impl Remediation {
                     .call(host_handler, host_properties, optional_secret_provider)
                     .await
             }
+            Remediation::Template(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
         }
     }
 
@@ -1187,6 +1231,7 @@ impl Remediation {
             Remediation::Hostname(api_call) => api_call.display(),
             Remediation::Iptables(api_call) => api_call.display(),
             Remediation::Ollama(api_call) => api_call.display(),
+            Remediation::Template(api_call) => api_call.display(),
         }
     }
 }
