@@ -53,7 +53,6 @@ use std::time::Duration;
 pub struct DebugExpectedState {
     /// Debug message to output during compliance assessment
     msg: String,
-    // var: Option<String>, // TODO
 }
 
 impl Timeout for DebugExpectedState {
@@ -84,7 +83,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DebugExpectedState {
         _privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify host compatibility (always passes for debug)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -129,7 +127,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DebugApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify host compatibility (always passes for debug)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }

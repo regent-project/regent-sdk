@@ -11,12 +11,12 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::apt_repo::{AptRepoExpectedState, AptRepoExpectedStatus, AptRepoType};
+//! use regent_sdk::state::attribute::package::{RepoExpectedStatus, apt_repo::{AptRepoExpectedState, AptRepoType}};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Add a repository using legacy format
 //! let repo = AptRepoExpectedState::builder("docker")
-//!     .with_state(AptRepoExpectedStatus::Present)
+//!     .with_state(RepoExpectedStatus::Present)
 //!     .with_repo("deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable")
 //!     .with_update_cache(true)
 //!     .build()
@@ -51,27 +51,15 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::attribute::RemediationsList;
+use crate::state::attribute::package::RepoExpectedStatus;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Desired state of a repository
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum AptRepoExpectedStatus {
-    /// Repository should exist
-    Present,
-    /// Repository should be removed
-    Absent,
-}
-
-/// Repository type for deb822 format
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum AptRepoType {
-    /// Binary packages
     Deb,
-    /// Source packages
     DebSrc,
 }
 
@@ -102,8 +90,7 @@ impl AptRepoType {
 pub struct AptRepoExpectedState {
     /// Filename (without extension) for the repository file in /etc/apt/sources.list.d/
     filename: String,
-    /// Desired state of the repository
-    state: AptRepoExpectedStatus,
+    state: RepoExpectedStatus,
     /// Whether to run apt-get update after adding/removing repositories
     #[serde(default)]
     cache_up_to_date: bool,
@@ -124,17 +111,11 @@ pub enum AptRepoFormat {
     Deb822 {
         /// Repository types for deb822 format → writes to a `.sources` file
         types: Vec<AptRepoType>,
-        /// URIs for deb822 format
         uris: Vec<String>,
-        /// Suites for deb822 format
         suites: Vec<String>,
-        /// Components for deb822 format
         components: Option<Vec<String>>,
-        /// Signed-by fingerprint for deb822 format
         signed_by: Option<String>,
-        /// Whether the repository is enabled for deb822 format
         enabled: Option<bool>,
-        /// Architectures for deb822 format
         architectures: Option<Vec<String>>,
     },
 }
@@ -149,7 +130,7 @@ impl AptRepoExpectedState {
     pub fn legacy_format(
         filename: &str,
         repo: &str,
-        state: AptRepoExpectedStatus,
+        state: RepoExpectedStatus,
         cache_up_to_date: bool,
     ) -> AptRepoExpectedState {
         AptRepoExpectedState {
@@ -164,7 +145,7 @@ impl AptRepoExpectedState {
 
     pub fn deb822_format(
         filename: &str,
-        state: AptRepoExpectedStatus,
+        state: RepoExpectedStatus,
         types: Vec<AptRepoType>,
         uris: Vec<String>,
         suites: Vec<String>,
@@ -221,7 +202,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Debian-based Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -234,7 +214,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
         };
 
         match self.state {
-            AptRepoExpectedStatus::Absent => {
+            RepoExpectedStatus::Absent => {
                 if current_content.is_some() {
                     remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
                         AptRepoModuleInternalApiCall::RemoveFile {
@@ -244,7 +224,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
                     )));
                 }
             }
-            AptRepoExpectedStatus::Present => {
+            RepoExpectedStatus::Present => {
                 let format = self
                     .format
                     .as_ref()
@@ -263,7 +243,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
                 };
 
                 if current_content.is_some() {
-                    // Check on content required
                     if let Some(current) = current_content {
                         if current.trim() != expected_content.trim() {
                             remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
@@ -276,7 +255,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
                         }
                     }
                 } else {
-                    // Creation from scratch required
                     remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
                         AptRepoModuleInternalApiCall::WriteFile {
                             path: self.filename.clone(),
@@ -383,7 +361,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptRepoApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Debian-based Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -482,8 +459,7 @@ fn escape_for_printf(content: &str) -> String {
         .replace('\n', "\\n")
 }
 
-/// Extract URIs from deb822 format content for source verification.
-/// This ensures that repository URLs are explicitly checked during assessment.
+/// Ensures that repository URLs are explicitly checked during assessment.
 fn extract_uris_from_deb822(content: &str) -> Option<Vec<String>> {
     for line in content.lines() {
         let trimmed = line.trim();

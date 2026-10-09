@@ -198,7 +198,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for TemplateExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }

@@ -10,7 +10,7 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::yumdnf::{YumDnfExpectedState, PackageExpectedState};
+//! use regent_sdk::state::attribute::package::{PackageExpectedState, yumdnf::YumDnfExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install httpd package
@@ -58,6 +58,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::attribute::RemediationsList;
+use crate::state::attribute::package::PackageExpectedState;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -80,47 +81,15 @@ impl std::fmt::Display for YumDnfModuleInternalApiCall {
     }
 }
 
-/// Desired state of a package
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum PackageExpectedState {
-    /// Package should be installed
-    Present,
-    /// Package should be removed
-    Absent,
-}
-
-/// Configuration for YUM/DNF package management
-///
-/// This enum represents the desired state for YUM/DNF package management on Fedora/CentOS/RHEL systems.
-/// It supports two main operations:
-/// - Managing individual packages (install/remove) via the `PackageState` variant
-/// - Performing a full system upgrade via the `SystemUpToDate` variant
-///
-/// # YAML Representation
-///
-/// ## Package management:
-/// ```yaml
-/// Package: httpd
-/// State: Present  # or "Absent" to remove
-/// ```
-///
-/// ## Full system upgrade:
-/// ```yaml
-/// SystemUpToDate
-/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
 pub enum YumDnfExpectedState {
     /// Perform a full system upgrade (dnf/yum update)
     SystemUpToDate,
-    /// Manage a specific package's state
     #[serde(untagged)]
     PackageState {
-        /// Name of the package to manage
         package: String,
-        /// Desired state of the package
         state: PackageExpectedState,
     },
 }
@@ -172,7 +141,7 @@ impl Check for YumDnfExpectedState {
     }
 }
 
-#[allow(unused_assignments)] // 'package_manager' is never actually read, only borrowed
+#[allow(unused_assignments)]
 impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfExpectedState {
     async fn assess_compliance(
         &self,
@@ -181,7 +150,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -210,8 +178,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfExpectedState {
 
         match &self {
             Self::SystemUpToDate => {
-                // For system upgrade, we need to check if updates are available
-                // This is a simplified check - in practice, we'd run the appropriate command
+                // No cheap probe for pending upgrades - always remediate
                 remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
                     YumDnfModuleInternalApiCall::Upgrade,
                     package_manager,
@@ -231,9 +198,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfExpectedState {
                 .await;
 
                 match (package_is_currently_installed, expected_state) {
-                    (true, PackageExpectedState::Present) => {} // Nothing to do
+                    (true, PackageExpectedState::Present) => {}
                     (true, PackageExpectedState::Absent) => {
-                        // Package is present and needs to be removed
                         remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
                             YumDnfModuleInternalApiCall::Remove(package.clone()),
                             package_manager.clone(),
@@ -241,14 +207,13 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfExpectedState {
                         )));
                     }
                     (false, PackageExpectedState::Present) => {
-                        // Package is absent and needs to be installed
                         remediations.push(Remediation::YumDnf(YumDnfApiCall::from(
                             YumDnfModuleInternalApiCall::Install(package.clone()),
                             package_manager.clone(),
                             privilege.clone(),
                         )));
                     }
-                    (false, PackageExpectedState::Absent) => {} // Nothing to do
+                    (false, PackageExpectedState::Absent) => {}
                 }
             }
         }
@@ -343,11 +308,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
             .unwrap();
 
         if cmd_result.return_code == 0 {
-            // Post-install verification: verify the package state matches the expected operation
             if let Some(pkg_name) = &package_name {
                 let verification_result = match &self.api_call {
                     YumDnfModuleInternalApiCall::Install(_) => {
-                        // Verify the package is now installed
                         is_package_installed(
                             host_handler,
                             &self.package_manager,
@@ -357,7 +320,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
                         .await
                     }
                     YumDnfModuleInternalApiCall::Remove(_) => {
-                        // Verify the package is now removed
                         !is_package_installed(
                             host_handler,
                             &self.package_manager,
@@ -367,7 +329,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
                         .await
                     }
                     YumDnfModuleInternalApiCall::Upgrade => {
-                        // Upgrade is a system-wide operation, can't easily verify individual packages
+                        // System-wide operation - no per-package post-verification
                         true
                     }
                 };
@@ -381,7 +343,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for YumDnfApiCall {
                     )))
                 }
             } else {
-                // For upgrade operations without specific package verification
                 Ok(InternalApiCallOutcome::Success(None))
             }
         } else {
@@ -472,20 +433,17 @@ mod tests {
 
     #[test]
     fn rejecting_incorrect_yumdnf_module_block_from_yaml_str() {
-        // Missing State field - should fail deserialization
         let raw_attribute = "---
 Package: httpd
     ";
         assert!(yaml_serde::from_str::<YumDnfExpectedState>(raw_attribute).is_err());
 
-        // Missing Package field - should fail deserialization
         let raw_attribute = "---
 Package:
 State: Absent
     ";
         assert!(yaml_serde::from_str::<YumDnfExpectedState>(raw_attribute).is_err());
 
-        // Unknown key - should fail deserialization
         let raw_attribute = "---
 Package: httpd
 State: Absent

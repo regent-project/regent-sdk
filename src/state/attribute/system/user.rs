@@ -59,16 +59,13 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Desired state of a user account
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum UserExpectedStatus {
-    /// User should not exist
     Absent {
         /// Whether to remove home directory when deleting user
         remove_home: Option<bool>,
     },
-    /// User should exist
     #[serde(rename_all = "PascalCase")]
     Present { details: UserDetails },
 }
@@ -77,7 +74,6 @@ pub enum UserExpectedStatus {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct UserDetails {
-    /// User ID
     uid: Option<u32>,
     /// Primary group name
     group: Option<String>,
@@ -85,9 +81,7 @@ pub struct UserDetails {
     groups: Option<Vec<String>>,
     /// Whether to append to existing supplementary groups instead of replacing them
     append: Option<bool>,
-    /// Login shell
     shell: Option<String>,
-    /// Home directory path
     home: Option<String>,
     /// GECOS comment field
     comment: Option<String>,
@@ -172,17 +166,12 @@ impl UserDetails {
 
 /// Configuration for a user account
 ///
-/// Use the builder pattern to create and manage user accounts with various properties.
-/// When state is Present, you can specify user properties like UID, shell, home directory, etc.
-/// When state is Absent, the user will be removed (and optionally their home directory).
-///
 /// The `append` field controls whether supplementary groups are appended to existing groups
 /// or replaced entirely.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct UserExpectedState {
-    /// Username
     name: String,
     /// Desired state of the user (defaults to Present if not specified)
     state: UserExpectedStatus,
@@ -248,7 +237,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -262,7 +250,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
                 init_system: InitSystem::Systemd,
             }));
 
-        // Check if user exists using OS-specific method
         let user_exists = match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => match windows_user_exists(host_handler, &self.name).await {
@@ -323,14 +310,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
                 // On Unix systems, we can check detailed properties
                 match os_kind {
                     #[cfg(feature = "windows")]
-                    OsKind::Windows(_) => {
-                        // On Windows, we currently only check existence
-                        // Detailed property checking would require more complex parsing of net user output
-                        // For now, if the user exists and we want them to exist, we're compliant
-                        Ok(AttributeComplianceAssessment::Compliant)
-                    }
+                    OsKind::Windows(_) => Ok(AttributeComplianceAssessment::Compliant),
                     OsKind::Linux(_) => {
-                        // User exists on Linux: determine which properties need updating
                         let mut mod_uid: Option<u32> = None;
                         let mut mod_group: Option<String> = None;
                         let mut mod_groups: Option<Vec<String>> = None;
@@ -387,12 +368,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
                                 };
 
                             let groups_compliant = if append {
-                                // All expected groups must already be present
                                 expected_groups
                                     .iter()
                                     .all(|g| current_supp_groups.contains(g))
                             } else {
-                                // Exact match required
                                 let mut expected_sorted = expected_groups.clone();
                                 let mut current_sorted = current_supp_groups.clone();
                                 expected_sorted.sort();
@@ -402,7 +381,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
 
                             if !groups_compliant {
                                 if append {
-                                    // For append mode, only add the missing groups
                                     let missing_groups: Vec<String> = expected_groups
                                         .iter()
                                         .filter(|g| !current_supp_groups.contains(g))
@@ -412,13 +390,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
                                         mod_groups = Some(missing_groups);
                                     }
                                 } else {
-                                    // For replace mode, set all expected groups
                                     mod_groups = Some(expected_groups.clone());
                                 }
                             }
                         }
 
-                        // Check if any non-password properties need modification
                         let needs_non_password_modification = mod_uid.is_some()
                             || mod_group.is_some()
                             || mod_groups.is_some()
@@ -575,7 +551,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -589,7 +564,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                 init_system: InitSystem::Systemd,
             }));
 
-        // Match on OS kind to execute the appropriate user command
         match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
@@ -600,7 +574,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                         comment,
                         ..
                     } => {
-                        // Windows net user command for adding users
                         // net user username password /add /comment:"comment"
                         let mut cmd = format!("net user {} /add", username);
 
@@ -621,7 +594,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                         password,
                         ..
                     } => {
-                        // Windows net user command for modifying users
                         let mut cmd = format!("net user {}", username);
 
                         if let Some(_pass) = password {
@@ -635,7 +607,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                         host_handler.run_windows_command(&cmd).await
                     }
                     UserModuleInternalApiCall::Delete { username, .. } => {
-                        // Windows net user command for deleting users
                         let cmd = format!("net user {} /delete", username);
                         host_handler.run_windows_command(&cmd).await
                     }

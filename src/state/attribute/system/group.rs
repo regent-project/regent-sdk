@@ -52,7 +52,6 @@ use std::time::Duration;
 #[serde(rename_all = "PascalCase")]
 pub enum GroupExpectedStatus {
     Absent,
-    /// Group should exist
     #[serde(rename_all = "PascalCase")]
     Present {
         /// Group ID to assign (optional)
@@ -66,21 +65,11 @@ pub enum GroupExpectedStatus {
 
 /// Configuration for a system group
 ///
-/// Use the builder pattern to create group configurations. Each group must have a name.
-/// You can specify the desired state (Present/Absent), GID, and whether it's a system or local group.
-///
-/// When state is Absent, gid and system fields are not allowed.
-/// When state is Present (or None, which defaults to Present), you can optionally specify:
-/// - gid: The numeric group ID
-/// - system: Whether to create a system group (uses -r flag)
-/// - local: Whether to use local commands (lgroupadd/lgroupdel instead of groupadd/groupdel)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct GroupExpectedState {
-    /// Unique name of the group
     name: String,
-    /// Desired state of the group
     state: GroupExpectedStatus,
     /// Whether to use local commands (lgroupadd/lgroupdel) instead of system commands
     local: Option<bool>,
@@ -147,7 +136,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -180,7 +168,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
             } => {
                 match opt_group_info {
                     Some(current_group_info) => {
-                        // Group exists: check GID if specified
                         if let Some(expected_gid) = gid {
                             if current_group_info.gid != *expected_gid {
                                 return Ok(AttributeComplianceAssessment::NonCompliant(
@@ -198,7 +185,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
                             }
                         }
 
-                        // Group exists: check members if specified
                         if let Some(expected_members) = members {
                             // Sort both lists for comparison (order doesn't matter for group members)
                             let mut expected_sorted = expected_members.clone();
@@ -243,11 +229,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
     }
 }
 
-/// Internal API calls for group management
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum GroupModuleInternalApiCall {
-    /// Create a new group
     Add {
         groupname: String,
         gid: Option<u32>,
@@ -256,15 +240,18 @@ pub enum GroupModuleInternalApiCall {
         /// Uses lgroupadd instead of groupadd (shadow-utils local command)
         local: bool,
     },
-    /// Modify an existing group's GID
-    ModifyGid { groupname: String, gid: u32 },
-    /// Modify an existing group's members
+    ModifyGid {
+        groupname: String,
+        gid: u32,
+    },
     ModifyMembers {
         groupname: String,
         members: Vec<String>,
     },
-    /// Remove a group
-    Delete { groupname: String, local: bool },
+    Delete {
+        groupname: String,
+        local: bool,
+    },
 }
 
 impl std::fmt::Display for GroupModuleInternalApiCall {
@@ -286,12 +273,9 @@ impl std::fmt::Display for GroupModuleInternalApiCall {
     }
 }
 
-/// A group API call with its associated privilege level
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GroupApiCall {
-    /// The internal API call to execute
     pub api_call: GroupModuleInternalApiCall,
-    /// Privilege level required for this call
     privilege: Privilege,
 }
 
@@ -347,7 +331,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -370,10 +353,8 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
                 }
 
                 let mut cmds = Vec::new();
-                // Create the group
                 cmds.push(format!("{} {} {}", base, args.join(" "), groupname));
 
-                // Add members if specified
                 if let Some(member_list) = members {
                     for member in member_list {
                         cmds.push(format!("usermod -aG {} {}", groupname, member));
@@ -387,7 +368,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
                 &self.privilege,
             ),
             GroupModuleInternalApiCall::ModifyMembers { groupname, members } => {
-                // Get current members to calculate differences
                 let current_members = match get_group_info(host_handler, groupname).await {
                     Ok(opt_group_info) => match opt_group_info {
                         Some(group_info) => group_info.members,
@@ -405,13 +385,11 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
                     }
                 };
 
-                // Convert to sets for easier difference calculation
                 use std::collections::HashSet;
                 let expected_set: HashSet<&str> = members.iter().map(|s| s.as_str()).collect();
                 let current_set: HashSet<&str> =
                     current_members.iter().map(|s| s.as_str()).collect();
 
-                // Calculate users to add and remove
                 let users_to_add: Vec<&str> =
                     expected_set.difference(&current_set).cloned().collect();
                 let users_to_remove: Vec<&str> =
@@ -419,20 +397,15 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
 
                 let mut cmds = Vec::new();
 
-                // Add users who should be in the group but aren't
                 for user in users_to_add {
                     cmds.push(format!("usermod -aG {} {}", groupname, user));
                 }
 
-                // Remove users who shouldn't be in the group
-                // Note: Removing users from a group requires gpasswd or similar
-                // For now, we'll use gpasswd --delete to remove users
                 for user in users_to_remove {
                     cmds.push(format!("gpasswd --delete {} {}", user, groupname));
                 }
 
                 if cmds.is_empty() {
-                    // No changes needed
                     return Ok(InternalApiCallOutcome::Success(None));
                 }
 
@@ -476,7 +449,6 @@ async fn get_group_info<Handler: HostHandler>(
     {
         Ok(result) => {
             if result.return_code == 0 {
-                // Group exists
                 // Format: groupname:x:gid:members
                 let fields: Vec<&str> = result.stdout.trim().splitn(4, ':').collect();
                 if fields.len() < 4 {
@@ -503,7 +475,6 @@ async fn get_group_info<Handler: HostHandler>(
                     members,
                 }))
             } else {
-                // Group does not exist
                 Ok(None)
             }
         }

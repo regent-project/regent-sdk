@@ -10,7 +10,7 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::pacman::{PacmanExpectedState, PackageExpectedState};
+//! use regent_sdk::state::attribute::package::{PackageExpectedState, pacman::PacmanExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install a package
@@ -58,6 +58,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::attribute::RemediationsList;
+use crate::state::attribute::package::PackageExpectedState;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -80,47 +81,15 @@ impl std::fmt::Display for PacmanModuleInternalApiCall {
     }
 }
 
-/// Desired state of a package
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum PackageExpectedState {
-    /// Package should be installed
-    Present,
-    /// Package should be removed
-    Absent,
-}
-
-/// Configuration for Pacman package management
-///
-/// This enum represents the desired state for Pacman package management on Arch Linux systems.
-/// It supports two main operations:
-/// - Managing individual packages (install/remove) via the `PackageState` variant
-/// - Performing a full system upgrade via the `SystemUpgrade` variant
-///
-/// # YAML Representation
-///
-/// ## Package management:
-/// ```yaml
-/// Package: nginx
-/// State: Present  # or "Absent" to remove
-/// ```
-///
-/// ## Full system upgrade:
-/// ```yaml
-/// SystemUpgrade
-/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
 pub enum PacmanExpectedState {
     /// Perform a full system upgrade (pacman -Syu)
     SystemUpgrade,
-    /// Manage a specific package's state
     #[serde(untagged)]
     PackageState {
-        /// Name of the package to manage
         package: String,
-        /// Desired state of the package
         state: PackageExpectedState,
     },
 }
@@ -187,7 +156,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Arch Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -206,8 +174,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanExpectedState {
 
         match &self {
             Self::SystemUpgrade => {
-                // For system upgrade, we always add the upgrade remediation
-                // In a more sophisticated implementation, we could check if upgrades are available
+                // No cheap probe for pending upgrades - always remediate
                 remediations.push(Remediation::Pacman(PacmanApiCall::from(
                     PacmanModuleInternalApiCall::Upgrade,
                     privilege.clone(),
@@ -221,22 +188,20 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PacmanExpectedState {
                     is_package_installed(host_handler, package).await;
 
                 match (package_is_currently_installed, expected_state) {
-                    (true, PackageExpectedState::Present) => {} // Nothing to do
+                    (true, PackageExpectedState::Present) => {}
                     (true, PackageExpectedState::Absent) => {
-                        // Package is present and needs to be removed
                         remediations.push(Remediation::Pacman(PacmanApiCall::from(
                             PacmanModuleInternalApiCall::Remove(package.clone()),
                             privilege.clone(),
                         )));
                     }
                     (false, PackageExpectedState::Present) => {
-                        // Package is absent and needs to be installed
                         remediations.push(Remediation::Pacman(PacmanApiCall::from(
                             PacmanModuleInternalApiCall::Install(package.clone()),
                             privilege.clone(),
                         )));
                     }
-                    (false, PackageExpectedState::Absent) => {} // Nothing to do
+                    (false, PackageExpectedState::Absent) => {}
                 }
             }
         }
@@ -302,7 +267,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Arch Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -329,19 +293,16 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
             .unwrap();
 
         if cmd_result.return_code == 0 {
-            // Post-install verification: verify the package state matches the expected operation
             if let Some(pkg_name) = &package_name {
                 let verification_result = match &self.api_call {
                     PacmanModuleInternalApiCall::Install(_) => {
-                        // Verify the package is now installed
                         is_package_installed(host_handler, pkg_name).await
                     }
                     PacmanModuleInternalApiCall::Remove(_) => {
-                        // Verify the package is now removed
                         !is_package_installed(host_handler, pkg_name).await
                     }
                     PacmanModuleInternalApiCall::Upgrade => {
-                        // Upgrade is a system-wide operation, can't easily verify individual packages
+                        // System-wide operation - no per-package post-verification
                         true
                     }
                 };
@@ -355,7 +316,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PacmanApiCall {
                     )))
                 }
             } else {
-                // For upgrade operations without specific package verification
                 Ok(InternalApiCallOutcome::Success(None))
             }
         } else {
@@ -431,20 +391,17 @@ mod tests {
 
     #[test]
     fn rejecting_incorrect_pacman_module_block_from_yaml_str() {
-        // Test that Package without State fails to deserialize
         let raw_attribute = "---
 Package: apache
     ";
         assert!(yaml_serde::from_str::<PacmanExpectedState>(raw_attribute).is_err());
 
-        // Test that Package with empty State fails
         let raw_attribute = "---
 Package:
 State: Absent
     ";
         assert!(yaml_serde::from_str::<PacmanExpectedState>(raw_attribute).is_err());
 
-        // Test that unknown keys are rejected
         let raw_attribute = "---
 Package: apache
 State: Absent

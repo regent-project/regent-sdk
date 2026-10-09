@@ -108,107 +108,44 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Desired state of a DNF/YUM repository
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum DnfRepoExpectedStatus {
-    /// Repository should exist
-    Present,
-    /// Repository should be removed
-    Absent,
-}
-
-/// Source configuration for a DNF/YUM repository
-///
-/// This enum ensures that exactly one source type is specified, making it impossible
-/// to have multiple conflicting source definitions. The variants are:
-///
-/// - **`Baseurl`**: One or more base URLs for the repository
-/// - **`Mirrorlist`**: URL to a file containing a list of mirror URLs
-/// - **`Metalink`**: URL to a metalink file for repository metadata
-///
-/// Exactly one of these must be set for a Present repository.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum DnfRepoSource {
-    /// One or more base URLs for the repository
     Baseurl(Vec<String>),
-    /// URL to a file containing mirror URLs
     Mirrorlist(String),
-    /// URL to a metalink file
     Metalink(String),
 }
 
-/// Configuration for a DNF/YUM repository
-///
 /// Manages a repository section inside a `.repo` file in `/etc/yum.repos.d/`.
-///
-/// This enum uses a type-safe design where each variant represents a valid state:
-///
-/// - **`Present` variant**: Represents a repository that should exist on the system.
-///   Contains all configuration fields needed to define the repository:
-///   - `name`: Repository name (used as INI section header)
-///   - `source`: **Required** - The repository source (Baseurl, Mirrorlist, or Metalink)
-///   - `description`: Human-readable description
-///   - `enabled`: Whether the repository is enabled (defaults to system default)
-///   - `gpgcheck`: Whether to verify packages with GPG signatures
-///   - `gpgkey`: URLs to GPG keys for package verification
-///   - `file`: Custom filename for the .repo file (overrides `name`)
-///   - `priority`: Repository priority (lower = higher priority)
-///   - `sslverify`: Whether to verify SSL certificates
-///   - `exclude`: Packages to exclude from this repository
-///
-/// - **`Absent` variant**: Represents a repository that should be removed from the system.
-///   Only contains the fields needed to identify which repository to remove:
-///   - `name`: Repository name (used to identify the section to remove)
-///   - `file`: Optional custom filename if the repo file uses a different name
-///
-/// This design ensures type safety by making it impossible to:
-/// - Create an Absent repository with configuration settings (they don't apply to non-existent repos)
-/// - Create a Present repository without a source
-/// - Specify multiple source types simultaneously
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub enum DnfRepoExpectedState {
-    /// Repository should be present with full configuration
     #[serde(rename_all = "PascalCase")]
     Present {
         /// Repository name (used as INI section header)
         name: String,
-        /// Repository source (mutually exclusive: Baseurl, Mirrorlist, or Metalink)
         source: DnfRepoSource,
-        /// Human-readable description of the repository
         #[serde(default)]
         description: Option<String>,
-        /// Whether the repository is enabled
         #[serde(default)]
         enabled: Option<bool>,
-        /// Whether to verify packages with GPG signatures
         #[serde(default)]
         gpgcheck: Option<bool>,
-        /// URLs to GPG keys for package verification
         #[serde(default)]
         gpgkey: Option<Vec<String>>,
         /// Custom filename for the .repo file (overrides using `name`)
         #[serde(default)]
         file: Option<String>,
-        /// Repository priority (lower = higher priority)
         #[serde(default)]
         priority: Option<u32>,
-        /// Whether to verify SSL certificates
         #[serde(default)]
         sslverify: Option<bool>,
-        /// Packages to exclude from this repository
         #[serde(default)]
         exclude: Option<Vec<String>>,
     },
-    /// Repository should be absent (removed)
-    /// Only name and optional file are available - other settings don't make sense
-    /// for a repository that should not exist
     #[serde(rename_all = "PascalCase")]
     Absent {
-        /// Repository name (used to identify the repository to remove)
         name: String,
         /// Custom filename for the .repo file (overrides using `name`)
         #[serde(default)]
@@ -223,7 +160,6 @@ impl Timeout for DnfRepoExpectedState {
 }
 
 impl DnfRepoExpectedState {
-    /// Get the repository name
     pub fn name(&self) -> &str {
         match self {
             DnfRepoExpectedState::Present { name, .. } => name,
@@ -265,7 +201,6 @@ impl DnfRepoExpectedState {
         matches!(self, DnfRepoExpectedState::Absent { .. })
     }
 
-    /// Create a Present state configuration
     pub fn present(name: &str, source: DnfRepoSource) -> DnfRepoExpectedState {
         DnfRepoExpectedState::Present {
             name: name.to_string(),
@@ -281,7 +216,6 @@ impl DnfRepoExpectedState {
         }
     }
 
-    /// Create an Absent state configuration
     pub fn absent(name: &str) -> DnfRepoExpectedState {
         DnfRepoExpectedState::Absent {
             name: name.to_string(),
@@ -289,7 +223,6 @@ impl DnfRepoExpectedState {
         }
     }
 
-    /// Validate the configuration
     pub fn check(&self) -> Result<(), RegentError> {
         match self {
             DnfRepoExpectedState::Present { name, .. } => {
@@ -311,7 +244,6 @@ impl DnfRepoExpectedState {
         }
     }
 
-    /// Check host compatibility
     pub fn check_host_compatibility(
         &self,
         host_properties: &HostProperties,
@@ -350,7 +282,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Fedora/CentOS/RHEL Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -406,7 +337,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoExpectedState {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
 
-                // Enhanced verification: explicitly check critical properties like source URLs
                 if let Some(ref current) = current_content {
                     if let Some(current_section) = extract_section(current, name) {
                         let current_sources = extract_source_urls_from_section(&current_section);
@@ -558,7 +488,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for DnfRepoApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Fedora/CentOS/RHEL Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -664,15 +593,13 @@ fn escape_for_printf(content: &str) -> String {
         .replace('\n', "\\n")
 }
 
-/// Extract source URLs from DNF/YUM repository section content for source verification.
-/// This ensures that repository baseurl, mirrorlist, and metalink are explicitly checked during assessment.
+/// Ensures that baseurl, mirrorlist and metalink are explicitly checked during assessment.
 fn extract_source_urls_from_section(content: &str) -> Option<Vec<String>> {
     let mut urls: Vec<String> = Vec::new();
 
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("baseurl=") {
-            // Extract URL(s) from baseurl
             let baseurl_part = trimmed.split('=').nth(1).map(|s| s.trim());
             if let Some(baseurl_str) = baseurl_part {
                 // baseurl can contain multiple URLs
@@ -681,13 +608,11 @@ fn extract_source_urls_from_section(content: &str) -> Option<Vec<String>> {
                 }
             }
         } else if trimmed.starts_with("mirrorlist=") {
-            // Extract mirrorlist URL
             let mirrorlist_part = trimmed.split('=').nth(1).map(|s| s.trim());
             if let Some(mirrorlist_url) = mirrorlist_part {
                 urls.push(mirrorlist_url.to_string());
             }
         } else if trimmed.starts_with("metalink=") {
-            // Extract metalink URL
             let metalink_part = trimmed.split('=').nth(1).map(|s| s.trim());
             if let Some(metalink_url) = metalink_part {
                 urls.push(metalink_url.to_string());
@@ -950,7 +875,6 @@ mod tests {
 
     #[test]
     fn absent_variant_only_has_name_and_file() {
-        // The Absent variant should only have name and file fields
         let absent = DnfRepoExpectedState::Absent {
             name: "test".to_string(),
             file: None,

@@ -314,7 +314,6 @@ impl Check for DhcpExpectedState {
             }
         }
 
-        // Variant-specific validation.
         match &self.check {
             DhcpCheckBehavior::CheckResponseAndServer {
                 response,
@@ -414,17 +413,21 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DhcpExpectedState {
         // When the user provides a MAC address, make sure it is not already in use
         // by a real interface on the host.
         if let Some(mac) = mac_address {
-            match host_handler
-                .run_command(&mac_in_use_check_cmd(mac), privilege)
-                .await
-            {
+            match host_handler.run_command("ip -o link show", privilege).await {
                 Ok(result) if result.return_code == 0 => {
-                    return Err(RegentError::IncoherentExpectedState(format!(
-                        "MAC address {mac} is already used by an interface on this host, \
-                         this might create conflicts"
+                    if result.stdout.to_lowercase().contains(&mac.to_lowercase()) {
+                        return Err(RegentError::IncoherentExpectedState(format!(
+                            "MAC address {mac} is already used by an interface on this host, \
+                             this might create conflicts"
+                        )));
+                    }
+                }
+                Ok(result) => {
+                    return Err(RegentError::FailedDryRunEvaluation(format!(
+                        "Unable to check whether MAC address {mac} is already in use: {:?}",
+                        result
                     )));
                 }
-                Ok(_) => { /* MAC not in use: proceed */ }
                 Err(details) => {
                     return Err(RegentError::FailedDryRunEvaluation(format!(
                         "Unable to check whether MAC address {mac} is already in use: {:?}",
@@ -907,10 +910,6 @@ fn is_wireless_interface_cmd(interface: &str) -> String {
         "test -d {}",
         shell_quote(&format!("/sys/class/net/{interface}/wireless"))
     )
-}
-
-fn mac_in_use_check_cmd(mac: &str) -> String {
-    format!("ip -o link show | grep -iF {}", shell_quote(mac))
 }
 
 fn check_expected_response(response: &ExpectedDhcpResponse) -> Result<(), RegentError> {

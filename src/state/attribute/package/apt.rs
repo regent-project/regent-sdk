@@ -10,7 +10,7 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::apt::{AptExpectedState, PackageExpectedState};
+//! use regent_sdk::state::attribute::package::{PackageExpectedState, apt::AptExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install a package
@@ -58,6 +58,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::attribute::RemediationsList;
+use crate::state::attribute::package::PackageExpectedState;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -80,47 +81,15 @@ impl std::fmt::Display for AptModuleInternalApiCall {
     }
 }
 
-/// Desired state of a package
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum PackageExpectedState {
-    /// Package should be installed
-    Present,
-    /// Package should be removed
-    Absent,
-}
-
-/// Configuration for APT package management
-///
-/// This enum represents the desired state for APT package management on Debian/Ubuntu systems.
-/// It supports two main operations:
-/// - Managing individual packages (install/remove) via the `PackageState` variant
-/// - Performing a full system upgrade via the `SystemUpToDate` variant
-///
-/// # YAML Representation
-///
-/// ## Package management:
-/// ```yaml
-/// Package: nginx
-/// State: Present  # or Absent to remove
-/// ```
-///
-/// ## Full system upgrade:
-/// ```yaml
-/// SystemUpToDate
-/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
 pub enum AptExpectedState {
     /// Perform a full system upgrade (apt-get update && apt-get upgrade)
     SystemUpToDate,
-    /// Manage a specific package's state
     #[serde(untagged)]
     PackageState {
-        /// Name of the package to manage
         package: String,
-        /// Desired state of the package
         state: PackageExpectedState,
     },
 }
@@ -187,7 +156,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Linux with Debian flavor)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -228,32 +196,29 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptExpectedState {
 
         match &self {
             Self::SystemUpToDate => {
+                // `apt-get -s -u upgrade` simulates an upgrade: every line
+                // starting with "Inst" is a package that would be installed.
                 match host_handler
                     .run_command(
-                        &format!("apt-get update -y && apt-get -s -u upgrade | grep -q \"^Inst\""),
+                        "apt-get update -y && apt-get -s -u upgrade",
                         &Privilege::None,
                     )
                     .await
                 {
-                    Ok(r) => match r.return_code {
-                        0 => {
-                            // updates are available
+                    Ok(r) if r.return_code == 0 => {
+                        if r.stdout.lines().any(|l| l.starts_with("Inst")) {
                             remediations.push(Remediation::Apt(AptApiCall::from(
                                 AptModuleInternalApiCall::Upgrade,
                                 privilege.clone(),
                             )));
                         }
-                        1 => {
-                            // No update available, nothing to do
-                        }
-                        _ => {
-                            // Something else happened -> error
-                            return Err(RegentError::FailedDryRunEvaluation(format!(
-                                "Unable to check available updates: {:?}",
-                                r
-                            )));
-                        }
-                    },
+                    }
+                    Ok(r) => {
+                        return Err(RegentError::FailedDryRunEvaluation(format!(
+                            "Unable to check available updates: {:?}",
+                            r
+                        )));
+                    }
                     Err(e) => {
                         return Err(RegentError::FailedDryRunEvaluation(format!(
                             "Unable to check available updates: {:?}",
@@ -270,22 +235,20 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptExpectedState {
                     is_package_installed(host_handler, package).await;
 
                 match (package_is_currently_installed, expected_state) {
-                    (true, PackageExpectedState::Present) => {} // Nothing to do
+                    (true, PackageExpectedState::Present) => {}
                     (true, PackageExpectedState::Absent) => {
-                        // Package is present and needs to be removed
                         remediations.push(Remediation::Apt(AptApiCall::from(
                             AptModuleInternalApiCall::Remove(package.clone()),
                             privilege.clone(),
                         )));
                     }
                     (false, PackageExpectedState::Present) => {
-                        // Package is absent and needs to be installed
                         remediations.push(Remediation::Apt(AptApiCall::from(
                             AptModuleInternalApiCall::Install(package.clone()),
                             privilege.clone(),
                         )));
                     }
-                    (false, PackageExpectedState::Absent) => {} // Nothing to do
+                    (false, PackageExpectedState::Absent) => {}
                 }
             }
         }
@@ -351,7 +314,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Linux with Debian flavor)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -386,20 +348,16 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
             .unwrap();
 
         if cmd_result.return_code == 0 {
-            // Post-install verification: verify the package state matches the expected operation
             if let Some(pkg_name) = &package_name {
                 let verification_result = match &self.api_call {
                     AptModuleInternalApiCall::Install(_) => {
-                        // Verify the package is now installed
                         is_package_installed(host_handler, pkg_name).await
                     }
                     AptModuleInternalApiCall::Remove(_) => {
-                        // Verify the package is now removed
                         !is_package_installed(host_handler, pkg_name).await
                     }
                     AptModuleInternalApiCall::Upgrade => {
-                        // Upgrade is a system-wide operation, can't easily verify individual packages
-                        // Just return success based on the command result
+                        // System-wide operation - no per-package post-verification
                         true
                     }
                 };
@@ -413,7 +371,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptApiCall {
                     )))
                 }
             } else {
-                // For upgrade operations without specific package verification
                 Ok(InternalApiCallOutcome::Success(None))
             }
         } else {
@@ -486,20 +443,17 @@ mod tests {
 
     #[test]
     fn rejecting_incorrect_apt_module_block_from_yaml_str() {
-        // Test that Package without State fails to deserialize
         let raw_attribute = "---
 Package: apache2
     ";
         assert!(yaml_serde::from_str::<AptExpectedState>(raw_attribute).is_err());
 
-        // Test that Package with empty State fails
         let raw_attribute = "---
 Package:
 State: Absent
     ";
         assert!(yaml_serde::from_str::<AptExpectedState>(raw_attribute).is_err());
 
-        // Test that unknown keys are rejected
         let raw_attribute = "---
 Package: apache2
 State: Absent

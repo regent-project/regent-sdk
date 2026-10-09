@@ -81,7 +81,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for PingExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify host compatibility (always passes for ping)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -127,7 +126,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for PingApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify host compatibility (always passes for ping)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }

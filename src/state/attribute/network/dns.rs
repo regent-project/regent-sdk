@@ -298,7 +298,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
         _privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(properties) = host_properties {
             self.check_host_compatibility(properties)?;
         }
@@ -370,7 +369,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
             .filter(|line| !line.is_empty())
             .collect();
 
-        // If no response, the name didn't resolve to anything
         if responses.is_empty() {
             return Ok(AttributeComplianceAssessment::NonCompliantFatal(
                 "Name doesn't resolve".to_string(),

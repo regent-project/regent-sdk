@@ -935,13 +935,11 @@ impl Timeout for IptablesExpectedState {
 
 impl Check for IptablesExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        // Extract the rule which is present in both Present and Absent variants
         let rule = match self {
             IptablesExpectedState::Present { rule, .. }
             | IptablesExpectedState::Absent { rule, .. } => rule,
         };
 
-        // Check that custom chain names are not empty
         match rule {
             IptablesRule::Raw {
                 chain: RawChain::Custom(c),
@@ -972,10 +970,6 @@ impl Check for IptablesExpectedState {
             _ => {}
         }
 
-        // In the new structure, the target is always present in IptablesRule
-        // so we don't need to check for at least one actionable
-
-        // For Present variant, check that if action is Insert, it has a position
         if let IptablesExpectedState::Present { action, .. } = self {
             if let IptablesInsertionAction::Insert { position: _ } = action {
                 // Position is required in the Insert variant, so it's always valid
@@ -1057,12 +1051,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
-        // Extract ip_version, action, and rule from the IptablesExpectedState
         let (ip_version, expected_state, action, rule) = match self {
             IptablesExpectedState::Present {
                 ip_version,
@@ -1085,10 +1077,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesExpectedState {
 
         let mut remediations: Vec<Remediation> = Vec::new();
 
-        // Build the rule arguments from the MatchCriteria and IptablesTarget
         let rule_args = build_rule_args_from_new_structures(rule);
 
-        // Check if the rule exists
         let check_rule_cmd = build_cmd(
             &binary,
             &table_arg,
@@ -1103,7 +1093,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesExpectedState {
         match expected_state {
             RuleExpectedState::Present => {
                 if check_result.return_code != 0 {
-                    // Rule doesn't exist, need to add it
                     let insertion_action = action.unwrap_or(IptablesInsertionAction::Append);
                     match insertion_action {
                         IptablesInsertionAction::Append => {
@@ -1134,7 +1123,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesExpectedState {
             }
             RuleExpectedState::Absent => {
                 if check_result.return_code == 0 {
-                    // Rule exists but should be absent, need to delete it
                     remediations.push(Remediation::Iptables(IptablesApiCall::from(
                         IptablesModuleInternalApiCall::DeleteRule {
                             binary: binary.to_string(),
@@ -1332,7 +1320,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for IptablesApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Linux)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -1392,7 +1379,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for IptablesApiCall {
             .unwrap();
 
         if result.return_code == 0 {
-            // Post-operation verification: verify the rule is in the correct position
             let verification_result =
                 verify_rule_position(host_handler, &self.api_call, &self.privilege).await;
 
@@ -1426,7 +1412,6 @@ async fn verify_rule_position<Handler: HostHandler>(
             chain,
             rule_args,
         } => {
-            // For append, verify the rule exists and is at the end
             let check_cmd = build_cmd(binary, table_arg, &format!("-C {} {}", chain, rule_args));
             let check_result = host_handler
                 .run_command(&check_cmd, privilege)
@@ -1441,7 +1426,6 @@ async fn verify_rule_position<Handler: HostHandler>(
             rule_num,
             rule_args,
         } => {
-            // For insert, verify the rule exists and is at the expected position
             let check_cmd = build_cmd(binary, table_arg, &format!("-C {} {}", chain, rule_args));
             let check_result = host_handler
                 .run_command(&check_cmd, privilege)
@@ -1452,9 +1436,7 @@ async fn verify_rule_position<Handler: HostHandler>(
                 return false; // Rule doesn't exist
             }
 
-            // If a specific position was requested, verify it
             if let Some(expected_position) = rule_num {
-                // List all rules in the chain and check position
                 let list_cmd = build_cmd(
                     binary,
                     table_arg,
@@ -1466,10 +1448,8 @@ async fn verify_rule_position<Handler: HostHandler>(
                     .unwrap();
 
                 if list_result.return_code == 0 {
-                    // Parse the output to find the rule position
                     for line in list_result.stdout.lines() {
                         if line.contains(rule_args.as_str()) {
-                            // Extract the line number
                             let parts: Vec<&str> = line.split_whitespace().collect();
                             if parts.len() >= 1 {
                                 if let Ok(actual_position) = parts[0].parse::<u32>() {
@@ -1483,25 +1463,15 @@ async fn verify_rule_position<Handler: HostHandler>(
                 }
                 false
             } else {
-                // No specific position requested, just verify rule exists
                 true
             }
         }
         IptablesModuleInternalApiCall::DeleteRule { .. } => {
-            // For delete, the rule should no longer exist
             // This is handled by the command return code, so we just return true
             true
         }
-        IptablesModuleInternalApiCall::CreateChain { .. } => {
-            // For chain creation, we can verify the chain exists
-            // This is handled by the command return code, so we just return true
-            true
-        }
-        IptablesModuleInternalApiCall::FlushAndDeleteChain { .. } => {
-            // For chain deletion, we can verify the chain no longer exists
-            // This is handled by the command return code, so we just return true
-            true
-        }
+        IptablesModuleInternalApiCall::CreateChain { .. } => true,
+        IptablesModuleInternalApiCall::FlushAndDeleteChain { .. } => true,
         IptablesModuleInternalApiCall::SetPolicy { .. } => {
             // For policy changes, verification would require listing and parsing the chain
             // This is complex and the command return code is usually sufficient
@@ -1584,7 +1554,6 @@ fn owner_match_to_str(owner: &OwnerMatch) -> String {
 fn build_rule_args_from_new_structures(rule: &IptablesRule) -> String {
     let mut parts: Vec<String> = Vec::new();
 
-    // Extract criteria and target from the rule
     let (criteria, target) = match rule {
         IptablesRule::Raw {
             criteria, target, ..

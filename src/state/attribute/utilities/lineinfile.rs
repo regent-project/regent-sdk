@@ -56,11 +56,9 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::expected_state::Parameter;
 use serde::{Deserialize, Serialize};
 
-/// Desired state of a line in a file
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum LineExpectedState {
-    /// Line should exist in the file
     #[serde(rename_all = "PascalCase")]
     Present {
         #[serde(default = "default_line_position")]
@@ -70,11 +68,10 @@ pub enum LineExpectedState {
         /// Create the file if it does not exist (default: false).
         create: Option<bool>,
     },
-    /// Line should not exist in the file
     #[serde(rename_all = "PascalCase")]
     Absent {
         /// Line must be absent but file must be exists anyway. If set to false, no error will be triggered when trying to remove a line from a non-existing file.
-        #[serde(default)] // -> false
+        #[serde(default)]
         file_must_exist_anyway: bool,
     },
 }
@@ -124,7 +121,6 @@ fn default_line_position() -> LinePosition {
     LinePosition::InsertAfter("EOF".to_string())
 }
 
-/// Configuration for managing a line in a file
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
@@ -140,10 +136,6 @@ impl LineInFileExpectedState {
     // --- Absent State ---
 
     /// Creates a block for a line that should **not** exist in the file.
-    /// - `file_path`: Path to the file.
-    /// - `line`: The line (or pattern) to ensure is absent.
-    /// - `file_must_exist_anyway`: If `true`, the file must exist (but the line must not).
-    ///   If `false`, the file may not exist (and the line is trivially absent).
     pub fn absent(
         file_path: &str,
         line: Line,
@@ -161,9 +153,6 @@ impl LineInFileExpectedState {
     // --- Present State ---
 
     /// Creates a block for a line that should exist at the **top of the file**.
-    /// - `file_path`: Path to the file.
-    /// - `line`: The line to insert (or ensure exists).
-    /// - `create`: If `true`, the file will be created if it doesn’t exist.
     pub fn present_at_top(
         file_path: &str,
         line: Line,
@@ -181,9 +170,6 @@ impl LineInFileExpectedState {
     }
 
     /// Creates a block for a line that should exist at the **bottom of the file**.
-    /// - `file_path`: Path to the file.
-    /// - `line`: The line to insert (or ensure exists).
-    /// - `create`: If `true`, the file will be created if it doesn’t exist.
     pub fn present_at_bottom(
         file_path: &str,
         line: Line,
@@ -201,11 +187,6 @@ impl LineInFileExpectedState {
     }
 
     /// Creates a block for a line that should exist **after a specific pattern**.
-    /// - `file_path`: Path to the file.
-    /// - `line`: The line to insert (or ensure exists).
-    /// - `insert_after`: The pattern to match (e.g., a regex or literal string).
-    /// - `firstmatch`: If `true`, use the first match of `insert_after`. If `false`, use the last match.
-    /// - `create`: If `true`, the file will be created if it doesn’t exist.
     pub fn present_after(
         file_path: &str,
         line: Line,
@@ -225,11 +206,6 @@ impl LineInFileExpectedState {
     }
 
     /// Creates a block for a line that should exist **before a specific pattern**.
-    /// - `file_path`: Path to the file.
-    /// - `line`: The line to insert (or ensure exists).
-    /// - `insert_before`: The pattern to match (e.g., a regex or literal string).
-    /// - `firstmatch`: If `true`, use the first match of `insert_before`. If `false`, use the last match.
-    /// - `create`: If `true`, the file will be created if it doesn’t exist.
     pub fn present_before(
         file_path: &str,
         line: Line,
@@ -249,9 +225,6 @@ impl LineInFileExpectedState {
     }
 
     /// Creates a block for a line that should exist **somewhere in the file** (no position constraint).
-    /// - `file_path`: Path to the file.
-    /// - `line`: The line to ensure exists.
-    /// - `create`: If `true`, the file will be created if it doesn’t exist.
     pub fn present_anywhere(
         file_path: &str,
         line: Line,
@@ -260,7 +233,7 @@ impl LineInFileExpectedState {
         LineInFileExpectedState {
             file_path: file_path.to_string(),
             state: LineExpectedState::Present {
-                position: LinePosition::InsertAfter("EOF".to_string()), // Default to EOF
+                position: LinePosition::InsertAfter("EOF".to_string()),
                 firstmatch: None,
                 create,
             },
@@ -327,7 +300,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState
         privilege: &Privilege,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early checks (unchanged)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -388,34 +360,31 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState
                         )
                         .await
                     }
-                    (false, true) => {
-                        // File does not exist and must be created
-                        match &self.line {
-                            Line::Raw(parameter_line) => {
-                                let line_content = parameter_line
-                                    .clone()
-                                    .inner_raw(optional_secret_provider)
-                                    .await?;
-                                Ok(AttributeComplianceAssessment::NonCompliant(
-                                    RemediationsList::from(vec![Remediation::LineInFile(
-                                        LineInFileApiCall {
-                                            file_path: self.file_path.clone(),
-                                            line: self.line.clone(), // Preserve `Line`
-                                            api_call: LineInFileModuleInternalApiCall::CreateFile {
-                                                line_content: line_content,
-                                            },
-                                            privilege: privilege.clone(),
+                    (false, true) => match &self.line {
+                        Line::Raw(parameter_line) => {
+                            let line_content = parameter_line
+                                .clone()
+                                .inner_raw(optional_secret_provider)
+                                .await?;
+                            Ok(AttributeComplianceAssessment::NonCompliant(
+                                RemediationsList::from(vec![Remediation::LineInFile(
+                                    LineInFileApiCall {
+                                        file_path: self.file_path.clone(),
+                                        line: self.line.clone(),
+                                        api_call: LineInFileModuleInternalApiCall::CreateFile {
+                                            line_content: line_content,
                                         },
-                                    )])
-                                    .unwrap(),
-                                ))
-                            }
-                            _ => Err(RegentError::FailedDryRunEvaluation(format!(
-                                "{}: file not found and cannot be created automatically. Only Line::Raw is supported for automatic file creation",
-                                self.file_path
-                            ))),
+                                        privilege: privilege.clone(),
+                                    },
+                                )])
+                                .unwrap(),
+                            ))
                         }
-                    }
+                        _ => Err(RegentError::FailedDryRunEvaluation(format!(
+                            "{}: file not found and cannot be created automatically. Only Line::Raw is supported for automatic file creation",
+                            self.file_path
+                        ))),
+                    },
                     (false, false) => Err(RegentError::FailedDryRunEvaluation(format!(
                         "{}: file not found (set Create: true to create it)",
                         self.file_path
@@ -430,7 +399,7 @@ async fn assess_absence<Handler: HostHandler>(
     block: &LineInFileExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
-    line: &Line, // Now uses `Line` directly
+    line: &Line,
     optional_secret_provider: &Option<SecretProvidersPool>,
 ) -> Result<AttributeComplianceAssessment, RegentError> {
     match line {
@@ -446,7 +415,7 @@ async fn assess_absence<Handler: HostHandler>(
             Ok(AttributeComplianceAssessment::NonCompliant(
                 RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
                     file_path: block.file_path.clone(),
-                    line: line.clone(), // Preserve `Line`
+                    line: line.clone(),
                     api_call: LineInFileModuleInternalApiCall::DeleteLines {
                         line_numbers: matches,
                     },
@@ -463,7 +432,7 @@ async fn assess_absence<Handler: HostHandler>(
             Ok(AttributeComplianceAssessment::NonCompliant(
                 RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
                     file_path: block.file_path.clone(),
-                    line: line.clone(), // Preserve `Line`
+                    line: line.clone(),
                     api_call: LineInFileModuleInternalApiCall::DeleteByRegexp {
                         regexp: regexp.clone(),
                     },
@@ -483,7 +452,7 @@ async fn assess_absence<Handler: HostHandler>(
             Ok(AttributeComplianceAssessment::NonCompliant(
                 RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
                     file_path: block.file_path.clone(),
-                    line: line.clone(), // Preserve `Line`
+                    line: line.clone(),
                     api_call: LineInFileModuleInternalApiCall::DeleteByRegexp {
                         regexp: regexp.clone(),
                     },
@@ -500,7 +469,7 @@ async fn assess_absence<Handler: HostHandler>(
             Ok(AttributeComplianceAssessment::NonCompliant(
                 RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
                     file_path: block.file_path.clone(),
-                    line: line.clone(), // Preserve `Line`
+                    line: line.clone(),
                     api_call: LineInFileModuleInternalApiCall::DeleteLines {
                         line_numbers: matches,
                     },
@@ -516,7 +485,7 @@ async fn assess_presence<Handler: HostHandler>(
     block: &LineInFileExpectedState,
     host_handler: &mut Handler,
     privilege: &Privilege,
-    line: &Line, // Now uses `Line` directly
+    line: &Line,
     firstmatch: bool,
     optional_secret_provider: &Option<SecretProvidersPool>,
 ) -> Result<AttributeComplianceAssessment, RegentError> {
@@ -530,14 +499,12 @@ async fn assess_presence<Handler: HostHandler>(
             if !matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
-            // Fall through to insert
         }
         Line::Regexp(regexp) => {
             let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
             if !matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
-            // Fall through to insert
         }
         Line::RegexpWithBackrefs {
             regexp,
@@ -553,7 +520,7 @@ async fn assess_presence<Handler: HostHandler>(
                 return Ok(AttributeComplianceAssessment::NonCompliant(
                     RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
                         file_path: block.file_path.clone(),
-                        line: line.clone(), // Preserve `Line`
+                        line: line.clone(),
                         api_call: LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
                             line_content: content_to_insert.clone(),
                             line_number: target,
@@ -564,14 +531,12 @@ async fn assess_presence<Handler: HostHandler>(
                     .unwrap(),
                 ));
             }
-            // Fall through to insert
         }
         Line::SearchString(search_string) => {
             let matches = grep_exact_line(host_handler, search_string, &block.file_path).await;
             if !matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
-            // Fall through to insert
         }
     }
 
@@ -646,7 +611,7 @@ async fn assess_presence<Handler: HostHandler>(
     Ok(AttributeComplianceAssessment::NonCompliant(
         RemediationsList::from(vec![Remediation::LineInFile(LineInFileApiCall {
             file_path: block.file_path.clone(),
-            line: line.clone(), // Preserve `Line`
+            line: line.clone(),
             api_call: insert_call,
             privilege: privilege.clone(),
         })])
@@ -872,7 +837,7 @@ impl std::fmt::Display for LineInFileModuleInternalApiCall {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LineInFileApiCall {
     pub file_path: String,
-    pub line: Line, // Preserve `Line` (which may contain `Parameter<String>`)
+    pub line: Line,
     pub api_call: LineInFileModuleInternalApiCall,
     pub privilege: Privilege,
 }
@@ -910,7 +875,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
         host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify host compatibility (always passes for lineinfile)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }

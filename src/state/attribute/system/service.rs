@@ -83,39 +83,17 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Desired run-state of the service
-///
-/// - `Started`  / `Stopped`  — idempotent: only act if the service is not already in the target state.
-///
-/// # Serialization
-///
-/// This enum is serialized/deserialized in PascalCase:
-/// - `Started` → `"Started"`
-/// - `Stopped` → `"Stopped"`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ServiceExpectedStatus {
-    /// Service should be running
     Started,
-    /// Service should be stopped
     Stopped,
 }
 
-/// Desired action to run on the service
-///
-/// - `Restarted`/ `Reloaded` — unconditional: always emit the corresponding systemctl command.
-///
-/// # Serialization
-///
-/// This enum is serialized/deserialized in PascalCase:
-/// - `Restarted` → `"Restarted"`
-/// - `Reloaded` → `"Reloaded"`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum ServiceAction {
-    /// Service should be restarted (unconditional action)
     Restarted,
-    /// Service should be reloaded (unconditional action)
     Reloaded,
 }
 
@@ -230,11 +208,6 @@ impl ServiceExpectedState {
 
 impl Check for ServiceExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        // if self.state.is_none() && self.enabled.is_none() {
-        //     return Err(RegentError::IncoherentExpectedState(
-        //         "At least one of State or Enabled must be set.".to_string(),
-        //     ));
-        // }
         Ok(())
     }
 
@@ -268,7 +241,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -282,11 +254,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                 init_system: InitSystem::Systemd,
             }));
 
-        // Check OS-dependent prerequisites
         match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
-                // Check if sc.exe is available on Windows
                 let command_available = host_handler
                     .is_this_command_available("sc", privilege)
                     .await
@@ -300,7 +270,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                 }
             }
             OsKind::Linux(_) => {
-                // Check if systemctl is available on Linux
                 let command_available = host_handler
                     .is_this_command_available("systemctl", privilege)
                     .await
@@ -315,7 +284,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
             OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {}
         }
 
-        // Match on OS kind to determine service checking behavior
         let mut remediations: Vec<Remediation> = Vec::new();
 
         match &self {
@@ -325,11 +293,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                 enabled,
             } => {
                 // TODO : factorize this
-                // Handle state (started/stopped) with optional enabled
                 match os_kind {
                     #[cfg(feature = "windows")]
                     OsKind::Windows(_) => {
-                        // Handle state if present
                         if let Some(expected_state) = state {
                             match windows_service_is_active(host_handler, &name).await {
                                 Ok(current_service_activity) => {
@@ -341,9 +307,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                         | (
                                             ServiceActivityStatus::Inactive,
                                             ServiceExpectedStatus::Stopped,
-                                        ) => {
-                                            // Service already in expected state, nothing to do
-                                        }
+                                        ) => {}
                                         (
                                             ServiceActivityStatus::Active,
                                             ServiceExpectedStatus::Stopped,
@@ -400,14 +364,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                             }
                         }
 
-                        // Handle enabled
                         match windows_service_is_enabled(host_handler, &name).await {
                             Ok(current_service_enabling) => {
                                 match (current_service_enabling, *enabled) {
                                     (ServiceEnablingStatus::Enabled, true)
-                                    | (ServiceEnablingStatus::Disabled, false) => {
-                                        // Service already in expected state, nothing to do
-                                    }
+                                    | (ServiceEnablingStatus::Disabled, false) => {}
                                     (ServiceEnablingStatus::Enabled, false) => {
                                         remediations.push(Remediation::Service(
                                             ServiceApiCall::from(
@@ -457,7 +418,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                         }
                     }
                     OsKind::Linux(_) => {
-                        // Handle state if present
                         if let Some(expected_state) = state {
                             match service_is_active(host_handler, &name).await {
                                 Ok(current_service_activity) => {
@@ -469,9 +429,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                         | (
                                             ServiceActivityStatus::Inactive,
                                             ServiceExpectedStatus::Stopped,
-                                        ) => {
-                                            // Service already in expected state, nothing to do
-                                        }
+                                        ) => {}
                                         (
                                             ServiceActivityStatus::Active,
                                             ServiceExpectedStatus::Stopped,
@@ -528,14 +486,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                             }
                         }
 
-                        // Handle enabled
                         match service_is_enabled(host_handler, &name).await {
                             Ok(current_service_enabling) => {
                                 match (current_service_enabling, *enabled) {
                                     (ServiceEnablingStatus::Enabled, true)
-                                    | (ServiceEnablingStatus::Disabled, false) => {
-                                        // Service already in expected state, nothing to do
-                                    }
+                                    | (ServiceEnablingStatus::Disabled, false) => {}
                                     (ServiceEnablingStatus::Enabled, false) => {
                                         remediations.push(Remediation::Service(
                                             ServiceApiCall::from(
@@ -592,54 +547,43 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                     }
                 }
             }
-            Self::Action { name, action } => {
-                // Handle unconditional actions (restart/reload)
-                match os_kind {
-                    #[cfg(feature = "windows")]
-                    OsKind::Windows(_) => {
-                        match &action {
-                            ServiceAction::Restarted => {
-                                // Unconditional — always restart.
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Restart(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                            ServiceAction::Reloaded => {
-                                // Unconditional — always reload.
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Reload(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        }
-                    }
-                    OsKind::Linux(_) => {
-                        match &action {
-                            ServiceAction::Restarted => {
-                                // Unconditional — always restart.
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Restart(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                            ServiceAction::Reloaded => {
-                                // Unconditional — always reload.
-                                remediations.push(Remediation::Service(ServiceApiCall::from(
-                                    ServiceModuleInternalApiCall::Reload(name.clone()),
-                                    privilege.clone(),
-                                )));
-                            }
-                        }
-                    }
-                    OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
-                        return Err(RegentError::FailedDryRunEvaluation(format!(
-                            "Service management is not supported on {:?}",
-                            os_kind
+            Self::Action { name, action } => match os_kind {
+                #[cfg(feature = "windows")]
+                OsKind::Windows(_) => match &action {
+                    ServiceAction::Restarted => {
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Restart(name.clone()),
+                            privilege.clone(),
                         )));
                     }
+                    ServiceAction::Reloaded => {
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Reload(name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                },
+                OsKind::Linux(_) => match &action {
+                    ServiceAction::Restarted => {
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Restart(name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                    ServiceAction::Reloaded => {
+                        remediations.push(Remediation::Service(ServiceApiCall::from(
+                            ServiceModuleInternalApiCall::Reload(name.clone()),
+                            privilege.clone(),
+                        )));
+                    }
+                },
+                OsKind::FreeBsd(_) | OsKind::MacOs(_) | OsKind::Unknown => {
+                    return Err(RegentError::FailedDryRunEvaluation(format!(
+                        "Service management is not supported on {:?}",
+                        os_kind
+                    )));
                 }
-            }
+            },
         }
 
         if remediations.is_empty() {
@@ -736,7 +680,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -750,11 +693,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
                 init_system: InitSystem::Systemd,
             }));
 
-        // Match on OS kind to execute the appropriate command
         match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
-                // Build Windows command
                 let cmd = match &self.api_call {
                     ServiceModuleInternalApiCall::Start(s) => format!("net start {}", s),
                     ServiceModuleInternalApiCall::Stop(s) => format!("net stop {}", s),
@@ -775,7 +716,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
                     }
                 };
 
-                // Execute Windows command
                 let result = host_handler.run_windows_command(&cmd).await;
 
                 match result {
@@ -796,7 +736,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
                 }
             }
             OsKind::Linux(_) => {
-                // Build Linux command
                 let cmd = match &self.api_call {
                     ServiceModuleInternalApiCall::Start(s) => format!("systemctl start {}", s),
                     ServiceModuleInternalApiCall::Stop(s) => format!("systemctl stop {}", s),
@@ -806,7 +745,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for ServiceApiCall {
                     ServiceModuleInternalApiCall::Disable(s) => format!("systemctl disable {}", s),
                 };
 
-                // Execute Linux command
                 let result = host_handler.run_command(&cmd, &self.privilege).await;
 
                 match result {

@@ -51,7 +51,6 @@ use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-/// Method for setting the hostname
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum HostnameMethod {
@@ -64,12 +63,10 @@ pub enum HostnameMethod {
     Windows,
 }
 
-/// Configuration for managing the system hostname
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct HostnameExpectedState {
-    /// The desired hostname
     name: String,
     /// Method to use for setting the hostname (defaults to auto-detection)
     method: Option<HostnameMethod>,
@@ -127,7 +124,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -148,7 +144,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameExpectedState {
                 init_system: InitSystem::Systemd,
             }));
 
-        // Get current hostname based on OS
         let current_hostname = match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => match host_handler.run_windows_command("hostname").await {
@@ -199,7 +194,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for HostnameExpectedState {
             return Ok(AttributeComplianceAssessment::Compliant);
         }
 
-        // Determine method based on OS and user preference
         let method = match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
@@ -304,7 +298,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -318,16 +311,13 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
                 init_system: InitSystem::Systemd,
             }));
 
-        // Match on OS kind to execute the appropriate hostname command
         match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
-                // Extract hostname and method from the API call
                 let (name, method) = match &self.api_call {
                     HostnameModuleInternalApiCall::SetHostname { name, method } => (name, method),
                 };
 
-                // Build Windows hostname command
                 let cmd = match method {
                     HostnameMethod::Windows => format!("hostname {}", name),
                     // For Windows, we'll use the Windows method even if user specified systemd/generic
@@ -336,7 +326,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
                     }
                 };
 
-                // Execute Windows command
                 let cmd_result = host_handler.run_windows_command(&cmd).await;
 
                 match cmd_result {
@@ -357,7 +346,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for HostnameApiCall {
                 }
             }
             OsKind::Linux(_) | OsKind::MacOs(_) | OsKind::FreeBsd(_) => {
-                // Extract hostname and method from the API call
                 let (name, method) = match &self.api_call {
                     HostnameModuleInternalApiCall::SetHostname { name, method } => (name, method),
                 };

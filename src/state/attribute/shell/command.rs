@@ -104,7 +104,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify host compatibility (always passes for commands)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -176,7 +175,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
         host_properties: &Option<HostProperties>,
         optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify host compatibility (always passes for commands)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -190,7 +188,6 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
                 init_system: InitSystem::Systemd,
             }));
 
-        // Get the raw command string
         let cmd_string = self
             .cmd
             .clone()
@@ -198,11 +195,9 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for CommandApiCall {
             .await
             .unwrap();
 
-        // Match on OS kind to use the appropriate command execution method
         match os_kind {
             #[cfg(feature = "windows")]
             OsKind::Windows(_) => {
-                // Execute command on Windows using run_windows_command
                 let cmd_result = host_handler.run_windows_command(&cmd_string).await;
 
                 match cmd_result {
