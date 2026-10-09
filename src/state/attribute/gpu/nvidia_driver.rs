@@ -1,0 +1,2191 @@
+//! NVIDIA driver attribute
+//!
+//! This module provides the `NvidiaDriverExpectedState` type for installing the NVIDIA GPU
+//! driver (and optionally the CUDA toolkit) from NVIDIA's CUDA network repository,
+//! `https://developer.download.nvidia.com/compute/cuda/repos/<distro>/<arch>/`, as described in
+//! the [NVIDIA Driver Installation Guide](https://docs.nvidia.com/datacenter/tesla/driver-installation-guide/).
+//!
+//! **Compatible OS:** Linux, on the distributions served by the CUDA network repository:
+//! Ubuntu 22.04/24.04/26.04, Debian 12/13, RHEL/Rocky/AlmaLinux/Oracle Linux/CentOS Stream
+//! 8/9/10, Fedora 42/43/44, Amazon Linux 2023, SLES 15/16 and openSUSE Leap 15, on `x86_64` or
+//! `aarch64` servers (`sbsa` repositories; Jetson boards use JetPack instead). The distribution
+//! and architecture are detected at assessment time (`/etc/os-release`, `uname -m`): an
+//! unsupported host is reported as a fatal non-compliance.
+//!
+//! **Privilege:** installing packages needs root, use `!WithSudo`.
+//!
+//! # Invalid states are unrepresentable
+//!
+//! - The driver configuration only exists in the `Present` state: an `Absent` driver has nothing
+//!   to configure.
+//! - The kernel module flavor carries the driver branch. The open kernel modules (default, the
+//!   only flavor supporting Blackwell GPUs, recommended from Turing on) accept `Latest` or a
+//!   branch number. The proprietary modules (needed by Maxwell, Pascal and Volta GPUs) were
+//!   removed from the packages after branch 610, so they require an explicit branch between 570
+//!   and 610: `!Proprietary Latest` or `!Proprietary 615` can't be built.
+//! - Branches before 570 don't follow the current packaging conventions and are rejected.
+//! - The CUDA toolkit version is a `<major>.<minor>` version (`cuda-toolkit-<major>-<minor>`).
+//!
+//! # How compliance is assessed
+//!
+//! 1. The CUDA network repository of the host must be configured (cuda-keyring package for apt,
+//!    `cuda-<distro>.repo` for dnf and zypper). It is never removed by this attribute.
+//! 2. The driver branch is selected the way NVIDIA documents it for the distribution:
+//!    `nvidia-driver-pinning-<branch>` package (Ubuntu, Debian), `nvidia-driver` DNF module
+//!    stream (`open-dkms`, `<branch>-open`, `<branch>-dkms`; RHEL 8/9, Amazon Linux 2023),
+//!    `dnf versionlock` on `*nvidia*<branch>*` (RHEL 10, Fedora) or a `*nvidia* >= <branch + 1>`
+//!    zypper lock (SUSE). `Latest` removes these pins and locks.
+//! 3. The driver meta package must be installed: `nvidia-open` (open kernel modules) or
+//!    `cuda-drivers` (proprietary kernel modules), together with the kernel headers DKMS needs
+//!    to build the modules. Its version must belong to the expected branch: if it doesn't, the
+//!    driver is removed then installed again. `Latest` installs the newest driver once and
+//!    doesn't upgrade it afterwards (upgrades are left to the system updates).
+//! 4. The kernel module must be loaded with the expected flavor (`/proc/driver/nvidia/version`
+//!    tells `Open Kernel Module` apart) and `nvidia-smi` must work (no
+//!    `Driver/library version mismatch`). If not, a remediation tries to (re)load the module
+//!    with `modprobe` and **fails with an explicit "reboot required" message** when it can't:
+//!    the host is never rebooted automatically. A reboot is typically needed after a first
+//!    installation when `nouveau` is loaded, or after an upgrade while the GPU is in use.
+//! 5. `CudaToolkit`, if set, requires the `cuda-toolkit-<major>-<minor>` package (not needed to
+//!    run CUDA containers, which ship their own CUDA runtime).
+//! 6. `PersistenceMode`, if set, requires the `nvidia-persistenced` service to be enabled and
+//!    running (`true`) or disabled and stopped (`false`). It keeps the GPUs initialized, which
+//!    avoids a delay at each start of a GPU application.
+//!
+//! `Absent` removes the driver packages (as listed in the "Removing the Driver" section of the
+//! guide), but keeps the repository, the branch pins and the NVIDIA Container Toolkit. A reboot
+//! is needed to unload a module still in memory.
+//!
+//! Installing the driver builds the kernel modules with DKMS, which can take a while: the
+//! default timeout is 30 minutes.
+//!
+//! **Prerequisites** (not managed by this attribute, see the guide's "Pre-installation Actions"):
+//! the `contrib` component on Debian, EPEL and CodeReady Builder / CRB on RHEL-compatible
+//! distributions (for DKMS), the PackageHub module on SLES.
+//!
+//! **Secure Boot:** with Secure Boot enabled, the modules built by DKMS must be signed with a key
+//! enrolled in the MOK database (`mokutil --import`, then a confirmation on the console at the
+//! next boot), otherwise loading them fails with "Key was rejected by service". When the module
+//! can't be loaded, the remediation reports the Secure Boot state given by `mokutil --sb-state`.
+//!
+//! # Examples
+//!
+//! ## Rust API
+//!
+//! ```no_run
+//! use regent_sdk::state::attribute::gpu::nvidia_driver::{
+//!     DriverBranch, KernelModules, NvidiaDriverConfig, NvidiaDriverExpectedState,
+//! };
+//! use regent_sdk::{Attribute, ExpectedState, Privilege, RegentError};
+//!
+//! fn gpu_node() -> Result<ExpectedState, RegentError> {
+//!     let config = NvidiaDriverConfig::new()
+//!         .with_kernel_modules(KernelModules::Open(DriverBranch::Branch("580".parse()?)))
+//!         .with_cuda_toolkit("12.8".parse()?)
+//!         .with_persistence_mode(true);
+//!
+//!     Ok(ExpectedState::new()
+//!         .with_attribute(Attribute::nvidia_driver(
+//!             NvidiaDriverExpectedState::present(config),
+//!             Privilege::WithSudo,
+//!             None,
+//!         ))
+//!         .build())
+//! }
+//! ```
+//!
+//! ## YAML API
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: NVIDIA driver must be installed
+//!     Privilege: !WithSudo
+//!     Detail: !NvidiaDriver
+//!       State: !Present
+//!         KernelModules: !Open 580   # !Open Latest (default) | !Open <branch> | !Proprietary <branch 570-610>
+//!         CudaToolkit: "12.8"        # optional, cuda-toolkit-12-8
+//!         PersistenceMode: true      # optional, nvidia-persistenced service
+//! ```
+//!
+//! With the defaults (newest driver, open kernel modules):
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: NVIDIA driver must be installed
+//!     Privilege: !WithSudo
+//!     Detail: !NvidiaDriver
+//!       State: !Present {}
+//! ```
+//!
+//! To remove the driver:
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: NVIDIA driver must be removed
+//!     Privilege: !WithSudo
+//!     Detail: !NvidiaDriver
+//!       State: Absent
+//! ```
+
+use crate::error::RegentError;
+use crate::hosts::handlers::shell_quote;
+use crate::hosts::managed_host::InternalApiCallOutcome;
+use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
+use crate::hosts::properties::HostProperties;
+use crate::secrets::SecretProvidersPool;
+use crate::state::Check;
+use crate::state::attribute::HostHandler;
+use crate::state::attribute::Privilege;
+use crate::state::attribute::Remediation;
+use crate::state::attribute::RemediationsList;
+use crate::state::attribute::container::container_spec::quoted_command;
+use crate::state::compliance::AttributeComplianceAssessment;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::fmt;
+use std::str::FromStr;
+use std::time::Duration;
+
+use super::platform::{
+    CudaRepository, DriverDistro, KernelModuleFlavor, LoadedDriver, PackageFamily,
+    check_linux_host, cuda_repository, installed_packages, is_container_toolkit_package,
+    is_repository_configured, loaded_driver, query, query_output, run_step, run_steps, sh_script,
+    unit_state, upstream_version,
+};
+
+const ATTRIBUTE: &str = "NvidiaDriver";
+
+/// First branch following the current packaging conventions (pinning packages, module streams)
+const FIRST_SUPPORTED_BRANCH: u32 = 570;
+
+/// Last branch shipping the proprietary kernel modules
+const LAST_PROPRIETARY_BRANCH: u32 = 610;
+
+/// Service keeping the GPUs initialized
+const PERSISTENCE_DAEMON: &str = "nvidia-persistenced";
+
+/// Expected state of the NVIDIA driver
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
+pub struct NvidiaDriverExpectedState {
+    /// Desired state, with the driver configuration when it must be installed
+    state: NvidiaDriverState,
+}
+
+/// Desired state of the driver
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum NvidiaDriverState {
+    /// Driver installed and loaded with this configuration
+    Present(Box<NvidiaDriverConfig>),
+    /// Driver packages removed
+    Absent,
+}
+
+impl NvidiaDriverExpectedState {
+    /// Driver must be installed and loaded with this configuration
+    pub fn present(config: NvidiaDriverConfig) -> Self {
+        Self {
+            state: NvidiaDriverState::Present(Box::new(config)),
+        }
+    }
+
+    /// Driver packages must be removed
+    pub fn absent() -> Self {
+        Self {
+            state: NvidiaDriverState::Absent,
+        }
+    }
+}
+
+/// Configuration of an installed driver
+///
+/// Optional fields left out are not managed.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
+pub struct NvidiaDriverConfig {
+    /// Kernel module flavor and driver branch (open modules, latest branch by default)
+    #[serde(default)]
+    kernel_modules: KernelModules,
+    /// CUDA toolkit to install (`cuda-toolkit-<major>-<minor>`)
+    cuda_toolkit: Option<CudaVersion>,
+    /// `nvidia-persistenced` service enabled and running (`true`) or disabled and stopped (`false`)
+    persistence_mode: Option<bool>,
+}
+
+impl NvidiaDriverConfig {
+    /// Open kernel modules, latest branch
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_kernel_modules(mut self, kernel_modules: KernelModules) -> Self {
+        self.kernel_modules = kernel_modules;
+        self
+    }
+
+    pub fn with_cuda_toolkit(mut self, cuda_toolkit: CudaVersion) -> Self {
+        self.cuda_toolkit = Some(cuda_toolkit);
+        self
+    }
+
+    pub fn with_persistence_mode(mut self, persistence_mode: bool) -> Self {
+        self.persistence_mode = Some(persistence_mode);
+        self
+    }
+}
+
+/// Kernel module flavor, carrying the driver branch
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum KernelModules {
+    /// Open GPU kernel modules (`nvidia-open`): required on Blackwell, recommended from Turing on
+    Open(DriverBranch),
+    /// Proprietary kernel modules (`cuda-drivers`): needed by Maxwell, Pascal and Volta GPUs,
+    /// only available up to branch 610
+    Proprietary(ProprietaryBranch),
+}
+
+impl Default for KernelModules {
+    fn default() -> Self {
+        KernelModules::Open(DriverBranch::Latest)
+    }
+}
+
+impl KernelModules {
+    pub fn flavor(&self) -> KernelModuleFlavor {
+        match self {
+            KernelModules::Open(_) => KernelModuleFlavor::Open,
+            KernelModules::Proprietary(_) => KernelModuleFlavor::Proprietary,
+        }
+    }
+
+    /// Pinned branch, `None` for the latest one
+    pub fn branch(&self) -> Option<u32> {
+        match self {
+            KernelModules::Open(DriverBranch::Latest) => None,
+            KernelModules::Open(DriverBranch::Branch(branch)) => Some(branch.number()),
+            KernelModules::Proprietary(branch) => Some(branch.number()),
+        }
+    }
+
+    /// Meta package installing the whole driver
+    pub fn package(&self) -> &'static str {
+        match self {
+            KernelModules::Open(_) => OPEN_PACKAGE,
+            KernelModules::Proprietary(_) => PROPRIETARY_PACKAGE,
+        }
+    }
+
+    /// How the branch is selected on a distribution
+    fn branch_selection(&self, distro: DriverDistro) -> BranchSelection {
+        let branch = self.branch();
+        match distro {
+            DriverDistro::Ubuntu | DriverDistro::Debian => BranchSelection::AptPinning(branch),
+            DriverDistro::RhelModular | DriverDistro::AmazonLinux => {
+                BranchSelection::ModuleStream(match (self.flavor(), branch) {
+                    (KernelModuleFlavor::Open, None) => "open-dkms".to_string(),
+                    (KernelModuleFlavor::Open, Some(branch)) => format!("{}-open", branch),
+                    (KernelModuleFlavor::Proprietary, None) => "latest-dkms".to_string(),
+                    (KernelModuleFlavor::Proprietary, Some(branch)) => format!("{}-dkms", branch),
+                })
+            }
+            DriverDistro::Rhel10 | DriverDistro::Fedora => BranchSelection::VersionLock(branch),
+            DriverDistro::Suse => BranchSelection::ZypperLock(branch),
+        }
+    }
+}
+
+/// Driver branch of the open kernel modules: `Latest` or a branch number (e.g. `580`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "RawBranch", into = "RawBranch")]
+pub enum DriverBranch {
+    /// Newest driver available when installing
+    Latest,
+    /// Driver branch, pinned
+    Branch(BranchNumber),
+}
+
+/// Branch as written in YAML or JSON: a number, `Latest`, or a number as a string
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+enum RawBranch {
+    Number(u32),
+    Text(String),
+}
+
+impl TryFrom<RawBranch> for DriverBranch {
+    type Error = RegentError;
+
+    fn try_from(raw: RawBranch) -> Result<Self, Self::Error> {
+        match raw {
+            RawBranch::Number(number) => Ok(DriverBranch::Branch(BranchNumber::try_from(number)?)),
+            RawBranch::Text(text) => text.parse(),
+        }
+    }
+}
+
+impl From<DriverBranch> for RawBranch {
+    fn from(branch: DriverBranch) -> RawBranch {
+        match branch {
+            DriverBranch::Latest => RawBranch::Text("Latest".to_string()),
+            DriverBranch::Branch(branch) => RawBranch::Number(branch.number()),
+        }
+    }
+}
+
+impl FromStr for DriverBranch {
+    type Err = RegentError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.eq_ignore_ascii_case("latest") {
+            Ok(DriverBranch::Latest)
+        } else {
+            Ok(DriverBranch::Branch(text.parse()?))
+        }
+    }
+}
+
+impl fmt::Display for DriverBranch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DriverBranch::Latest => write!(f, "Latest"),
+            DriverBranch::Branch(branch) => write!(f, "{}", branch),
+        }
+    }
+}
+
+/// Driver branch number (major version of the driver, e.g. `580`), from 570 on
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(try_from = "u32", into = "u32")]
+pub struct BranchNumber(u32);
+
+impl TryFrom<u32> for BranchNumber {
+    type Error = RegentError;
+
+    fn try_from(number: u32) -> Result<Self, Self::Error> {
+        if (FIRST_SUPPORTED_BRANCH..1000).contains(&number) {
+            Ok(Self(number))
+        } else {
+            Err(invalid_value(
+                "NVIDIA driver branch",
+                &number.to_string(),
+                &format!(
+                    "branches from {} on are supported (older branches use other package names)",
+                    FIRST_SUPPORTED_BRANCH
+                ),
+            ))
+        }
+    }
+}
+
+impl FromStr for BranchNumber {
+    type Err = RegentError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let number = text.trim().parse::<u32>().map_err(|_| {
+            invalid_value(
+                "NVIDIA driver branch",
+                text,
+                "expected Latest or a branch number such as 580",
+            )
+        })?;
+        Self::try_from(number)
+    }
+}
+
+impl From<BranchNumber> for u32 {
+    fn from(branch: BranchNumber) -> u32 {
+        branch.0
+    }
+}
+
+impl fmt::Display for BranchNumber {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl BranchNumber {
+    pub fn number(&self) -> u32 {
+        self.0
+    }
+}
+
+/// Branch of the proprietary kernel modules: from 570 to 610 (the last branch shipping them)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "RawBranch", into = "u32")]
+pub struct ProprietaryBranch(BranchNumber);
+
+impl TryFrom<RawBranch> for ProprietaryBranch {
+    type Error = RegentError;
+
+    fn try_from(raw: RawBranch) -> Result<Self, Self::Error> {
+        match raw {
+            RawBranch::Number(number) => Self::try_from(number),
+            RawBranch::Text(text) => text.parse(),
+        }
+    }
+}
+
+impl TryFrom<u32> for ProprietaryBranch {
+    type Error = RegentError;
+
+    fn try_from(number: u32) -> Result<Self, Self::Error> {
+        let branch = BranchNumber::try_from(number)?;
+        if number <= LAST_PROPRIETARY_BRANCH {
+            Ok(Self(branch))
+        } else {
+            Err(invalid_value(
+                "proprietary kernel modules branch",
+                &number.to_string(),
+                &format!(
+                    "the proprietary kernel modules were removed after branch {}, use the open kernel modules",
+                    LAST_PROPRIETARY_BRANCH
+                ),
+            ))
+        }
+    }
+}
+
+impl FromStr for ProprietaryBranch {
+    type Err = RegentError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        if text.eq_ignore_ascii_case("latest") {
+            return Err(invalid_value(
+                "proprietary kernel modules branch",
+                text,
+                &format!(
+                    "the proprietary kernel modules need a pinned branch (570 to {}): the latest branches only ship the open kernel modules",
+                    LAST_PROPRIETARY_BRANCH
+                ),
+            ));
+        }
+        Self::try_from(BranchNumber::from_str(text)?.number())
+    }
+}
+
+impl From<ProprietaryBranch> for u32 {
+    fn from(branch: ProprietaryBranch) -> u32 {
+        branch.0.number()
+    }
+}
+
+impl fmt::Display for ProprietaryBranch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl ProprietaryBranch {
+    pub fn number(&self) -> u32 {
+        self.0.number()
+    }
+}
+
+/// CUDA toolkit version `<major>.<minor>` (e.g. `12.8`, `13.0`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub struct CudaVersion {
+    major: u16,
+    minor: u16,
+}
+
+impl TryFrom<String> for CudaVersion {
+    type Error = RegentError;
+
+    fn try_from(text: String) -> Result<Self, Self::Error> {
+        let parse = |part: &str| {
+            (!part.is_empty() && part.len() <= 2 && part.chars().all(|c| c.is_ascii_digit()))
+                .then(|| part.parse::<u16>().ok())
+                .flatten()
+        };
+        match text.split_once('.') {
+            Some((major, minor)) => match (parse(major), parse(minor)) {
+                (Some(major), Some(minor)) if major >= 10 => Ok(Self { major, minor }),
+                _ => Err(invalid_cuda_version(&text)),
+            },
+            None => Err(invalid_cuda_version(&text)),
+        }
+    }
+}
+
+fn invalid_cuda_version(text: &str) -> RegentError {
+    invalid_value(
+        "CUDA toolkit version",
+        text,
+        "expected <major>.<minor> such as 12.8 (quote it in YAML: \"12.10\")",
+    )
+}
+
+impl FromStr for CudaVersion {
+    type Err = RegentError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        Self::try_from(text.to_string())
+    }
+}
+
+impl From<CudaVersion> for String {
+    fn from(version: CudaVersion) -> String {
+        version.to_string()
+    }
+}
+
+impl fmt::Display for CudaVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}.{}", self.major, self.minor)
+    }
+}
+
+impl CudaVersion {
+    /// `cuda-toolkit-<major>-<minor>`
+    pub fn package(&self) -> String {
+        format!("cuda-toolkit-{}-{}", self.major, self.minor)
+    }
+}
+
+fn invalid_value(what: &str, value: &str, details: &str) -> RegentError {
+    RegentError::IncoherentExpectedState(format!("Invalid {} {:?}: {}", what, value, details))
+}
+
+/// How a driver branch is selected (`None`: latest branch, no pin or lock)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum BranchSelection {
+    /// `nvidia-driver-pinning-<branch>` package installed (apt)
+    AptPinning(Option<u32>),
+    /// Enabled stream of the `nvidia-driver` DNF module
+    ModuleStream(String),
+    /// `dnf versionlock` on `*nvidia*<branch>*`
+    VersionLock(Option<u32>),
+    /// zypper lock `*nvidia* >= <branch + 1>`
+    ZypperLock(Option<u32>),
+}
+
+impl fmt::Display for BranchSelection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BranchSelection::AptPinning(Some(branch)) => {
+                write!(f, "install nvidia-driver-pinning-{}", branch)
+            }
+            BranchSelection::AptPinning(None) => write!(f, "remove the driver pinning packages"),
+            BranchSelection::ModuleStream(stream) => {
+                write!(f, "enable DNF module stream nvidia-driver:{}", stream)
+            }
+            BranchSelection::VersionLock(Some(branch)) => {
+                write!(
+                    f,
+                    "lock the NVIDIA packages to branch {} (dnf versionlock)",
+                    branch
+                )
+            }
+            BranchSelection::VersionLock(None) => {
+                write!(f, "remove the NVIDIA package version locks")
+            }
+            BranchSelection::ZypperLock(Some(branch)) => {
+                write!(f, "lock the NVIDIA packages to branch {} (zypper)", branch)
+            }
+            BranchSelection::ZypperLock(None) => write!(f, "remove the NVIDIA package locks"),
+        }
+    }
+}
+
+/// Branch selection currently in place, with what must be undone to change it
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum CurrentSelection {
+    /// Installed pinning packages
+    AptPins(Vec<String>),
+    /// Enabled `nvidia-driver` module stream
+    ModuleStream(Option<String>),
+    /// Version locks of NVIDIA packages
+    VersionLocks(Vec<LockedPackage>),
+    /// zypper locks on `*nvidia*`
+    ZypperLocks(Vec<ZypperLock>),
+}
+
+impl CurrentSelection {
+    fn matches(&self, expected: &BranchSelection) -> bool {
+        match (self, expected) {
+            (CurrentSelection::AptPins(pins), BranchSelection::AptPinning(branch)) => {
+                match branch {
+                    None => pins.is_empty(),
+                    Some(branch) => {
+                        !pins.is_empty() && pins.iter().all(|pin| pin_branch(pin) == Some(*branch))
+                    }
+                }
+            }
+            (CurrentSelection::ModuleStream(current), BranchSelection::ModuleStream(stream)) => {
+                current.as_deref() == Some(stream.as_str())
+            }
+            (CurrentSelection::VersionLocks(locks), BranchSelection::VersionLock(branch)) => {
+                match branch {
+                    None => locks.is_empty(),
+                    Some(branch) => {
+                        !locks.is_empty()
+                            && locks
+                                .iter()
+                                .all(|lock| version_branch(&lock.version) == Some(*branch))
+                    }
+                }
+            }
+            (CurrentSelection::ZypperLocks(locks), BranchSelection::ZypperLock(branch)) => {
+                match branch {
+                    None => locks.is_empty(),
+                    Some(branch) => {
+                        locks.len() == 1 && locks[0].version == zypper_lock_condition(*branch)
+                    }
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Pins and locks to remove before applying a new selection
+    fn to_undo(&self) -> Vec<String> {
+        match self {
+            CurrentSelection::AptPins(pins) => pins.clone(),
+            CurrentSelection::ModuleStream(_) => Vec::new(),
+            CurrentSelection::VersionLocks(locks) => {
+                let mut names: Vec<String> = locks.iter().map(|lock| lock.name.clone()).collect();
+                names.dedup();
+                names
+            }
+            CurrentSelection::ZypperLocks(locks) => locks.iter().map(ZypperLock::spec).collect(),
+        }
+    }
+}
+
+/// Branch of a pinning package: `nvidia-driver-pinning-580` or `nvidia-driver-pinning-580.105.08`
+fn pin_branch(package: &str) -> Option<u32> {
+    package
+        .strip_prefix("nvidia-driver-pinning-")
+        .and_then(version_branch)
+}
+
+/// Branch (major version) of a driver version: `3:580.105.08-1.el10` -> 580
+fn version_branch(version: &str) -> Option<u32> {
+    upstream_version(version)
+        .split('.')
+        .next()
+        .and_then(|major| major.parse().ok())
+}
+
+/// Whether an installed package version belongs to a branch
+fn is_in_branch(version: &str, branch: Option<u32>) -> bool {
+    branch.is_none_or(|branch| version_branch(version) == Some(branch))
+}
+
+/// Package locked by `dnf versionlock`
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LockedPackage {
+    name: String,
+    /// `[epoch:]version-release`
+    version: String,
+}
+
+/// Parse `dnf versionlock list`, keeping NVIDIA packages. DNF 4 prints one
+/// `name-[epoch:]version-release.*` entry per line, DNF 5 a `Package name: <name>` line followed
+/// by `evr = <version>` conditions. Exclusions (`!name...`) are ignored.
+fn parse_versionlock_list(output: &str) -> Vec<LockedPackage> {
+    let mut locks = Vec::new();
+    let mut dnf5_name: Option<String> = None;
+    for line in output.lines().map(str::trim) {
+        if let Some(name) = line.strip_prefix("Package name:") {
+            dnf5_name = Some(name.trim().to_string());
+            continue;
+        }
+        if let Some(name) = &dnf5_name
+            && line.starts_with("evr")
+            && let Some((_, version)) = line.split_once('=')
+        {
+            locks.push(LockedPackage {
+                name: name.clone(),
+                version: version.trim().to_string(),
+            });
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') || line.starts_with('!') || line.contains(' ') {
+            continue;
+        }
+        // DNF 4: nvidia-open-3:580.105.08-1.el10.*
+        let entry = line.trim_end_matches(".*");
+        let Some((name_and_epoch, version_release)) = entry.split_once(':') else {
+            continue;
+        };
+        if let Some((name, _epoch)) = name_and_epoch.rsplit_once('-') {
+            locks.push(LockedPackage {
+                name: name.to_string(),
+                version: version_release.to_string(),
+            });
+        }
+    }
+    locks.retain(|lock| lock.name.contains("nvidia"));
+    locks
+}
+
+/// Lock of the `/etc/zypp/locks` file on `*nvidia*`
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ZypperLock {
+    name: String,
+    /// Version condition, whitespace normalized (`>= 581`)
+    version: String,
+}
+
+impl ZypperLock {
+    /// Lock as given to `zypper addlock` / `zypper removelock`
+    fn spec(&self) -> String {
+        if self.version.is_empty() {
+            self.name.clone()
+        } else {
+            format!("{} {}", self.name, self.version)
+        }
+    }
+}
+
+const ZYPPER_LOCK_NAME: &str = "*nvidia*";
+
+/// Version condition excluding the branches after `branch`
+fn zypper_lock_condition(branch: u32) -> String {
+    format!(">= {}", branch + 1)
+}
+
+/// Parse `/etc/zypp/locks` (blocks of `key: value` lines), keeping the `*nvidia*` locks
+fn parse_zypper_locks(content: &str) -> Vec<ZypperLock> {
+    let mut locks = Vec::new();
+    for block in content.split("\n\n") {
+        let mut name = None;
+        let mut version = String::new();
+        for line in block.lines() {
+            if let Some((key, value)) = line.split_once(':') {
+                match key.trim() {
+                    "solvable_name" => name = Some(value.trim().to_string()),
+                    "version" => version = value.split_whitespace().collect::<Vec<_>>().join(" "),
+                    _ => {}
+                }
+            }
+        }
+        if let Some(name) = name
+            && name == ZYPPER_LOCK_NAME
+        {
+            locks.push(ZypperLock { name, version });
+        }
+    }
+    locks
+}
+
+/// Parse `dnf module list --enabled nvidia-driver`: enabled stream, if any
+fn parse_enabled_module_stream(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        let mut tokens = line.split_whitespace();
+        if tokens.next() != Some("nvidia-driver") {
+            return None;
+        }
+        let stream = tokens.next()?;
+        let markers: Vec<&str> = tokens.take_while(|token| token.starts_with('[')).collect();
+        markers
+            .iter()
+            .any(|marker| marker.contains("[e]"))
+            .then(|| stream.to_string())
+    })
+}
+
+/// Commands applying a branch selection, `undo` being what [`CurrentSelection::to_undo`] returned
+fn branch_selection_commands(
+    selection: &BranchSelection,
+    distro: DriverDistro,
+    undo: &[String],
+) -> Vec<String> {
+    let mut commands = Vec::new();
+    match selection {
+        BranchSelection::AptPinning(Some(branch)) => {
+            // Pinning packages conflict with each other: apt replaces the installed one
+            commands.push(
+                PackageFamily::Apt
+                    .install_command(&[format!("nvidia-driver-pinning-{}", branch)], true),
+            );
+        }
+        BranchSelection::AptPinning(None) => {
+            if !undo.is_empty() {
+                commands.push(PackageFamily::Apt.remove_command(undo));
+            }
+        }
+        BranchSelection::ModuleStream(stream) => {
+            commands.push(quoted_command(&[
+                "dnf",
+                "-y",
+                "module",
+                "reset",
+                "nvidia-driver",
+            ]));
+            commands.push(quoted_command(&[
+                "dnf",
+                "-y",
+                "module",
+                "enable",
+                &format!("nvidia-driver:{}", stream),
+            ]));
+        }
+        BranchSelection::VersionLock(branch) => {
+            if distro == DriverDistro::Rhel10 {
+                // DNF 4 needs the versionlock plugin (built into DNF 5)
+                commands.push(quoted_command(&[
+                    "dnf",
+                    "-y",
+                    "install",
+                    "python3-dnf-plugin-versionlock",
+                ]));
+            }
+            if !undo.is_empty() {
+                let mut args = vec!["dnf", "versionlock", "delete"];
+                args.extend(undo.iter().map(String::as_str));
+                commands.push(quoted_command(&args));
+            }
+            if let Some(branch) = branch {
+                commands.push(quoted_command(&[
+                    "dnf",
+                    "versionlock",
+                    "add",
+                    &format!("*nvidia*{}*", branch),
+                ]));
+            }
+        }
+        BranchSelection::ZypperLock(branch) => {
+            for lock in undo {
+                commands.push(quoted_command(&[
+                    "zypper",
+                    "--non-interactive",
+                    "removelock",
+                    lock,
+                ]));
+            }
+            if let Some(branch) = branch {
+                commands.push(quoted_command(&[
+                    "zypper",
+                    "--non-interactive",
+                    "addlock",
+                    &format!("{} {}", ZYPPER_LOCK_NAME, zypper_lock_condition(*branch)),
+                ]));
+            }
+        }
+    }
+    commands
+}
+
+/// Meta package of the driver with the open kernel modules
+const OPEN_PACKAGE: &str = "nvidia-open";
+/// Meta package of the driver with the proprietary kernel modules (up to branch 610, then a
+/// transitional package depending on `nvidia-open`)
+const PROPRIETARY_PACKAGE: &str = "cuda-drivers";
+
+/// Installed driver compared with the expected one
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum InstalledDriver {
+    /// Expected flavor, in the expected branch
+    Expected,
+    /// No driver meta package installed
+    Missing,
+    /// Another flavor or branch is installed, with the reason why it must be replaced
+    Different(String),
+}
+
+/// Compare the installed driver meta packages (name -> version) with the expected driver
+fn installed_driver_status(
+    installed: &BTreeMap<String, String>,
+    modules: &KernelModules,
+) -> InstalledDriver {
+    let branch = modules.branch();
+    let other_flavor = match modules.flavor() {
+        KernelModuleFlavor::Open => installed
+            .get(PROPRIETARY_PACKAGE)
+            .filter(|version| {
+                version_branch(version).is_some_and(|branch| branch <= LAST_PROPRIETARY_BRANCH)
+            })
+            .map(|version| {
+                (
+                    PROPRIETARY_PACKAGE,
+                    version,
+                    KernelModuleFlavor::Proprietary,
+                )
+            }),
+        KernelModuleFlavor::Proprietary => installed
+            .get(OPEN_PACKAGE)
+            .map(|version| (OPEN_PACKAGE, version, KernelModuleFlavor::Open)),
+    };
+    if let Some((package, version, flavor)) = other_flavor {
+        return InstalledDriver::Different(format!(
+            "{} {} ({} kernel modules) is installed, expected the {} kernel modules",
+            package,
+            version,
+            flavor,
+            modules.flavor()
+        ));
+    }
+    match installed.get(modules.package()) {
+        None => InstalledDriver::Missing,
+        Some(version) if is_in_branch(version, branch) => InstalledDriver::Expected,
+        Some(version) => InstalledDriver::Different(format!(
+            "{} {} is installed, expected branch {}",
+            modules.package(),
+            version,
+            branch.unwrap_or_default()
+        )),
+    }
+}
+
+/// Packages of the driver, as listed in the "Removing the Driver" section of the guide
+fn driver_package_patterns(distro: DriverDistro) -> &'static [&'static str] {
+    match distro {
+        DriverDistro::Ubuntu => &[
+            "cuda-compat*",
+            "cuda-drivers*",
+            "libnvidia-cfg1*",
+            "libnvidia-compute*",
+            "libnvidia-decode*",
+            "libnvidia-encode*",
+            "libnvidia-extra*",
+            "libnvidia-fbc1*",
+            "libnvidia-gl*",
+            "libnvidia-gpucomp*",
+            "libnvidia-nscq*",
+            "libnvsdm*",
+            "libxnvctrl*",
+            "nvidia-dkms*",
+            "nvidia-driver*",
+            "nvidia-fabricmanager*",
+            "nvidia-firmware*",
+            "nvidia-headless*",
+            "nvidia-imex*",
+            "nvidia-kernel-common*",
+            "nvidia-kernel-source*",
+            "nvidia-modprobe*",
+            "nvidia-open*",
+            "nvidia-persistenced*",
+            "nvidia-settings*",
+            "nvidia-utils*",
+            "nvidia-compute-utils*",
+            "nvidia-xconfig*",
+            "xserver-xorg-video-nvidia*",
+        ],
+        DriverDistro::Debian => &[
+            "cuda-compat*",
+            "cuda-drivers*",
+            "cuda-mps*",
+            "firmware-nvidia-gsp*",
+            "libcuda1*",
+            "libcudadebugger1*",
+            "libegl-nvidia0*",
+            "libgles-nvidia1*",
+            "libgles-nvidia2*",
+            "libglx-nvidia0*",
+            "libnvcuvid1*",
+            "libnvidia-*",
+            "libnvoptix1*",
+            "libnvsdm*",
+            "libxnvctrl*",
+            "nvidia-alternative*",
+            "nvidia-detect*",
+            "nvidia-driver*",
+            "nvidia-egl-common*",
+            "nvidia-egl-icd*",
+            "nvidia-fabricmanager*",
+            "nvidia-imex*",
+            "nvidia-kernel-*",
+            "nvidia-legacy*",
+            "nvidia-modprobe*",
+            "nvidia-open*",
+            "nvidia-opencl*",
+            "nvidia-persistenced*",
+            "nvidia-powerd*",
+            "nvidia-settings*",
+            "nvidia-smi*",
+            "nvidia-support*",
+            "nvidia-suspend-common*",
+            "nvidia-vdpau-driver*",
+            "nvidia-vulkan*",
+            "nvidia-xconfig*",
+            "xserver-xorg-video-nvidia*",
+        ],
+        DriverDistro::RhelModular
+        | DriverDistro::AmazonLinux
+        | DriverDistro::Rhel10
+        | DriverDistro::Fedora => &[
+            "cuda-drivers*",
+            "kmod-nvidia*",
+            "libnvidia*",
+            "nvidia-driver*",
+            "nvidia-kmod-common",
+            "nvidia-libXNVCtrl*",
+            "nvidia-modprobe",
+            "nvidia-open*",
+            "nvidia-persistenced",
+            "nvidia-settings",
+            "nvidia-xconfig",
+            "xorg-x11-nvidia*",
+        ],
+        DriverDistro::Suse => &["cuda-compat*", "cuda-drivers*", "libnvidia-*", "nvidia-*"],
+    }
+}
+
+/// Installed driver packages to remove: the container toolkit and the branch pins are kept
+fn driver_packages_to_remove<'a>(installed: impl Iterator<Item = &'a String>) -> Vec<String> {
+    installed
+        .filter(|name| {
+            !is_container_toolkit_package(name)
+                && !name.starts_with("nvidia-driver-pinning")
+                && !name.starts_with("cuda-toolkit")
+        })
+        .cloned()
+        .collect()
+}
+
+/// Commands removing the driver packages
+fn remove_driver_commands(distro: DriverDistro, packages: &[String]) -> Vec<String> {
+    let mut commands = vec![distro.package_family().remove_command(packages)];
+    if matches!(
+        distro,
+        DriverDistro::RhelModular | DriverDistro::AmazonLinux
+    ) {
+        commands.push(quoted_command(&[
+            "dnf",
+            "-y",
+            "module",
+            "reset",
+            "nvidia-driver",
+        ]));
+    }
+    commands
+}
+
+/// Outcome of `nvidia-smi --query-gpu=driver_version --format=csv,noheader`
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SmiStatus {
+    /// Driver version reported for each GPU
+    Working(String),
+    /// User space libraries and kernel module versions differ
+    VersionMismatch,
+    /// Any other failure (driver not loaded, no device, nvidia-smi missing)
+    Failing(String),
+}
+
+fn smi_command() -> String {
+    quoted_command(&[
+        "nvidia-smi",
+        "--query-gpu=driver_version",
+        "--format=csv,noheader",
+    ])
+}
+
+fn parse_smi(return_code: i64, output: &str) -> SmiStatus {
+    if output.contains("Driver/library version mismatch") {
+        return SmiStatus::VersionMismatch;
+    }
+    let version = output
+        .lines()
+        .map(str::trim)
+        .find(|line| version_branch(line).is_some() && line.contains('.'));
+    match (return_code, version) {
+        (0, Some(version)) => SmiStatus::Working(version.to_string()),
+        _ => SmiStatus::Failing(output.trim().to_string()),
+    }
+}
+
+/// Why the loaded driver is not the expected one, `None` if it is
+fn runtime_issue(
+    loaded: Option<&LoadedDriver>,
+    smi: &SmiStatus,
+    flavor: KernelModuleFlavor,
+    branch: Option<u32>,
+) -> Option<String> {
+    let Some(loaded) = loaded else {
+        return Some("the NVIDIA kernel module is not loaded".to_string());
+    };
+    if loaded.flavor != flavor {
+        return Some(format!(
+            "the {} kernel module is loaded, expected the {} one",
+            loaded.flavor, flavor
+        ));
+    }
+    if !is_in_branch(&loaded.version, branch) {
+        return Some(format!(
+            "driver {} is loaded, expected branch {}",
+            loaded.version,
+            branch.unwrap_or_default()
+        ));
+    }
+    match smi {
+        SmiStatus::Working(_) => None,
+        SmiStatus::VersionMismatch => Some(format!(
+            "driver {} is loaded but the installed libraries are another version (Driver/library version mismatch)",
+            loaded.version
+        )),
+        SmiStatus::Failing(output) => Some(format!("nvidia-smi fails: {}", output)),
+    }
+}
+
+/// Command listing `<vendor> <class>` of each PCI device
+fn pci_devices_command() -> String {
+    sh_script(
+        "for d in /sys/bus/pci/devices/*; do echo \"$(cat \"$d/vendor\") $(cat \"$d/class\")\"; done",
+    )
+}
+
+/// Whether an NVIDIA display or 3D controller (vendor 0x10de, class 0x03xxxx) is present
+fn has_nvidia_gpu(pci_devices: &str) -> bool {
+    pci_devices.lines().any(|line| {
+        let mut parts = line.split_whitespace();
+        parts.next() == Some("0x10de")
+            && parts.next().is_some_and(|class| class.starts_with("0x03"))
+    })
+}
+
+/// Secure Boot state from `mokutil --sb-state`
+fn parse_secure_boot(output: &str) -> Option<bool> {
+    if output.contains("SecureBoot enabled") {
+        Some(true)
+    } else if output.contains("SecureBoot disabled") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Script unloading a stale NVIDIA module (and nouveau), then loading the NVIDIA module.
+/// Exit codes: 3 NVIDIA module in use, 4 nouveau in use, 5 modprobe failure.
+fn load_module_script() -> String {
+    sh_script(concat!(
+        "persistenced=$(systemctl is-active nvidia-persistenced 2>/dev/null); ",
+        "if [ \"$persistenced\" = active ]; then systemctl stop nvidia-persistenced; fi; ",
+        "for m in nvidia_uvm nvidia_drm nvidia_modeset nvidia_peermem nvidia; do ",
+        "if grep -q \"^$m \" /proc/modules; then modprobe -r \"$m\" || exit 3; fi; done; ",
+        "if grep -q '^nouveau ' /proc/modules; then modprobe -r nouveau || exit 4; fi; ",
+        "modprobe nvidia && modprobe nvidia_uvm || exit 5; ",
+        "if [ \"$persistenced\" = active ]; then systemctl start nvidia-persistenced; fi; ",
+        "exit 0"
+    ))
+}
+
+/// Host characteristics detected at assessment time
+struct DriverHost {
+    repository: CudaRepository,
+    /// `uname -r`
+    kernel_release: String,
+}
+
+/// Detect the CUDA repository of the host. `Ok(Err(..))` for unsupported hosts.
+async fn detect_host<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+) -> Result<Result<DriverHost, String>, RegentError> {
+    let os_release = super::platform::parse_os_release(
+        &query_output(host_handler, "cat /etc/os-release", privilege).await?,
+    );
+    let machine = query_output(host_handler, "uname -m", privilege).await?;
+    let kernel_release = query_output(host_handler, "uname -r", privilege)
+        .await?
+        .trim()
+        .to_string();
+    if kernel_release.is_empty()
+        || !kernel_release
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "._+~-".contains(c))
+    {
+        return Err(RegentError::FailedDryRunEvaluation(format!(
+            "Unexpected kernel release (uname -r): {:?}",
+            kernel_release
+        )));
+    }
+    Ok(
+        cuda_repository(&os_release, &machine).map(|repository| DriverHost {
+            repository,
+            kernel_release,
+        }),
+    )
+}
+
+/// Branch selection currently in place
+async fn current_selection<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    distro: DriverDistro,
+    privilege: &Privilege,
+) -> Result<CurrentSelection, RegentError> {
+    match distro {
+        DriverDistro::Ubuntu | DriverDistro::Debian => {
+            let pins = installed_packages(
+                host_handler,
+                PackageFamily::Apt,
+                &["nvidia-driver-pinning*"],
+                privilege,
+            )
+            .await?;
+            Ok(CurrentSelection::AptPins(pins.into_keys().collect()))
+        }
+        DriverDistro::RhelModular | DriverDistro::AmazonLinux => {
+            // Fails when no stream is enabled: the output is what matters
+            let result = query(
+                host_handler,
+                &quoted_command(&["dnf", "-q", "module", "list", "--enabled", "nvidia-driver"]),
+                privilege,
+            )
+            .await?;
+            Ok(CurrentSelection::ModuleStream(parse_enabled_module_stream(
+                &result.stdout,
+            )))
+        }
+        DriverDistro::Rhel10 | DriverDistro::Fedora => {
+            // Fails when the versionlock plugin is not installed: no lock then
+            let result = query(
+                host_handler,
+                &quoted_command(&["dnf", "versionlock", "list"]),
+                privilege,
+            )
+            .await?;
+            let locks = if result.return_code == 0 {
+                parse_versionlock_list(&result.stdout)
+            } else {
+                Vec::new()
+            };
+            Ok(CurrentSelection::VersionLocks(locks))
+        }
+        DriverDistro::Suse => {
+            let result = query(
+                host_handler,
+                &quoted_command(&["cat", "/etc/zypp/locks"]),
+                privilege,
+            )
+            .await?;
+            let locks = if result.return_code == 0 {
+                parse_zypper_locks(&result.stdout)
+            } else {
+                Vec::new()
+            };
+            Ok(CurrentSelection::ZypperLocks(locks))
+        }
+    }
+}
+
+impl Timeout for NvidiaDriverExpectedState {
+    fn default_timeout(&self) -> Duration {
+        // Installing the driver builds the kernel modules with DKMS
+        Duration::from_secs(1800)
+    }
+}
+
+impl Check for NvidiaDriverExpectedState {
+    fn check(&self) -> Result<(), RegentError> {
+        // Every value is validated when its type is built: an existing NvidiaDriverExpectedState is valid
+        Ok(())
+    }
+
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
+        check_linux_host(host_properties, ATTRIBUTE)
+    }
+}
+
+impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaDriverExpectedState {
+    async fn assess_compliance(
+        &self,
+        host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
+        privilege: &Privilege,
+        _optional_secret_provider: &Option<SecretProvidersPool>,
+    ) -> Result<AttributeComplianceAssessment, RegentError> {
+        // Early check: verify we're on a compatible host
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
+        let host = match detect_host(host_handler, privilege).await? {
+            Ok(host) => host,
+            Err(reason) => return Ok(AttributeComplianceAssessment::NonCompliantFatal(reason)),
+        };
+        let distro = host.repository.distro;
+        let family = distro.package_family();
+
+        let mut remediations: Vec<Remediation> = Vec::new();
+        let mut push = |api_call: NvidiaDriverInternalApiCall| {
+            remediations.push(Remediation::NvidiaDriver(NvidiaDriverApiCall::from(
+                api_call,
+                privilege.clone(),
+            )));
+        };
+
+        match &self.state {
+            NvidiaDriverState::Absent => {
+                let installed = installed_packages(
+                    host_handler,
+                    family,
+                    driver_package_patterns(distro),
+                    privilege,
+                )
+                .await?;
+                let packages = driver_packages_to_remove(installed.keys());
+                if !packages.is_empty() {
+                    push(NvidiaDriverInternalApiCall::RemoveDriver {
+                        distro,
+                        packages,
+                        reason: "the driver must be absent".to_string(),
+                    });
+                }
+            }
+            NvidiaDriverState::Present(config) => {
+                let modules = &config.kernel_modules;
+                let branch = modules.branch();
+
+                if !is_repository_configured(
+                    host_handler,
+                    family,
+                    &host.repository.url_fragment(),
+                    privilege,
+                )
+                .await?
+                {
+                    push(NvidiaDriverInternalApiCall::AddRepository(
+                        host.repository.clone(),
+                    ));
+                }
+
+                let installed = installed_packages(
+                    host_handler,
+                    family,
+                    &[OPEN_PACKAGE, PROPRIETARY_PACKAGE],
+                    privilege,
+                )
+                .await?;
+                let installed_driver = installed_driver_status(&installed, modules);
+                let needs_install = installed_driver != InstalledDriver::Expected;
+
+                // Another branch or flavor: remove the current driver, then install the expected one
+                let is_switching = matches!(installed_driver, InstalledDriver::Different(_));
+                if let InstalledDriver::Different(reason) = installed_driver {
+                    let installed = installed_packages(
+                        host_handler,
+                        family,
+                        driver_package_patterns(distro),
+                        privilege,
+                    )
+                    .await?;
+                    push(NvidiaDriverInternalApiCall::RemoveDriver {
+                        distro,
+                        packages: driver_packages_to_remove(installed.keys()),
+                        reason,
+                    });
+                }
+
+                let selection = modules.branch_selection(distro);
+                let current = current_selection(host_handler, distro, privilege).await?;
+                // Removing the driver resets the module stream
+                let is_stream_reset =
+                    is_switching && matches!(selection, BranchSelection::ModuleStream(_));
+                if is_stream_reset || !current.matches(&selection) {
+                    push(NvidiaDriverInternalApiCall::SelectBranch {
+                        distro,
+                        selection,
+                        undo: current.to_undo(),
+                    });
+                }
+
+                if needs_install {
+                    let mut packages = vec![modules.package().to_string()];
+                    packages.extend(distro.kernel_headers_packages(&host.kernel_release));
+                    push(NvidiaDriverInternalApiCall::InstallDriver { family, packages });
+                    push(NvidiaDriverInternalApiCall::LoadKernelModule {
+                        flavor: modules.flavor(),
+                        branch,
+                        reason: format!("{} is being installed", modules.package()),
+                    });
+                } else {
+                    let loaded = loaded_driver(host_handler, privilege).await?;
+                    let smi = query(host_handler, &smi_command(), privilege).await?;
+                    let smi = parse_smi(smi.return_code, &smi.stdout);
+                    if let Some(reason) =
+                        runtime_issue(loaded.as_ref(), &smi, modules.flavor(), branch)
+                    {
+                        if loaded.is_none() {
+                            let pci_devices =
+                                query(host_handler, &pci_devices_command(), privilege).await?;
+                            if !has_nvidia_gpu(&pci_devices.stdout) {
+                                return Ok(AttributeComplianceAssessment::NonCompliantFatal(
+                                    "the NVIDIA driver is installed but no NVIDIA GPU was found on the PCI bus (vendor 0x10de): the kernel module can't be loaded".to_string(),
+                                ));
+                            }
+                        }
+                        push(NvidiaDriverInternalApiCall::LoadKernelModule {
+                            flavor: modules.flavor(),
+                            branch,
+                            reason,
+                        });
+                    }
+                }
+
+                if let Some(cuda_toolkit) = &config.cuda_toolkit {
+                    let package = cuda_toolkit.package();
+                    let installed =
+                        installed_packages(host_handler, family, &[&package], privilege).await?;
+                    if !installed.contains_key(&package) {
+                        push(NvidiaDriverInternalApiCall::InstallCudaToolkit {
+                            family,
+                            version: *cuda_toolkit,
+                        });
+                    }
+                }
+
+                if let Some(persistence_mode) = config.persistence_mode {
+                    let state = unit_state(host_handler, PERSISTENCE_DAEMON, privilege).await?;
+                    let is_compliant = if persistence_mode {
+                        state.enabled && state.active
+                    } else {
+                        !state.exists || (!state.enabled && !state.active)
+                    };
+                    if !is_compliant {
+                        push(NvidiaDriverInternalApiCall::SetPersistenceMode(
+                            persistence_mode,
+                        ));
+                    }
+                }
+            }
+        }
+
+        if remediations.is_empty() {
+            Ok(AttributeComplianceAssessment::Compliant)
+        } else {
+            Ok(AttributeComplianceAssessment::NonCompliant(
+                RemediationsList::from(remediations)?,
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase", rename_all_fields = "PascalCase")]
+pub enum NvidiaDriverInternalApiCall {
+    /// Configure the NVIDIA CUDA network repository
+    AddRepository(CudaRepository),
+    /// Pin or lock the driver branch, after removing the pins and locks in `undo`
+    SelectBranch {
+        distro: DriverDistro,
+        selection: BranchSelection,
+        undo: Vec<String>,
+    },
+    /// Remove driver packages, with the reason why
+    RemoveDriver {
+        distro: DriverDistro,
+        packages: Vec<String>,
+        reason: String,
+    },
+    /// Install the driver meta package and the kernel headers
+    InstallDriver {
+        family: PackageFamily,
+        packages: Vec<String>,
+    },
+    /// Install `cuda-toolkit-<major>-<minor>`
+    InstallCudaToolkit {
+        family: PackageFamily,
+        version: CudaVersion,
+    },
+    /// (Re)load the NVIDIA kernel module, failing with "reboot required" when it can't
+    LoadKernelModule {
+        flavor: KernelModuleFlavor,
+        branch: Option<u32>,
+        reason: String,
+    },
+    /// Enable and start (`true`) or disable and stop (`false`) nvidia-persistenced
+    SetPersistenceMode(bool),
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NvidiaDriverApiCall {
+    pub api_call: NvidiaDriverInternalApiCall,
+    privilege: Privilege,
+}
+
+impl NvidiaDriverApiCall {
+    pub fn display(&self) -> String {
+        match &self.api_call {
+            NvidiaDriverInternalApiCall::AddRepository(repository) => {
+                format!("Add the NVIDIA CUDA repository {}", repository.base_url())
+            }
+            NvidiaDriverInternalApiCall::SelectBranch { selection, .. } => {
+                format!("Select the NVIDIA driver branch: {}", selection)
+            }
+            NvidiaDriverInternalApiCall::RemoveDriver {
+                packages, reason, ..
+            } => {
+                format!(
+                    "Remove the NVIDIA driver packages {} ({}); reboot to unload the kernel module",
+                    packages.join(", "),
+                    reason
+                )
+            }
+            NvidiaDriverInternalApiCall::InstallDriver { packages, .. } => {
+                format!("Install the NVIDIA driver: {}", packages.join(", "))
+            }
+            NvidiaDriverInternalApiCall::InstallCudaToolkit { version, .. } => {
+                format!(
+                    "Install the CUDA toolkit {} ({})",
+                    version,
+                    version.package()
+                )
+            }
+            NvidiaDriverInternalApiCall::LoadKernelModule { flavor, reason, .. } => format!(
+                "Load the {} NVIDIA kernel module ({}); a reboot is required if it can't be loaded",
+                flavor, reason
+            ),
+            NvidiaDriverInternalApiCall::SetPersistenceMode(true) => {
+                format!("Enable and start {}", PERSISTENCE_DAEMON)
+            }
+            NvidiaDriverInternalApiCall::SetPersistenceMode(false) => {
+                format!("Disable and stop {}", PERSISTENCE_DAEMON)
+            }
+        }
+    }
+
+    fn from(api_call: NvidiaDriverInternalApiCall, privilege: Privilege) -> NvidiaDriverApiCall {
+        NvidiaDriverApiCall {
+            api_call,
+            privilege,
+        }
+    }
+}
+
+impl Timeout for NvidiaDriverApiCall {
+    fn default_timeout(&self) -> Duration {
+        match &self.api_call {
+            NvidiaDriverInternalApiCall::InstallDriver { .. }
+            | NvidiaDriverInternalApiCall::InstallCudaToolkit { .. } => Duration::from_secs(1800),
+            NvidiaDriverInternalApiCall::RemoveDriver { .. } => Duration::from_secs(900),
+            _ => Duration::from_secs(300),
+        }
+    }
+}
+
+impl Check for NvidiaDriverApiCall {
+    fn check(&self) -> Result<(), RegentError> {
+        Ok(())
+    }
+
+    fn check_host_compatibility(
+        &self,
+        host_properties: &HostProperties,
+    ) -> Result<(), RegentError> {
+        check_linux_host(host_properties, ATTRIBUTE)
+    }
+}
+
+impl<Handler: HostHandler> ReachCompliance<Handler> for NvidiaDriverApiCall {
+    async fn call(
+        &self,
+        host_handler: &mut Handler,
+        host_properties: &Option<HostProperties>,
+        _optional_secret_provider: &Option<SecretProvidersPool>,
+    ) -> Result<InternalApiCallOutcome, RegentError> {
+        // Early check: verify we're on a compatible host
+        if let Some(props) = host_properties {
+            self.check_host_compatibility(props)?;
+        }
+
+        let privilege = &self.privilege;
+        match &self.api_call {
+            NvidiaDriverInternalApiCall::AddRepository(repository) => Ok(run_step(
+                host_handler,
+                &sh_script(&repository.setup_script()),
+                privilege,
+            )
+            .await),
+            NvidiaDriverInternalApiCall::SelectBranch {
+                distro,
+                selection,
+                undo,
+            } => Ok(run_steps(
+                host_handler,
+                &branch_selection_commands(selection, *distro, undo),
+                privilege,
+            )
+            .await),
+            NvidiaDriverInternalApiCall::RemoveDriver {
+                distro, packages, ..
+            } => Ok(run_steps(
+                host_handler,
+                &remove_driver_commands(*distro, packages),
+                privilege,
+            )
+            .await),
+            NvidiaDriverInternalApiCall::InstallDriver { family, packages } => Ok(run_step(
+                host_handler,
+                &family.install_command(packages, false),
+                privilege,
+            )
+            .await),
+            NvidiaDriverInternalApiCall::InstallCudaToolkit { family, version } => Ok(run_step(
+                host_handler,
+                &family.install_command(&[version.package()], false),
+                privilege,
+            )
+            .await),
+            NvidiaDriverInternalApiCall::LoadKernelModule { flavor, branch, .. } => {
+                load_kernel_module(host_handler, *flavor, *branch, privilege).await
+            }
+            NvidiaDriverInternalApiCall::SetPersistenceMode(enabled) => {
+                let unit = shell_quote(PERSISTENCE_DAEMON);
+                let script = if *enabled {
+                    // A static unit can't be enabled, only started
+                    format!(
+                        "systemctl enable --now {unit} || systemctl start {unit}; systemctl is-active --quiet {unit}"
+                    )
+                } else {
+                    format!("systemctl disable --now {unit}")
+                };
+                Ok(run_step(host_handler, &sh_script(&script), privilege).await)
+            }
+        }
+    }
+}
+
+/// Load the NVIDIA kernel module and verify the driver works, never rebooting the host
+async fn load_kernel_module<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    flavor: KernelModuleFlavor,
+    branch: Option<u32>,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    let pci_devices = query(host_handler, &pci_devices_command(), privilege).await?;
+    if !has_nvidia_gpu(&pci_devices.stdout) {
+        return Ok(InternalApiCallOutcome::Failure(
+            "No NVIDIA GPU found on the PCI bus (vendor 0x10de): the NVIDIA kernel module can't be loaded".to_string(),
+        ));
+    }
+
+    let result = query(host_handler, &load_module_script(), privilege).await?;
+    let mut problem = match result.return_code {
+        0 => None,
+        3 => Some("the loaded NVIDIA kernel module is in use and can't be replaced".to_string()),
+        4 => Some("the nouveau driver is in use and can't be unloaded".to_string()),
+        _ => Some(format!(
+            "modprobe nvidia failed: {}{}",
+            result.stdout.trim(),
+            result.stderr.trim()
+        )),
+    };
+
+    if problem.is_none() {
+        let loaded = loaded_driver(host_handler, privilege).await?;
+        let smi = query(host_handler, &smi_command(), privilege).await?;
+        let smi = parse_smi(smi.return_code, &smi.stdout);
+        problem = runtime_issue(loaded.as_ref(), &smi, flavor, branch);
+        if problem.is_none() {
+            let version = loaded.map(|loaded| loaded.version).unwrap_or_default();
+            return Ok(InternalApiCallOutcome::Success(Some(format!(
+                "NVIDIA driver {} loaded",
+                version
+            ))));
+        }
+    }
+
+    let mut message = format!(
+        "Reboot required: {}. The host is not rebooted automatically.",
+        problem.unwrap_or_default()
+    );
+    let is_signature_issue = result.stdout.contains("Key was rejected")
+        || result.stdout.contains("Required key not available");
+    let secure_boot = if host_handler
+        .is_this_command_available("mokutil", privilege)
+        .await
+        .unwrap_or(false)
+    {
+        let output = query(host_handler, "mokutil --sb-state", privilege).await?;
+        parse_secure_boot(&output.stdout)
+    } else {
+        None
+    };
+    if is_signature_issue || secure_boot == Some(true) {
+        message.push_str(
+            " Secure Boot is enabled: the DKMS modules must be signed with a key enrolled in the MOK database (mokutil --import, then confirm on the console at boot).",
+        );
+    }
+    Ok(InternalApiCallOutcome::Failure(message))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn full_yaml() -> &'static str {
+        "---
+State: !Present
+  KernelModules: !Open 580
+  CudaToolkit: '12.8'
+  PersistenceMode: true
+"
+    }
+
+    fn full_config() -> NvidiaDriverConfig {
+        let state: NvidiaDriverExpectedState = yaml_serde::from_str(full_yaml()).unwrap();
+        match state.state {
+            NvidiaDriverState::Present(config) => *config,
+            other => panic!("unexpected state {:?}", other),
+        }
+    }
+
+    fn rejection(raw: &str) -> String {
+        match yaml_serde::from_str::<NvidiaDriverExpectedState>(raw) {
+            Ok(state) => panic!("should be rejected: {}\nparsed as {:?}", raw, state),
+            Err(error) => error.to_string(),
+        }
+    }
+
+    #[test]
+    fn parsing_nvidia_driver_module_block_from_yaml_str() {
+        let config = full_config();
+        assert_eq!(
+            config.kernel_modules,
+            KernelModules::Open(DriverBranch::Branch("580".parse().unwrap()))
+        );
+        assert_eq!(config.cuda_toolkit.unwrap().package(), "cuda-toolkit-12-8");
+        assert_eq!(config.persistence_mode, Some(true));
+
+        let raw = "---
+- State: Absent
+- State: !Present {}
+- State: !Present
+    KernelModules: !Open Latest
+- State: !Present
+    KernelModules: !Proprietary 580
+    CudaToolkit: 13.0
+- State: !Present
+    CudaToolkit: 12.10
+";
+        let states: Vec<NvidiaDriverExpectedState> = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(states[0], NvidiaDriverExpectedState::absent());
+        assert_eq!(
+            states[1],
+            NvidiaDriverExpectedState::present(NvidiaDriverConfig::new())
+        );
+        assert_eq!(states[1], states[2]);
+        match &states[3].state {
+            NvidiaDriverState::Present(config) => {
+                assert_eq!(
+                    config.kernel_modules.flavor(),
+                    KernelModuleFlavor::Proprietary
+                );
+                assert_eq!(config.kernel_modules.branch(), Some(580));
+                assert_eq!(config.kernel_modules.package(), "cuda-drivers");
+                assert_eq!(config.cuda_toolkit.unwrap().to_string(), "13.0");
+            }
+            other => panic!("unexpected state {:?}", other),
+        }
+        // Unquoted, YAML would read a float: the version is kept as written
+        match &states[4].state {
+            NvidiaDriverState::Present(config) => {
+                assert_eq!(config.cuda_toolkit.unwrap().package(), "cuda-toolkit-12-10")
+            }
+            other => panic!("unexpected state {:?}", other),
+        }
+    }
+
+    #[test]
+    fn serialization_round_trip_preserves_state() {
+        // Templating (Attribute::consider_context) relies on a JSON round trip
+        for raw in [
+            full_yaml(),
+            "State: Absent\n",
+            "State: !Present\n  KernelModules: !Proprietary 570\n",
+            "State: !Present {}\n",
+        ] {
+            let state: NvidiaDriverExpectedState = yaml_serde::from_str(raw).unwrap();
+            let json = serde_json::to_string(&state).unwrap();
+            assert_eq!(
+                serde_json::from_str::<NvidiaDriverExpectedState>(&json).unwrap(),
+                state,
+                "{}",
+                json
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_states_are_rejected_while_parsing() {
+        let rejected = [
+            // Configuration makes no sense for an absent driver
+            ("State: !Absent\n  PersistenceMode: true\n", "expected unit"),
+            // Proprietary modules need a pinned branch up to 610
+            (
+                "State: !Present\n  KernelModules: !Proprietary Latest\n",
+                "need a pinned branch",
+            ),
+            (
+                "State: !Present\n  KernelModules: !Proprietary 615\n",
+                "removed after branch 610",
+            ),
+            // Branches before 570 use other package names
+            (
+                "State: !Present\n  KernelModules: !Open 550\n",
+                "from 570 on",
+            ),
+            (
+                "State: !Present\n  KernelModules: !Open newest\n",
+                "expected Latest or a branch number",
+            ),
+            // The flavor is mandatory when a branch is given
+            ("State: !Present\n  KernelModules: 580\n", "KernelModules"),
+            ("State: !Present\n  CudaToolkit: '12'\n", "<major>.<minor>"),
+            (
+                "State: !Present\n  CudaToolkit: 12.8.1\n",
+                "<major>.<minor>",
+            ),
+            ("State: !Present\n  CudaToolkit: 9.2\n", "<major>.<minor>"),
+            ("State: !Present\n  Branch: 580\n", "unknown field"),
+        ];
+        for (raw, reason) in rejected {
+            let error = rejection(raw);
+            assert!(
+                error.contains(reason),
+                "{:?} rejected for another reason: {}",
+                raw,
+                error
+            );
+        }
+    }
+
+    #[test]
+    fn branch_selection_follows_the_distribution() {
+        let open_580 = KernelModules::Open(DriverBranch::Branch("580".parse().unwrap()));
+        let proprietary = KernelModules::Proprietary("575".parse().unwrap());
+        let latest = KernelModules::default();
+        assert_eq!(
+            open_580.branch_selection(DriverDistro::Ubuntu),
+            BranchSelection::AptPinning(Some(580))
+        );
+        assert_eq!(
+            open_580.branch_selection(DriverDistro::RhelModular),
+            BranchSelection::ModuleStream("580-open".to_string())
+        );
+        assert_eq!(
+            latest.branch_selection(DriverDistro::AmazonLinux),
+            BranchSelection::ModuleStream("open-dkms".to_string())
+        );
+        assert_eq!(
+            proprietary.branch_selection(DriverDistro::RhelModular),
+            BranchSelection::ModuleStream("575-dkms".to_string())
+        );
+        assert_eq!(
+            latest.branch_selection(DriverDistro::Fedora),
+            BranchSelection::VersionLock(None)
+        );
+    }
+
+    #[test]
+    fn current_branch_selection_is_compared() {
+        let pins = CurrentSelection::AptPins(vec!["nvidia-driver-pinning-580.105.08".to_string()]);
+        assert!(pins.matches(&BranchSelection::AptPinning(Some(580))));
+        assert!(!pins.matches(&BranchSelection::AptPinning(Some(590))));
+        assert!(!pins.matches(&BranchSelection::AptPinning(None)));
+        assert!(CurrentSelection::AptPins(vec![]).matches(&BranchSelection::AptPinning(None)));
+
+        let stream = CurrentSelection::ModuleStream(Some("580-open".to_string()));
+        assert!(stream.matches(&BranchSelection::ModuleStream("580-open".to_string())));
+        assert!(!stream.matches(&BranchSelection::ModuleStream("open-dkms".to_string())));
+        assert!(
+            !CurrentSelection::ModuleStream(None)
+                .matches(&BranchSelection::ModuleStream("open-dkms".to_string()))
+        );
+
+        let locks = CurrentSelection::ZypperLocks(vec![ZypperLock {
+            name: "*nvidia*".to_string(),
+            version: ">= 581".to_string(),
+        }]);
+        assert!(locks.matches(&BranchSelection::ZypperLock(Some(580))));
+        assert!(!locks.matches(&BranchSelection::ZypperLock(None)));
+        assert_eq!(locks.to_undo(), vec!["*nvidia* >= 581"]);
+    }
+
+    #[test]
+    fn dnf_versionlock_lists_are_parsed() {
+        let dnf4 = "Last metadata expiration check: 0:01:02 ago.\nnvidia-open-3:580.105.08-1.el10.*\nlibnvidia-ml-3:580.105.08-1.el10.*\n!kernel-0:6.12.0-55.el10.*\nbash-0:5.2.26-6.el10.*\n";
+        let locks = parse_versionlock_list(dnf4);
+        assert_eq!(
+            locks,
+            vec![
+                LockedPackage {
+                    name: "nvidia-open".to_string(),
+                    version: "580.105.08-1.el10".to_string()
+                },
+                LockedPackage {
+                    name: "libnvidia-ml".to_string(),
+                    version: "580.105.08-1.el10".to_string()
+                },
+            ]
+        );
+        let current = CurrentSelection::VersionLocks(locks);
+        assert!(current.matches(&BranchSelection::VersionLock(Some(580))));
+        assert!(!current.matches(&BranchSelection::VersionLock(Some(590))));
+
+        let dnf5 = "# Added by 'versionlock add' command on 2026-05-04 10:12:31\nPackage name: nvidia-open\nevr = 3:590.48.01-1.fc44\n\nPackage name: htop\nevr = 3.3.0-1.fc44\n";
+        assert_eq!(
+            parse_versionlock_list(dnf5),
+            vec![LockedPackage {
+                name: "nvidia-open".to_string(),
+                version: "3:590.48.01-1.fc44".to_string()
+            }]
+        );
+        assert!(
+            CurrentSelection::VersionLocks(parse_versionlock_list(dnf5))
+                .matches(&BranchSelection::VersionLock(Some(590)))
+        );
+    }
+
+    #[test]
+    fn zypper_locks_and_module_streams_are_parsed() {
+        let locks = "type: package\nmatch_type: glob\ncase_sensitive: on\nsolvable_name: *nvidia*\nversion: >=   581\n\ntype: package\nsolvable_name: kernel-default\n";
+        assert_eq!(
+            parse_zypper_locks(locks),
+            vec![ZypperLock {
+                name: "*nvidia*".to_string(),
+                version: ">= 581".to_string()
+            }]
+        );
+
+        let modules = "CUDA and drivers from NVIDIA\nName           Stream            Profiles                      Summary\nnvidia-driver  580-open [e]      default [d], fm, ks, src      Nvidia driver for 580-open branch\n\nHint: [d]efault, [e]nabled, [x]disabled, [i]nstalled\n";
+        assert_eq!(
+            parse_enabled_module_stream(modules),
+            Some("580-open".to_string())
+        );
+        assert_eq!(
+            parse_enabled_module_stream("nvidia-driver  latest-dkms [d][e]  default [d]"),
+            Some("latest-dkms".to_string())
+        );
+        assert_eq!(
+            parse_enabled_module_stream("Error: No matching Modules to list"),
+            None
+        );
+    }
+
+    #[test]
+    fn branch_selection_commands_are_quoted() {
+        assert_eq!(
+            branch_selection_commands(
+                &BranchSelection::AptPinning(Some(580)),
+                DriverDistro::Ubuntu,
+                &["nvidia-driver-pinning-570".to_string()]
+            ),
+            vec![
+                "DEBIAN_FRONTEND=noninteractive 'apt-get' 'install' '-y' '--allow-downgrades' 'nvidia-driver-pinning-580'"
+            ]
+        );
+        assert_eq!(
+            branch_selection_commands(
+                &BranchSelection::ModuleStream("580-open".to_string()),
+                DriverDistro::RhelModular,
+                &[]
+            ),
+            vec![
+                "'dnf' '-y' 'module' 'reset' 'nvidia-driver'",
+                "'dnf' '-y' 'module' 'enable' 'nvidia-driver:580-open'"
+            ]
+        );
+        assert_eq!(
+            branch_selection_commands(
+                &BranchSelection::VersionLock(Some(580)),
+                DriverDistro::Rhel10,
+                &["nvidia-open".to_string()]
+            ),
+            vec![
+                "'dnf' '-y' 'install' 'python3-dnf-plugin-versionlock'",
+                "'dnf' 'versionlock' 'delete' 'nvidia-open'",
+                "'dnf' 'versionlock' 'add' '*nvidia*580*'"
+            ]
+        );
+        assert_eq!(
+            branch_selection_commands(
+                &BranchSelection::ZypperLock(Some(580)),
+                DriverDistro::Suse,
+                &["*nvidia* >= 591".to_string()]
+            ),
+            vec![
+                "'zypper' '--non-interactive' 'removelock' '*nvidia* >= 591'",
+                "'zypper' '--non-interactive' 'addlock' '*nvidia* >= 581'"
+            ]
+        );
+    }
+
+    #[test]
+    fn installed_driver_is_compared_with_the_expected_one() {
+        let installed = |packages: &[(&str, &str)]| -> BTreeMap<String, String> {
+            packages
+                .iter()
+                .map(|(name, version)| (name.to_string(), version.to_string()))
+                .collect()
+        };
+        let open_580 = KernelModules::Open(DriverBranch::Branch("580".parse().unwrap()));
+        let proprietary_580 = KernelModules::Proprietary("580".parse().unwrap());
+
+        assert_eq!(
+            installed_driver_status(&installed(&[]), &open_580),
+            InstalledDriver::Missing
+        );
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[("nvidia-open", "580.105.08-1ubuntu1")]),
+                &open_580
+            ),
+            InstalledDriver::Expected
+        );
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[("nvidia-open", "590.48.01-1ubuntu1")]),
+                &KernelModules::default()
+            ),
+            InstalledDriver::Expected
+        );
+        assert!(matches!(
+            installed_driver_status(&installed(&[("nvidia-open", "590.48.01-1")]), &open_580),
+            InstalledDriver::Different(reason) if reason.contains("expected branch 580")
+        ));
+        assert!(matches!(
+            installed_driver_status(&installed(&[("cuda-drivers", "580.105.08-1")]), &open_580),
+            InstalledDriver::Different(reason) if reason.contains("proprietary kernel modules) is installed")
+        ));
+        assert!(matches!(
+            installed_driver_status(
+                &installed(&[("nvidia-open", "580.105.08-1")]),
+                &proprietary_580
+            ),
+            InstalledDriver::Different(_)
+        ));
+        // From branch 615, cuda-drivers is a transitional package depending on nvidia-open
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[
+                    ("nvidia-open", "615.71.09-1"),
+                    ("cuda-drivers", "615.71.09-2")
+                ]),
+                &KernelModules::default()
+            ),
+            InstalledDriver::Expected
+        );
+    }
+
+    #[test]
+    fn driver_removal_keeps_the_container_toolkit_and_pins() {
+        let installed = [
+            "nvidia-open",
+            "nvidia-driver-580-open",
+            "nvidia-driver-pinning-580",
+            "nvidia-container-toolkit",
+            "libnvidia-container1",
+            "libnvidia-compute-580",
+        ]
+        .map(String::from);
+        assert_eq!(
+            driver_packages_to_remove(installed.iter()),
+            vec![
+                "nvidia-open",
+                "nvidia-driver-580-open",
+                "libnvidia-compute-580"
+            ]
+        );
+        let commands =
+            remove_driver_commands(DriverDistro::RhelModular, &["nvidia-open".to_string()]);
+        assert_eq!(commands.len(), 2);
+        assert_eq!(commands[1], "'dnf' '-y' 'module' 'reset' 'nvidia-driver'");
+    }
+
+    #[test]
+    fn runtime_issues_tell_when_a_reload_or_reboot_is_needed() {
+        let open_580 = LoadedDriver {
+            version: "580.105.08".to_string(),
+            flavor: KernelModuleFlavor::Open,
+        };
+        let working = parse_smi(0, "580.105.08\n580.105.08\n");
+        assert_eq!(working, SmiStatus::Working("580.105.08".to_string()));
+        assert_eq!(
+            runtime_issue(
+                Some(&open_580),
+                &working,
+                KernelModuleFlavor::Open,
+                Some(580)
+            ),
+            None
+        );
+        assert_eq!(
+            runtime_issue(Some(&open_580), &working, KernelModuleFlavor::Open, None),
+            None
+        );
+        assert!(
+            runtime_issue(None, &working, KernelModuleFlavor::Open, None)
+                .unwrap()
+                .contains("not loaded")
+        );
+        assert!(
+            runtime_issue(
+                Some(&open_580),
+                &working,
+                KernelModuleFlavor::Proprietary,
+                Some(580)
+            )
+            .unwrap()
+            .contains("the open kernel module is loaded")
+        );
+        assert!(
+            runtime_issue(
+                Some(&open_580),
+                &working,
+                KernelModuleFlavor::Open,
+                Some(590)
+            )
+            .unwrap()
+            .contains("expected branch 590")
+        );
+        let mismatch = parse_smi(
+            18,
+            "Failed to initialize NVML: Driver/library version mismatch\nNVML library version: 580.126\n",
+        );
+        assert_eq!(mismatch, SmiStatus::VersionMismatch);
+        assert!(
+            runtime_issue(Some(&open_580), &mismatch, KernelModuleFlavor::Open, None)
+                .unwrap()
+                .contains("version mismatch")
+        );
+        assert!(matches!(
+            parse_smi(
+                9,
+                "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver."
+            ),
+            SmiStatus::Failing(_)
+        ));
+    }
+
+    #[test]
+    fn gpus_and_secure_boot_are_detected() {
+        assert!(has_nvidia_gpu("0x8086 0x060000\n0x10de 0x030200\n"));
+        assert!(!has_nvidia_gpu("0x8086 0x060000\n0x10de 0x040300\n"));
+        assert_eq!(parse_secure_boot("SecureBoot enabled\n"), Some(true));
+        assert_eq!(
+            parse_secure_boot("SecureBoot disabled\nPlatform is in Setup Mode"),
+            Some(false)
+        );
+        assert_eq!(
+            parse_secure_boot("EFI variables are not supported on this system"),
+            None
+        );
+    }
+
+    #[test]
+    fn display_explains_remediations() {
+        let api_call = NvidiaDriverApiCall::from(
+            NvidiaDriverInternalApiCall::LoadKernelModule {
+                flavor: KernelModuleFlavor::Open,
+                branch: None,
+                reason: "nvidia-open is being installed".to_string(),
+            },
+            Privilege::WithSudo,
+        );
+        assert!(api_call.display().contains("reboot is required"));
+        assert_eq!(api_call.default_timeout(), Duration::from_secs(300));
+    }
+}

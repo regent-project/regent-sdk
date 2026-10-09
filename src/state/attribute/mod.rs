@@ -1,4 +1,6 @@
 pub mod ai;
+pub mod container;
+pub mod gpu;
 pub mod network;
 pub mod package;
 pub mod shell;
@@ -44,6 +46,20 @@ use crate::secrets::SecretProvidersPool;
 use crate::state::Check;
 use crate::state::attribute::ai::ollama::OllamaApiCall;
 use crate::state::attribute::ai::ollama::OllamaExpectedState;
+use crate::state::attribute::ai::onnx::{OnnxApiCall, OnnxExpectedState};
+use crate::state::attribute::container::apptainer::ApptainerApiCall;
+use crate::state::attribute::container::apptainer::ApptainerExpectedState;
+use crate::state::attribute::container::docker::DockerApiCall;
+use crate::state::attribute::container::docker::DockerExpectedState;
+use crate::state::attribute::container::enroot::EnrootApiCall;
+use crate::state::attribute::container::enroot::EnrootExpectedState;
+use crate::state::attribute::container::podman::PodmanApiCall;
+use crate::state::attribute::container::podman::PodmanExpectedState;
+use crate::state::attribute::gpu::apple_mps::{AppleMpsApiCall, AppleMpsExpectedState};
+use crate::state::attribute::gpu::nvidia_container_toolkit::NvidiaContainerToolkitApiCall;
+use crate::state::attribute::gpu::nvidia_container_toolkit::NvidiaContainerToolkitExpectedState;
+use crate::state::attribute::gpu::nvidia_driver::NvidiaDriverApiCall;
+use crate::state::attribute::gpu::nvidia_driver::NvidiaDriverExpectedState;
 use crate::state::attribute::network::dhcp::DhcpExpectedState;
 use crate::state::attribute::network::dns::DnsApiCall;
 use crate::state::attribute::network::dns::DnsExpectedState;
@@ -127,7 +143,15 @@ impl Attribute {
                 AttributeDetail::Hostname(_) => "Hostname".to_string(),
                 AttributeDetail::Iptables(_) => "Iptables".to_string(),
                 AttributeDetail::Ollama(_) => "Ollama".to_string(),
+                AttributeDetail::Onnx(_) => "Onnx".to_string(),
                 AttributeDetail::Template(_) => "Template".to_string(),
+                AttributeDetail::Docker(_) => "Docker".to_string(),
+                AttributeDetail::Podman(_) => "Podman".to_string(),
+                AttributeDetail::Apptainer(_) => "Apptainer".to_string(),
+                AttributeDetail::Enroot(_) => "Enroot".to_string(),
+                AttributeDetail::NvidiaDriver(_) => "NvidiaDriver".to_string(),
+                AttributeDetail::NvidiaContainerToolkit(_) => "NvidiaContainerToolkit".to_string(),
+                AttributeDetail::AppleMps(_) => "AppleMps".to_string(),
             },
         }
     }
@@ -380,12 +404,78 @@ impl Attribute {
         Attribute::from(AttributeDetail::Ollama(details), privilege, name) // Used 'timeout' in 'from' method
     }
 
+    pub fn onnx(
+        details: OnnxExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Onnx(details), privilege, name)
+    }
+
     pub fn template(
         details: TemplateExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
         Attribute::from(AttributeDetail::Template(details), privilege, name)
+    }
+
+    pub fn docker(
+        details: DockerExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Docker(details), privilege, name)
+    }
+
+    pub fn podman(
+        details: PodmanExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Podman(details), privilege, name)
+    }
+
+    pub fn apptainer(
+        details: ApptainerExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Apptainer(details), privilege, name)
+    }
+
+    pub fn enroot(
+        details: EnrootExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Enroot(details), privilege, name)
+    }
+    pub fn nvidia_driver(
+        details: NvidiaDriverExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::NvidiaDriver(details), privilege, name)
+    }
+    pub fn nvidia_container_toolkit(
+        details: NvidiaContainerToolkitExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(
+            AttributeDetail::NvidiaContainerToolkit(details),
+            privilege,
+            name,
+        )
+    }
+
+    pub fn apple_mps(
+        details: AppleMpsExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::AppleMps(details), privilege, name)
     }
 }
 
@@ -410,7 +500,15 @@ pub enum AttributeDetail {
     Hostname(HostnameExpectedState),
     Iptables(IptablesExpectedState),
     Ollama(OllamaExpectedState),
+    Onnx(OnnxExpectedState),
     Template(TemplateExpectedState),
+    Docker(DockerExpectedState),
+    Podman(PodmanExpectedState),
+    Apptainer(ApptainerExpectedState),
+    Enroot(EnrootExpectedState),
+    NvidiaDriver(NvidiaDriverExpectedState),
+    NvidiaContainerToolkit(NvidiaContainerToolkitExpectedState),
+    AppleMps(AppleMpsExpectedState),
 }
 
 impl AttributeDetail {
@@ -434,7 +532,15 @@ impl AttributeDetail {
             AttributeDetail::Hostname(details) => details.default_timeout(),
             AttributeDetail::Iptables(details) => details.default_timeout(),
             AttributeDetail::Ollama(details) => details.default_timeout(),
+            AttributeDetail::Onnx(details) => details.default_timeout(),
             AttributeDetail::Template(details) => details.default_timeout(),
+            AttributeDetail::Docker(details) => details.default_timeout(),
+            AttributeDetail::Podman(details) => details.default_timeout(),
+            AttributeDetail::Apptainer(details) => details.default_timeout(),
+            AttributeDetail::Enroot(details) => details.default_timeout(),
+            AttributeDetail::NvidiaDriver(details) => details.default_timeout(),
+            AttributeDetail::NvidiaContainerToolkit(details) => details.default_timeout(),
+            AttributeDetail::AppleMps(details) => details.default_timeout(),
         }
     }
 
@@ -656,7 +762,87 @@ impl AttributeDetail {
                     )
                     .await
             }
+            AttributeDetail::Onnx(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
             AttributeDetail::Template(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Docker(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Podman(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Apptainer(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Enroot(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::NvidiaDriver(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::NvidiaContainerToolkit(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::AppleMps(expected_state_criteria) => {
                 expected_state_criteria
                     .assess_compliance(
                         host_handler,
@@ -967,7 +1153,111 @@ impl AttributeDetail {
                                 }
                             }
                         }
+                        Remediation::Onnx(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
                         Remediation::Template(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Docker(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Podman(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Apptainer(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Enroot(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::NvidiaDriver(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::NvidiaContainerToolkit(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::AppleMps(attribute_api_call) => {
                             match attribute_api_call
                                 .call(host_handler, host_properties, optional_secret_provider)
                                 .await
@@ -1026,7 +1316,17 @@ impl AttributeDetail {
             AttributeDetail::Hostname(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Iptables(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Ollama(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Onnx(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Template(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Docker(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Podman(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Apptainer(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Enroot(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::NvidiaDriver(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::NvidiaContainerToolkit(expected_state_block) => {
+                expected_state_block.check()
+            }
+            AttributeDetail::AppleMps(expected_state_block) => expected_state_block.check(),
         }
     }
 }
@@ -1051,7 +1351,15 @@ pub enum Remediation {
     Hostname(HostnameApiCall),
     Iptables(IptablesApiCall),
     Ollama(OllamaApiCall),
+    Onnx(OnnxApiCall),
     Template(TemplateApiCall),
+    Docker(DockerApiCall),
+    Podman(PodmanApiCall),
+    Apptainer(ApptainerApiCall),
+    Enroot(EnrootApiCall),
+    NvidiaDriver(NvidiaDriverApiCall),
+    NvidiaContainerToolkit(NvidiaContainerToolkitApiCall),
+    AppleMps(AppleMpsApiCall),
 }
 
 impl std::fmt::Debug for Remediation {
@@ -1075,7 +1383,15 @@ impl std::fmt::Debug for Remediation {
             Remediation::Hostname(api_call) => write!(f, "{}", api_call.display()),
             Remediation::Iptables(api_call) => write!(f, "{}", api_call.display()),
             Remediation::Ollama(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Onnx(api_call) => write!(f, "{}", api_call.display()),
             Remediation::Template(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Docker(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Podman(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Apptainer(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Enroot(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::NvidiaDriver(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::NvidiaContainerToolkit(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::AppleMps(api_call) => write!(f, "{}", api_call.display()),
         }
     }
 }
@@ -1203,7 +1519,47 @@ impl Remediation {
                     .call(host_handler, host_properties, optional_secret_provider)
                     .await
             }
+            Remediation::Onnx(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
             Remediation::Template(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::Docker(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::Podman(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::Apptainer(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::Enroot(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::NvidiaDriver(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::NvidiaContainerToolkit(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::AppleMps(api_call) => {
                 api_call
                     .call(host_handler, host_properties, optional_secret_provider)
                     .await
@@ -1231,7 +1587,15 @@ impl Remediation {
             Remediation::Hostname(api_call) => api_call.display(),
             Remediation::Iptables(api_call) => api_call.display(),
             Remediation::Ollama(api_call) => api_call.display(),
+            Remediation::Onnx(api_call) => api_call.display(),
             Remediation::Template(api_call) => api_call.display(),
+            Remediation::Docker(api_call) => api_call.display(),
+            Remediation::Podman(api_call) => api_call.display(),
+            Remediation::Apptainer(api_call) => api_call.display(),
+            Remediation::Enroot(api_call) => api_call.display(),
+            Remediation::NvidiaDriver(api_call) => api_call.display(),
+            Remediation::NvidiaContainerToolkit(api_call) => api_call.display(),
+            Remediation::AppleMps(api_call) => api_call.display(),
         }
     }
 }

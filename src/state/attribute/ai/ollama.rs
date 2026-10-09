@@ -67,26 +67,21 @@ use std::time::Duration;
 
 // ── Enums ─────────────────────────────────────────────────────────────────────
 
-/// Desired state of an Ollama model
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OllamaModelState {
-    /// Model should be pulled and available locally
     Present,
-    /// Model should be removed from the local system
     Absent,
 }
 
 // ── Sub-structs ───────────────────────────────────────────────────────────────
 
-/// Configuration for an Ollama model
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct OllamaModel {
     /// Name of the model (e.g., "llama3", "mistral:7b")
     name: String,
-    /// Desired state of the model
     state: OllamaModelState,
 }
 
@@ -118,9 +113,6 @@ pub struct OllamaApiConfig {
 
 /// Configuration for Ollama AI inference engine
 ///
-/// Use the builder pattern to configure Ollama installation, service state,
-/// model management, and API settings.
-///
 /// At least one field must be set. When state is None, only the specified
 /// fields (service, models, api) will be managed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -128,19 +120,16 @@ pub struct OllamaApiConfig {
 pub enum OllamaExpectedState {
     Absent,
     Present,
-    // #[serde(untagged)]
     #[serde(rename_all = "PascalCase")]
     PresentWithConfig {
         /// REST API / environment configuration.
         api_config: OllamaApiConfig,
     },
-    // #[serde(untagged)]
     #[serde(rename_all = "PascalCase")]
     PresentWithModels {
         /// LLM models to manage (pull or remove).
         models: Vec<OllamaModel>,
     },
-    // #[serde(untagged)]
     #[serde(rename_all = "PascalCase")]
     PresentWithConfigAndModels {
         api_config: OllamaApiConfig,
@@ -208,7 +197,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host (Linux or macOS)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
@@ -250,7 +238,6 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
                         privilege.clone(),
                     )));
                 } else {
-                    // Checks on configuration
                     let expected_content = build_api_config_content(api_config);
 
                     let current_result = host_handler
@@ -284,25 +271,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
                         privilege.clone(),
                     )));
                 } else {
-                    // Checks on models
-                    let list_result = host_handler
-                        .run_command(
-                            "ollama list 2>/dev/null | awk 'NR>1 {print $1}'",
-                            &Privilege::None,
-                        )
-                        .await
-                        .unwrap();
-
-                    let installed_models: Vec<String> = if list_result.return_code == 0 {
-                        list_result
-                            .stdout
-                            .lines()
-                            .map(|l| l.trim().to_string())
-                            .filter(|l| !l.is_empty())
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
+                    let installed_models = installed_models(host_handler).await;
 
                     for model in models {
                         let normalized_name = normalize_model_name(&model.name);
@@ -367,24 +336,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
                     }
 
                     // ***** Models *****
-                    let list_result = host_handler
-                        .run_command(
-                            "ollama list 2>/dev/null | awk 'NR>1 {print $1}'",
-                            &Privilege::None,
-                        )
-                        .await
-                        .unwrap();
-
-                    let installed_models: Vec<String> = if list_result.return_code == 0 {
-                        list_result
-                            .stdout
-                            .lines()
-                            .map(|l| l.trim().to_string())
-                            .filter(|l| !l.is_empty())
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
+                    let installed_models = installed_models(host_handler).await;
 
                     for model in models {
                         let normalized_name = normalize_model_name(&model.name);
@@ -435,6 +387,27 @@ fn normalize_model_name(name: &str) -> String {
     } else {
         format!("{}:latest", name)
     }
+}
+
+/// Model names currently present on the host, first column of `ollama list`
+/// (header skipped); empty when ollama is not usable.
+async fn installed_models<Handler: HostHandler>(host_handler: &mut Handler) -> Vec<String> {
+    let Ok(result) = host_handler
+        .run_command("ollama list 2>/dev/null", &Privilege::None)
+        .await
+    else {
+        return Vec::new();
+    };
+    if result.return_code != 0 {
+        return Vec::new();
+    }
+    result
+        .stdout
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.split_whitespace().next())
+        .map(str::to_string)
+        .collect()
 }
 
 /// Builds the content of `/etc/systemd/system/ollama.service.d/override.conf`
@@ -489,7 +462,6 @@ fn escape_for_printf(s: &str) -> String {
 
 // ── ApiCall variants ──────────────────────────────────────────────────────────
 
-/// Internal API calls for Ollama management
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum OllamaModuleInternalApiCall {
@@ -498,11 +470,16 @@ pub enum OllamaModuleInternalApiCall {
     /// Uninstall Ollama and clean up all files
     Uninstall,
     /// Pull a model from the Ollama registry
-    PullModel { name: String },
-    /// Remove a model from the local system
-    RemoveModel { name: String },
+    PullModel {
+        name: String,
+    },
+    RemoveModel {
+        name: String,
+    },
     /// Write API configuration to systemd override file
-    WriteApiConfig { content: String },
+    WriteApiConfig {
+        content: String,
+    },
 }
 
 impl std::fmt::Display for OllamaModuleInternalApiCall {
@@ -523,12 +500,9 @@ impl std::fmt::Display for OllamaModuleInternalApiCall {
     }
 }
 
-/// An Ollama API call with its associated privilege level
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OllamaApiCall {
-    /// The internal API call to execute
     pub api_call: OllamaModuleInternalApiCall,
-    /// Privilege level required for this call
     privilege: Privilege,
 }
 
@@ -583,15 +557,16 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host (Linux or macOS)
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
         let cmd: String = match &self.api_call {
-            OllamaModuleInternalApiCall::Install => {
-                "curl -fsSL https://ollama.com/install.sh | sh".to_string()
-            }
+            OllamaModuleInternalApiCall::Install => concat!(
+                "curl -fsSL -o /tmp/regent-ollama-install.sh https://ollama.com/install.sh && ",
+                "sh /tmp/regent-ollama-install.sh"
+            )
+            .to_string(),
             OllamaModuleInternalApiCall::Uninstall => concat!(
                 "systemctl stop ollama 2>/dev/null; ",
                 "systemctl disable ollama 2>/dev/null; ",
