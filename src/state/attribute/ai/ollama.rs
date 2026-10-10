@@ -11,21 +11,21 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::ai::ollama::{OllamaExpectedState, OllamaExpectedState, OllamaServiceState, OllamaModel, OllamaModelState, OllamaApiConfig};
+//! use regent_sdk::state::attribute::ai::ollama::{
+//!     OllamaApiConfig, OllamaExpectedState, OllamaModel, OllamaModelState,
+//! };
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
-//! // Install Ollama, start the service, and pull a model
-//! let ollama = OllamaExpectedState::builder()
-//!     .with_state(OllamaExpectedState::Present)
-//!     .with_service(OllamaServiceState::Started)
-//!     .with_models(vec![
-//!         OllamaModel {
-//!             name: "llama3".to_string(),
-//!             state: Some(OllamaModelState::Present),
-//!         }
-//!     ])
-//!     .build()
-//!     .unwrap();
+//! // Install Ollama, expose the API on all interfaces, and pull a model
+//! let ollama = OllamaExpectedState::present_with_default_config()
+//!     .with_api_config(OllamaApiConfig {
+//!         host: Some("0.0.0.0:11434".to_string()),
+//!         ..Default::default()
+//!     })
+//!     .with_models(vec![OllamaModel {
+//!         name: "llama3".to_string(),
+//!         state: OllamaModelState::Present,
+//!     }]);
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::ollama(ollama, Privilege::WithSudo, None))
@@ -36,20 +36,34 @@
 //!
 //! ```yaml
 //! Attributes:
-//!   - Name: Ollama with llama3 model must be present and running
+//!   - Name: Ollama with the llama3 model must be installed
 //!     Privilege: !WithSudo
+//!     Timeout: 600
 //!     Detail: !Ollama
-//!       State: !Present
-//!       Service: !Started
-//!       ServiceEnabled: true
-//!       Models:
-//!         - Name: llama3
-//!           State: !Present
-//!       Api:
+//!       State: Present
+//!       ApiConfig:
 //!         Host: '0.0.0.0:11434'
 //!         Origins:
 //!           - '*'
+//!       Models:
+//!         - Name: llama3
+//!           State: Present
 //! ```
+//!
+//! To remove Ollama:
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: Ollama must be removed
+//!     Privilege: !WithSudo
+//!     Timeout: 600
+//!     Detail: !Ollama
+//!       State: Absent
+//! ```
+//!
+//! The API configuration is written to
+//! `/etc/systemd/system/ollama.service.d/override.conf`; the running service
+//! picks it up on its next restart (`systemctl restart ollama`).
 
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
@@ -81,60 +95,60 @@ pub enum OllamaModelState {
 #[serde(rename_all = "PascalCase")]
 pub struct OllamaModel {
     /// Name of the model (e.g., "llama3", "mistral:7b")
-    name: String,
-    state: OllamaModelState,
+    pub name: String,
+    pub state: OllamaModelState,
 }
 
 /// REST API and environment configuration for Ollama
 ///
 /// These settings are written to `/etc/systemd/system/ollama.service.d/override.conf`
 /// and control the Ollama service behavior.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct OllamaApiConfig {
     /// OLLAMA_HOST env var - the address the server listens on, e.g. "0.0.0.0:11434"
-    host: Option<String>,
+    pub host: Option<String>,
     /// OLLAMA_ORIGINS - allowed origins for CORS, e.g. ["*"] or specific URLs
-    origins: Option<Vec<String>>,
+    pub origins: Option<Vec<String>>,
     /// OLLAMA_MODELS - custom model storage path
-    models_path: Option<String>,
+    pub models_path: Option<String>,
     /// OLLAMA_KEEP_ALIVE - how long to keep models in memory, e.g. "5m", "0", "24h"
-    keep_alive: Option<String>,
+    pub keep_alive: Option<String>,
     /// OLLAMA_NUM_PARALLEL - number of parallel requests to process
-    num_parallel: Option<u32>,
+    pub num_parallel: Option<u32>,
     /// OLLAMA_MAX_LOADED_MODELS - maximum number of models to keep loaded in memory
-    max_loaded_models: Option<u32>,
+    pub max_loaded_models: Option<u32>,
     /// OLLAMA_GPU_LAYERS - number of GPU layers to load (-1 for all available)
-    gpu_layers: Option<i32>,
+    pub gpu_layers: Option<i32>,
 }
 
 // ── BlockExpectedState ────────────────────────────────────────────────────────
 
-/// Configuration for Ollama AI inference engine
-///
-/// At least one field must be set. When state is None, only the specified
-/// fields (service, models, api) will be managed.
+/// Whether Ollama must be installed on the host
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
-pub enum OllamaExpectedState {
-    Absent,
+pub enum OllamaState {
+    /// Ollama must be installed (and configured, when `ApiConfig` / `Models` are set)
     Present,
-    #[serde(rename_all = "PascalCase")]
-    PresentWithConfig {
-        /// REST API / environment configuration.
-        api_config: OllamaApiConfig,
-    },
-    #[serde(rename_all = "PascalCase")]
-    PresentWithModels {
-        /// LLM models to manage (pull or remove).
-        models: Vec<OllamaModel>,
-    },
-    #[serde(rename_all = "PascalCase")]
-    PresentWithConfigAndModels {
-        api_config: OllamaApiConfig,
-        models: Vec<OllamaModel>,
-    },
+    /// Ollama must be removed
+    Absent,
+}
+
+/// Configuration for the Ollama AI inference engine
+///
+/// `ApiConfig` and `Models` are only managed in the `Present` state: an
+/// `Absent` state carrying them is rejected by [`Check::check`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[serde(rename_all = "PascalCase")]
+pub struct OllamaExpectedState {
+    /// Install or remove Ollama
+    state: OllamaState,
+    /// REST API / environment configuration (written to the systemd override file)
+    api_config: Option<OllamaApiConfig>,
+    /// LLM models to manage (pull or remove)
+    models: Option<Vec<OllamaModel>>,
 }
 
 impl Timeout for OllamaExpectedState {
@@ -145,31 +159,55 @@ impl Timeout for OllamaExpectedState {
 
 impl OllamaExpectedState {
     pub fn absent() -> OllamaExpectedState {
-        OllamaExpectedState::Absent
+        OllamaExpectedState {
+            state: OllamaState::Absent,
+            api_config: None,
+            models: None,
+        }
     }
 
     pub fn present_with_default_config() -> OllamaExpectedState {
-        OllamaExpectedState::Present
+        OllamaExpectedState {
+            state: OllamaState::Present,
+            api_config: None,
+            models: None,
+        }
     }
 
     pub fn present_with_config(api_config: OllamaApiConfig) -> OllamaExpectedState {
-        OllamaExpectedState::PresentWithConfig { api_config }
+        OllamaExpectedState::present_with_default_config().with_api_config(api_config)
     }
 
     pub fn present_with_models(models: Vec<OllamaModel>) -> OllamaExpectedState {
-        OllamaExpectedState::PresentWithModels { models }
+        OllamaExpectedState::present_with_default_config().with_models(models)
     }
 
     pub fn present_with_config_and_models(
         api_config: OllamaApiConfig,
         models: Vec<OllamaModel>,
     ) -> OllamaExpectedState {
-        OllamaExpectedState::PresentWithConfigAndModels { api_config, models }
+        OllamaExpectedState::present_with_config(api_config).with_models(models)
+    }
+
+    pub fn with_api_config(mut self, api_config: OllamaApiConfig) -> Self {
+        self.api_config = Some(api_config);
+        self
+    }
+
+    pub fn with_models(mut self, models: Vec<OllamaModel>) -> Self {
+        self.models = Some(models);
+        self
     }
 }
 
 impl Check for OllamaExpectedState {
     fn check(&self) -> Result<(), RegentError> {
+        if self.state == OllamaState::Absent && (self.api_config.is_some() || self.models.is_some())
+        {
+            return Err(RegentError::IncoherentExpectedState(
+                "Ollama Absent state cannot carry an ApiConfig or Models".to_string(),
+            ));
+        }
         Ok(())
     }
 
@@ -214,8 +252,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
             .return_code
             == 0;
 
-        match self {
-            OllamaExpectedState::Absent => {
+        match &self.state {
+            OllamaState::Absent => {
                 if ollama_is_installed {
                     remediations.push(Remediation::Ollama(OllamaApiCall::from(
                         OllamaModuleInternalApiCall::Uninstall,
@@ -223,143 +261,72 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
                     )));
                 }
             }
-            OllamaExpectedState::Present => {
-                if !ollama_is_installed {
-                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                        OllamaModuleInternalApiCall::Install,
-                        privilege.clone(),
-                    )));
-                }
-            }
-            OllamaExpectedState::PresentWithConfig { api_config } => {
+            OllamaState::Present => {
                 if !ollama_is_installed {
                     remediations.push(Remediation::Ollama(OllamaApiCall::from(
                         OllamaModuleInternalApiCall::Install,
                         privilege.clone(),
                     )));
                 } else {
-                    let expected_content = build_api_config_content(api_config);
-
-                    let current_result = host_handler
-                        .run_command(
-                            "cat /etc/systemd/system/ollama.service.d/override.conf 2>/dev/null",
-                            &Privilege::None,
-                        )
-                        .await
-                        .unwrap();
-
-                    let current_content = if current_result.return_code == 0 {
-                        current_result.stdout.clone()
-                    } else {
-                        String::new()
-                    };
-
-                    if current_content != expected_content {
-                        remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                            OllamaModuleInternalApiCall::WriteApiConfig {
-                                content: expected_content,
-                            },
-                            privilege.clone(),
-                        )));
-                    }
-                }
-            }
-            OllamaExpectedState::PresentWithModels { models } => {
-                if !ollama_is_installed {
-                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                        OllamaModuleInternalApiCall::Install,
-                        privilege.clone(),
-                    )));
-                } else {
-                    let installed_models = installed_models(host_handler).await;
-
-                    for model in models {
-                        let normalized_name = normalize_model_name(&model.name);
-
-                        match model.state {
-                            OllamaModelState::Present => {
-                                if !installed_models.contains(&normalized_name) {
-                                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                                        OllamaModuleInternalApiCall::PullModel {
-                                            name: normalized_name,
-                                        },
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                            OllamaModelState::Absent => {
-                                if installed_models.contains(&normalized_name) {
-                                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                                        OllamaModuleInternalApiCall::RemoveModel {
-                                            name: normalized_name,
-                                        },
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            OllamaExpectedState::PresentWithConfigAndModels { api_config, models } => {
-                if !ollama_is_installed {
-                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                        OllamaModuleInternalApiCall::Install,
-                        privilege.clone(),
-                    )));
-                } else {
-                    // Checks on configuration & models
                     // ***** Configuration *****
-                    let expected_content = build_api_config_content(api_config);
+                    if let Some(api_config) = &self.api_config {
+                        let expected_content = build_api_config_content(api_config);
 
-                    let current_result = host_handler
-                        .run_command(
-                            "cat /etc/systemd/system/ollama.service.d/override.conf 2>/dev/null",
-                            &Privilege::None,
-                        )
-                        .await
-                        .unwrap();
+                        let current_result = host_handler
+                            .run_command(
+                                "cat /etc/systemd/system/ollama.service.d/override.conf 2>/dev/null",
+                                &Privilege::None,
+                            )
+                            .await
+                            .unwrap();
 
-                    let current_content = if current_result.return_code == 0 {
-                        current_result.stdout.clone()
-                    } else {
-                        String::new()
-                    };
+                        let current_content = if current_result.return_code == 0 {
+                            current_result.stdout.clone()
+                        } else {
+                            String::new()
+                        };
 
-                    if current_content != expected_content {
-                        remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                            OllamaModuleInternalApiCall::WriteApiConfig {
-                                content: expected_content,
-                            },
-                            privilege.clone(),
-                        )));
+                        if current_content != expected_content {
+                            remediations.push(Remediation::Ollama(OllamaApiCall::from(
+                                OllamaModuleInternalApiCall::WriteApiConfig {
+                                    content: expected_content,
+                                },
+                                privilege.clone(),
+                            )));
+                        }
                     }
 
                     // ***** Models *****
-                    let installed_models = installed_models(host_handler).await;
+                    if let Some(models) = &self.models {
+                        let installed_models = installed_models(host_handler).await;
 
-                    for model in models {
-                        let normalized_name = normalize_model_name(&model.name);
+                        for model in models {
+                            let normalized_name = normalize_model_name(&model.name);
 
-                        match model.state {
-                            OllamaModelState::Present => {
-                                if !installed_models.contains(&normalized_name) {
-                                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                                        OllamaModuleInternalApiCall::PullModel {
-                                            name: normalized_name,
-                                        },
-                                        privilege.clone(),
-                                    )));
+                            match model.state {
+                                OllamaModelState::Present => {
+                                    if !installed_models.contains(&normalized_name) {
+                                        remediations.push(Remediation::Ollama(
+                                            OllamaApiCall::from(
+                                                OllamaModuleInternalApiCall::PullModel {
+                                                    name: normalized_name,
+                                                },
+                                                privilege.clone(),
+                                            ),
+                                        ));
+                                    }
                                 }
-                            }
-                            OllamaModelState::Absent => {
-                                if installed_models.contains(&normalized_name) {
-                                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                                        OllamaModuleInternalApiCall::RemoveModel {
-                                            name: normalized_name,
-                                        },
-                                        privilege.clone(),
-                                    )));
+                                OllamaModelState::Absent => {
+                                    if installed_models.contains(&normalized_name) {
+                                        remediations.push(Remediation::Ollama(
+                                            OllamaApiCall::from(
+                                                OllamaModuleInternalApiCall::RemoveModel {
+                                                    name: normalized_name,
+                                                },
+                                                privilege.clone(),
+                                            ),
+                                        ));
+                                    }
                                 }
                             }
                         }
@@ -612,88 +579,107 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::attribute::Attribute;
 
     #[test]
     fn parsing_ollama_module_block_from_yaml_str() {
-        let serde_helper: Vec<OllamaExpectedState> = vec![
-            OllamaExpectedState::Present,
-            OllamaExpectedState::Absent,
-            OllamaExpectedState::PresentWithModels {
-                models: vec![OllamaModel {
-                    name: "mistral:7b".to_string(),
-                    state: OllamaModelState::Present,
-                }],
-            },
-        ];
-        println!("{}", yaml_serde::to_string(&serde_helper).unwrap());
-
         let raw = "---
-!Absent
-";
-        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert_eq!(block, OllamaExpectedState::Absent);
-
-        let raw = "---
-!Present
-";
-        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert_eq!(block, OllamaExpectedState::Present);
-
-        let raw = "---
-!PresentWithModels
-Models:
-    - Name: mistral:7b
-      State: Present
-";
-        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert_eq!(
-            block,
-            OllamaExpectedState::PresentWithModels {
-                models: vec![OllamaModel {
-                    name: "mistral:7b".to_string(),
-                    state: OllamaModelState::Present
-                }]
-            }
-        );
-
-        let raw = "---
-!PresentWithConfigAndModels
+State: Present
 ApiConfig:
-    Host: '0.0.0.0:11434'
-    Origins:
-      - '*'
-    KeepAlive: 5m
-    NumParallel: 4
-    MaxLoadedModels: 2
-    GpuLayers: -1
+  Host: '0.0.0.0:11434'
+  Origins:
+    - '*'
+  KeepAlive: 5m
+  NumParallel: 4
+  MaxLoadedModels: 2
+  GpuLayers: -1
 Models:
+  - Name: llama3
+    State: Present
+  - Name: mistral:7b
+    State: Absent
+";
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(block.state, OllamaState::Present);
+        assert!(block.check().is_ok());
+
+        let api_config = block.api_config.as_ref().unwrap();
+        assert_eq!(api_config.host, Some("0.0.0.0:11434".to_string()));
+        assert_eq!(api_config.origins, Some(vec!["*".to_string()]));
+        assert_eq!(api_config.keep_alive, Some("5m".to_string()));
+        assert_eq!(api_config.num_parallel, Some(4));
+        assert_eq!(api_config.max_loaded_models, Some(2));
+        assert_eq!(api_config.gpu_layers, Some(-1));
+
+        let models = block.models.as_ref().unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].name, "llama3");
+        assert_eq!(models[0].state, OllamaModelState::Present);
+        assert_eq!(models[1].name, "mistral:7b");
+        assert_eq!(models[1].state, OllamaModelState::Absent);
+
+        // Absent carries neither config nor models
+        let raw = "---
+State: Absent
+";
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(block, OllamaExpectedState::absent());
+        assert!(block.check().is_ok());
+
+        // ... and cannot carry them
+        let raw = "---
+State: Absent
+Models:
+  - Name: llama3
+    State: Present
+";
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert!(block.check().is_err());
+    }
+
+    #[test]
+    fn parsing_full_ollama_attribute_envelope_from_yaml_str() {
+        // Regression test: the payload of `Detail: !Ollama` is a struct, so the
+        // whole attribute must parse from YAML (an enum payload nested in
+        // another enum's tag is not supported by the YAML deserializer).
+        let raw_attribute = "---
+Name: Ollama with the llama3 model must be installed
+Privilege: !WithSudo
+Timeout: 600
+Detail: !Ollama
+  State: Present
+  ApiConfig:
+    Host: '0.0.0.0:11434'
+  Models:
     - Name: llama3
       State: Present
-    - Name: mistral:7b
-      State: Present
-    - Name: codellama:13b
-      State: Absent
 ";
-        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
-        match &block {
-            OllamaExpectedState::PresentWithConfigAndModels { api_config, models } => {
-                assert_eq!(models.len(), 3);
-                assert_eq!(models[0].name, "llama3");
-                assert_eq!(models[0].state, OllamaModelState::Present);
-                assert_eq!(models[1].name, "mistral:7b");
-                assert_eq!(models[1].state, OllamaModelState::Present);
-                assert_eq!(models[2].name, "codellama:13b");
-                assert_eq!(models[2].state, OllamaModelState::Absent);
+        let attribute: Attribute = yaml_serde::from_str(raw_attribute).unwrap();
+        assert!(attribute.check().is_ok());
+        assert_eq!(
+            attribute.name(),
+            "Ollama with the llama3 model must be installed"
+        );
+    }
 
-                assert_eq!(api_config.host, Some("0.0.0.0:11434".to_string()));
-                assert_eq!(api_config.origins, Some(vec!["*".to_string()]));
-                assert_eq!(api_config.keep_alive, Some("5m".to_string()));
-                assert_eq!(api_config.num_parallel, Some(4));
-                assert_eq!(api_config.max_loaded_models, Some(2));
-                assert_eq!(api_config.gpu_layers, Some(-1));
-            }
-            wrong_variant => panic!("Wrong variant chosen : {:?}", wrong_variant),
-        }
+    #[test]
+    fn parsing_ollama_expected_state_from_raw_yaml() {
+        // The exact entry point the `reg` CLI uses.
+        let raw = "
+Attributes:
+  - Name: Ollama must be installed with qwen2.5:1.5b
+    Privilege: !WithSudo
+    Timeout: 1800
+    Detail: !Ollama
+      State: Present
+      ApiConfig:
+        Host: '0.0.0.0:11434'
+      Models:
+        - Name: qwen2.5:1.5b
+          State: Present
+";
+        let expected_state = crate::state::ExpectedState::from_raw_yaml(raw).unwrap();
+        assert_eq!(expected_state.attributes.len(), 1);
     }
 
     #[test]

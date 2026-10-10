@@ -61,11 +61,12 @@
 //!     Timeout: 600
 //!     Detail: !Onnx
 //!       State: Present
-//!       Version: 1.20.0
-//!       Gpu: true
-//!       Python: /opt/inference/bin/python
-//!       Providers:
-//!         - CUDAExecutionProvider
+//!       Runtime:
+//!         Version: 1.20.0
+//!         Gpu: true
+//!         Python: /opt/inference/bin/python
+//!         Providers:
+//!           - CUDAExecutionProvider
 //! ```
 
 use std::time::Duration;
@@ -707,6 +708,7 @@ Runtime:
 
     #[test]
     fn parsing_full_onnx_attribute_envelope_from_yaml_str() {
+        // Same shape as the module's YAML API documentation example.
         let raw_attribute = "---
 Name: ONNX Runtime GPU in the inference venv
 Privilege: !None
@@ -717,6 +719,8 @@ Detail: !Onnx
     Version: 1.20.0
     Gpu: true
     Python: /opt/inference/bin/python
+    Providers:
+      - CUDAExecutionProvider
 ";
         let attribute: Attribute = yaml_serde::from_str(raw_attribute).unwrap();
         assert!(attribute.check().is_ok());
