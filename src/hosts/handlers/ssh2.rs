@@ -4,7 +4,7 @@ use russh::Preferred;
 use russh::client::AuthResult;
 use russh::client::{Config, Handle, Handler};
 use russh::keys::key::PrivateKeyWithHashAlg;
-use russh::keys::{PublicKeyOrCertificate, load_secret_key};
+use russh::keys::{PublicKeyOrCertificate, decode_secret_key};
 use russh::{Channel, ChannelMsg};
 use serde::Deserialize;
 use serde::Serialize;
@@ -177,56 +177,52 @@ impl HostHandler for Ssh2HostHandler {
                         }
                     }
                 }
-                Ssh2AuthMethod::Key(login_key) => {
-                    // Load the private key from the string
-                    match load_secret_key(login_key.key(), None) {
-                        Ok(key_pair) => {
-                            let best_hash = match handle.best_supported_rsa_hash().await {
-                                Ok(h) => h.flatten(),
-                                Err(e) => {
-                                    return Err(RegentError::FailedInitialization(format!(
-                                        "Failed to get supported hash: {:?}",
-                                        e
-                                    )));
+                Ssh2AuthMethod::Key(login_key) => match parse_login_key(login_key) {
+                    Ok(key_pair) => {
+                        let best_hash = match handle.best_supported_rsa_hash().await {
+                            Ok(h) => h.flatten(),
+                            Err(e) => {
+                                return Err(RegentError::FailedInitialization(format!(
+                                    "Failed to get supported hash: {:?}",
+                                    e
+                                )));
+                            }
+                        };
+                        let key_with_alg =
+                            PrivateKeyWithHashAlg::new(Arc::new(key_pair), best_hash);
+                        match handle
+                            .authenticate_publickey(login_key.username(), key_with_alg)
+                            .await
+                        {
+                            Ok(auth_result) => match auth_result {
+                                AuthResult::Success => {
+                                    *self = Ssh2HostHandler::Connected(auth_method.clone(), handle);
+                                    return Ok(());
                                 }
-                            };
-                            let key_with_alg =
-                                PrivateKeyWithHashAlg::new(Arc::new(key_pair), best_hash);
-                            match handle
-                                .authenticate_publickey(login_key.username(), key_with_alg)
-                                .await
-                            {
-                                Ok(auth_result) => match auth_result {
-                                    AuthResult::Success => {
-                                        *self =
-                                            Ssh2HostHandler::Connected(auth_method.clone(), handle);
-                                        return Ok(());
-                                    }
-                                    AuthResult::Failure {
-                                        remaining_methods,
-                                        partial_success,
-                                    } => {
-                                        return Err(RegentError::FailedInitialization(
-                                            "Public key authentication failed".to_string(),
-                                        ));
-                                    }
-                                },
-                                Err(e) => {
-                                    return Err(RegentError::FailedInitialization(format!(
-                                        "Public key authentication error: {:?}",
-                                        e
-                                    )));
+                                AuthResult::Failure {
+                                    remaining_methods,
+                                    partial_success,
+                                } => {
+                                    return Err(RegentError::FailedInitialization(
+                                        "Public key authentication failed".to_string(),
+                                    ));
                                 }
+                            },
+                            Err(e) => {
+                                return Err(RegentError::FailedInitialization(format!(
+                                    "Public key authentication error: {:?}",
+                                    e
+                                )));
                             }
                         }
-                        Err(error_details) => {
-                            return Err(RegentError::FailedInitialization(format!(
-                                "Failed to load key: {:?}",
-                                error_details
-                            )));
-                        }
                     }
-                }
+                    Err(error_details) => {
+                        return Err(RegentError::FailedInitialization(format!(
+                            "Failed to load key: {:?}",
+                            error_details
+                        )));
+                    }
+                },
             }
         } else {
             Ok(())
@@ -657,6 +653,13 @@ mod tests {
         let auth_method = yaml_serde::from_str::<Ssh2AuthMethod>(yaml);
         matches!(auth_method, Ok(Ssh2AuthMethod::Key(_)));
     }
+
+    #[test]
+    fn test_parse_login_key_from_content() {
+        let key_content = std::fs::read_to_string("ssh/private.key").unwrap();
+        let login_key = LoginKey::from("testuser".to_string(), key_content);
+        assert!(parse_login_key(&login_key).is_ok());
+    }
 }
 
 impl std::fmt::Debug for Ssh2AuthMethod {
@@ -674,6 +677,12 @@ impl std::fmt::Debug for Ssh2AuthMethod {
             }
         }
     }
+}
+
+// LoginKey holds the private key content resolved from the secret provider;
+// russh's load_secret_key would misread it as a file path.
+fn parse_login_key(login_key: &LoginKey) -> Result<russh::keys::PrivateKey, russh::keys::Error> {
+    decode_secret_key(login_key.key(), None)
 }
 
 // A key-authenticated session has no password to offer, so privileged commands
