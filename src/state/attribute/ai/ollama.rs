@@ -293,6 +293,33 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
                                 },
                                 privilege.clone(),
                             )));
+                        } else if let Some((address, port)) =
+                            api_config.host.as_deref().and_then(api_listen_address)
+                        {
+                            // The override file matches, but the running daemon may
+                            // predate it: it must listen on the expected address.
+                            // A stopped service is left alone: the Service
+                            // attribute starts it with the override in place.
+                            let service_is_active = host_handler
+                                .run_command("systemctl is-active --quiet ollama", &Privilege::None)
+                                .await
+                                .unwrap()
+                                .return_code
+                                == 0;
+                            if service_is_active {
+                                let sockets = host_handler
+                                    .run_command("ss -tln", &Privilege::None)
+                                    .await
+                                    .unwrap();
+                                if sockets.return_code == 0
+                                    && !listens_on(&sockets.stdout, &address, port)
+                                {
+                                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
+                                        OllamaModuleInternalApiCall::RestartService,
+                                        privilege.clone(),
+                                    )));
+                                }
+                            }
                         }
                     }
 
@@ -417,6 +444,44 @@ pub fn build_api_config_content(api: &OllamaApiConfig) -> String {
     // Terminate with a trailing newline, matching the file format produced by
     // the WriteApiConfig command.
     format!("{}\n", lines.join("\n"))
+}
+
+/// Splits an `OLLAMA_HOST` value into a listen address and port. Returns
+/// `None` when the value has no port or the address is not an IP literal
+/// (e.g. a hostname): the live listen check only applies to IP literals.
+fn api_listen_address(host: &str) -> Option<(String, u16)> {
+    let (address, port) = host.rsplit_once(':')?;
+    let port = port.parse::<u16>().ok()?;
+    let address = address.trim_start_matches('[').trim_end_matches(']');
+    match address.parse::<std::net::IpAddr>() {
+        Ok(address) => Some((address.to_string(), port)),
+        Err(_details) => None,
+    }
+}
+
+/// Whether `ss -tln` output shows a LISTEN socket bound to `address:port`.
+/// A wildcard expectation (`0.0.0.0`, `::`) is also satisfied by the other
+/// wildcard representations (`*`, `[::]`).
+fn listens_on(ss_output: &str, address: &str, port: u16) -> bool {
+    let expected = format!("{}:{}", address, port);
+    let expected_v6 = format!("[{}]:{}", address, port);
+    let wildcard = matches!(address, "0.0.0.0" | "::" | "*");
+    ss_output.lines().any(|line| {
+        let columns: Vec<&str> = line.split_whitespace().collect();
+        if columns.len() < 4 || columns[0] != "LISTEN" {
+            return false;
+        }
+        let local = columns[3];
+        local == expected || local == expected_v6 || (wildcard && is_wildcard_bind(local, port))
+    })
+}
+
+/// Whether an `ss` local address column is a wildcard bind on `port`.
+fn is_wildcard_bind(local: &str, port: u16) -> bool {
+    match local.strip_suffix(&format!(":{}", port)) {
+        Some(address) => matches!(address, "0.0.0.0" | "*" | "::" | "[::]"),
+        None => false,
+    }
 }
 
 /// Escapes a string for use as the argument to `printf`: replaces `\` with `\\`,
