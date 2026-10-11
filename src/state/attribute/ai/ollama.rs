@@ -62,8 +62,10 @@
 //! ```
 //!
 //! The API configuration is written to
-//! `/etc/systemd/system/ollama.service.d/override.conf`; the running service
-//! picks it up on its next restart (`systemctl restart ollama`).
+//! `/etc/systemd/system/ollama.service.d/override.conf` and applied to the
+//! running service: writing it restarts the service when it is active, and a
+//! running daemon that does not listen on the expected address yet is
+//! reported as non-compliant until it is restarted.
 
 use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
@@ -512,6 +514,8 @@ pub enum OllamaModuleInternalApiCall {
     WriteApiConfig {
         content: String,
     },
+    /// Restart the ollama service so the API configuration takes effect
+    RestartService,
 }
 
 impl std::fmt::Display for OllamaModuleInternalApiCall {
@@ -527,6 +531,9 @@ impl std::fmt::Display for OllamaModuleInternalApiCall {
             }
             OllamaModuleInternalApiCall::WriteApiConfig { .. } => {
                 write!(f, "write ollama api config")
+            }
+            OllamaModuleInternalApiCall::RestartService => {
+                write!(f, "restart the ollama service")
             }
         }
     }
@@ -551,6 +558,9 @@ impl OllamaApiCall {
             }
             OllamaModuleInternalApiCall::WriteApiConfig { .. } => {
                 "Configure ollama REST API".to_string()
+            }
+            OllamaModuleInternalApiCall::RestartService => {
+                "Restart the ollama service (to apply the API configuration)".to_string()
             }
         }
     }
@@ -582,6 +592,47 @@ impl Check for OllamaApiCall {
     }
 }
 
+/// Builds the shell command executed for an [`OllamaModuleInternalApiCall`].
+fn ollama_api_call_command(api_call: &OllamaModuleInternalApiCall) -> String {
+    match api_call {
+        OllamaModuleInternalApiCall::Install => concat!(
+            "curl -fsSL -o /tmp/regent-ollama-install.sh https://ollama.com/install.sh && ",
+            "sh /tmp/regent-ollama-install.sh"
+        )
+        .to_string(),
+        OllamaModuleInternalApiCall::Uninstall => concat!(
+            "systemctl stop ollama 2>/dev/null; ",
+            "systemctl disable ollama 2>/dev/null; ",
+            "rm -f /usr/local/bin/ollama /usr/bin/ollama; ",
+            "rm -f /etc/systemd/system/ollama.service; ",
+            "systemctl daemon-reload 2>/dev/null; ",
+            "rm -rf /usr/share/ollama"
+        )
+        .to_string(),
+        OllamaModuleInternalApiCall::PullModel { name } => {
+            format!("ollama pull {}", name)
+        }
+        OllamaModuleInternalApiCall::RemoveModel { name } => {
+            format!("ollama rm {}", name)
+        }
+        OllamaModuleInternalApiCall::WriteApiConfig { content } => {
+            let escaped = escape_for_printf(content);
+            // Restart only when the service is active: a stopped service is
+            // started later (Service attribute) with the override in place.
+            format!(
+                concat!(
+                    "mkdir -p /etc/systemd/system/ollama.service.d && ",
+                    "printf '{}' > /etc/systemd/system/ollama.service.d/override.conf; ",
+                    "systemctl daemon-reload; ",
+                    "if systemctl is-active --quiet ollama; then systemctl restart ollama; fi"
+                ),
+                escaped
+            )
+        }
+        OllamaModuleInternalApiCall::RestartService => "systemctl restart ollama".to_string(),
+    }
+}
+
 impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
     async fn call(
         &self,
@@ -593,35 +644,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
             self.check_host_compatibility(props)?;
         }
 
-        let cmd: String = match &self.api_call {
-            OllamaModuleInternalApiCall::Install => concat!(
-                "curl -fsSL -o /tmp/regent-ollama-install.sh https://ollama.com/install.sh && ",
-                "sh /tmp/regent-ollama-install.sh"
-            )
-            .to_string(),
-            OllamaModuleInternalApiCall::Uninstall => concat!(
-                "systemctl stop ollama 2>/dev/null; ",
-                "systemctl disable ollama 2>/dev/null; ",
-                "rm -f /usr/local/bin/ollama /usr/bin/ollama; ",
-                "rm -f /etc/systemd/system/ollama.service; ",
-                "systemctl daemon-reload 2>/dev/null; ",
-                "rm -rf /usr/share/ollama"
-            )
-            .to_string(),
-            OllamaModuleInternalApiCall::PullModel { name } => {
-                format!("ollama pull {}", name)
-            }
-            OllamaModuleInternalApiCall::RemoveModel { name } => {
-                format!("ollama rm {}", name)
-            }
-            OllamaModuleInternalApiCall::WriteApiConfig { content } => {
-                let escaped = escape_for_printf(content);
-                format!(
-                    "mkdir -p /etc/systemd/system/ollama.service.d && printf '{}' > /etc/systemd/system/ollama.service.d/override.conf; systemctl daemon-reload",
-                    escaped
-                )
-            }
-        };
+        let cmd = ollama_api_call_command(&self.api_call);
 
         let result = host_handler
             .run_command(&cmd, &self.privilege)
@@ -768,5 +791,114 @@ Attributes:
         // Backslash escaping.
         let with_backslash = "foo\\bar";
         assert_eq!(escape_for_printf(with_backslash), "foo\\\\bar");
+    }
+
+    #[test]
+    fn api_listen_address_parses_ip_literals() {
+        assert_eq!(
+            api_listen_address("0.0.0.0:11434"),
+            Some(("0.0.0.0".to_string(), 11434))
+        );
+        assert_eq!(
+            api_listen_address("127.0.0.1:11434"),
+            Some(("127.0.0.1".to_string(), 11434))
+        );
+        assert_eq!(
+            api_listen_address("[::]:11434"),
+            Some(("::".to_string(), 11434))
+        );
+        // Hostnames are not checked live.
+        assert_eq!(api_listen_address("localhost:11434"), None);
+        // Missing or invalid port.
+        assert_eq!(api_listen_address("0.0.0.0"), None);
+        assert_eq!(api_listen_address("0.0.0.0:notaport"), None);
+        assert_eq!(api_listen_address("0.0.0.0:99999"), None);
+    }
+
+    #[test]
+    fn listens_on_matches_ss_output() {
+        let ss = "\
+State  Recv-Q Send-Q Local Address:Port Peer Address:Port
+LISTEN 0      4096   127.0.0.1:11434    0.0.0.0:*
+LISTEN 0      128    0.0.0.0:22         0.0.0.0:*
+LISTEN 0      128    [::]:22            [::]:*
+";
+        // Exact match.
+        assert!(listens_on(ss, "127.0.0.1", 11434));
+        // No match: bound to loopback only.
+        assert!(!listens_on(ss, "0.0.0.0", 11434));
+        // Wildcard expectation satisfied by the other wildcard forms.
+        assert!(listens_on(ss, "0.0.0.0", 22));
+        assert!(listens_on(ss, "::", 22));
+        // Port not bound at all.
+        assert!(!listens_on(ss, "0.0.0.0", 8080));
+        // Header line is never a match.
+        assert!(!listens_on("State Recv-Q Send-Q Local Peer\n", "State", 0));
+
+        let ss_star = "LISTEN 0 4096 *:11434 0.0.0.0:*\n";
+        assert!(listens_on(ss_star, "0.0.0.0", 11434));
+        assert!(listens_on(ss_star, "::", 11434));
+        assert!(!listens_on(ss_star, "127.0.0.1", 11434));
+    }
+
+    #[test]
+    fn api_call_commands_are_built_as_expected() {
+        // WriteApiConfig writes the override, reloads systemd, and restarts the
+        // service only when it is active.
+        let cmd = ollama_api_call_command(&OllamaModuleInternalApiCall::WriteApiConfig {
+            content: build_api_config_content(&OllamaApiConfig {
+                host: Some("0.0.0.0:11434".to_string()),
+                ..Default::default()
+            }),
+        });
+        assert!(cmd.contains("printf '[Service]"));
+        assert!(cmd.contains("> /etc/systemd/system/ollama.service.d/override.conf"));
+        assert!(cmd.contains("systemctl daemon-reload"));
+        assert!(
+            cmd.contains(
+                "if systemctl is-active --quiet ollama; then systemctl restart ollama; fi"
+            )
+        );
+
+        assert_eq!(
+            ollama_api_call_command(&OllamaModuleInternalApiCall::RestartService),
+            "systemctl restart ollama"
+        );
+        assert_eq!(
+            ollama_api_call_command(&OllamaModuleInternalApiCall::PullModel {
+                name: "qwen2.5:1.5b".to_string()
+            }),
+            "ollama pull qwen2.5:1.5b"
+        );
+        assert_eq!(
+            ollama_api_call_command(&OllamaModuleInternalApiCall::RemoveModel {
+                name: "qwen2.5:1.5b".to_string()
+            }),
+            "ollama rm qwen2.5:1.5b"
+        );
+        assert!(
+            ollama_api_call_command(&OllamaModuleInternalApiCall::Install)
+                .contains("ollama.com/install.sh")
+        );
+        assert!(
+            ollama_api_call_command(&OllamaModuleInternalApiCall::Uninstall)
+                .contains("rm -f /usr/local/bin/ollama")
+        );
+    }
+
+    #[test]
+    fn restart_service_is_displayed() {
+        assert_eq!(
+            OllamaModuleInternalApiCall::RestartService.to_string(),
+            "restart the ollama service"
+        );
+        let api_call = OllamaApiCall::from(
+            OllamaModuleInternalApiCall::RestartService,
+            Privilege::WithSudo,
+        );
+        assert_eq!(
+            api_call.display(),
+            "Restart the ollama service (to apply the API configuration)"
+        );
     }
 }
