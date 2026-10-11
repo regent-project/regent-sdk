@@ -30,16 +30,24 @@
 //!
 //! 1. The CUDA network repository of the host must be configured (cuda-keyring package for apt,
 //!    `cuda-<distro>.repo` for dnf and zypper). It is never removed by this attribute.
-//! 2. The driver branch is selected the way NVIDIA documents it for the distribution:
-//!    `nvidia-driver-pinning-<branch>` package (Ubuntu, Debian), `nvidia-driver` DNF module
-//!    stream (`open-dkms`, `<branch>-open`, `<branch>-dkms`; RHEL 8/9, Amazon Linux 2023),
-//!    `dnf versionlock` on `*nvidia*<branch>*` (RHEL 10, Fedora) or a `*nvidia* >= <branch + 1>`
-//!    zypper lock (SUSE). `Latest` removes these pins and locks.
-//! 3. The driver meta package must be installed: `nvidia-open` (open kernel modules) or
-//!    `cuda-drivers` (proprietary kernel modules), together with the kernel headers DKMS needs
-//!    to build the modules. Its version must belong to the expected branch: if it doesn't, the
-//!    driver is removed then installed again. `Latest` installs the newest driver once and
-//!    doesn't upgrade it afterwards (upgrades are left to the system updates).
+//! 2. The driver branch is selected the way NVIDIA documents it for the distribution. On
+//!    Ubuntu and Debian, the branch is pinned by installing its meta package
+//!    `nvidia-driver-<branch>` (proprietary kernel modules) or `nvidia-driver-<branch>-open`
+//!    (open kernel modules), shipped by the CUDA repository or by the distribution archive
+//!    once NVIDIA prunes the branch from the CUDA repository: the branch-suffixed packages
+//!    keep the driver in the branch. Elsewhere, the `nvidia-driver` DNF module stream is
+//!    enabled (`open-dkms`, `<branch>-open`, `<branch>-dkms`; RHEL 8/9, Amazon Linux 2023),
+//!    `dnf versionlock` on `*nvidia*<branch>*` is set (RHEL 10, Fedora) or a
+//!    `*nvidia* >= <branch + 1>` zypper lock is added (SUSE). `Latest` removes these pins
+//!    and locks.
+//! 3. The driver meta package must be installed: on Ubuntu and Debian, the branch meta
+//!    package (`nvidia-driver-<branch>` / `nvidia-driver-<branch>-open`) when a branch is
+//!    pinned, `nvidia-open` (open kernel modules) or `cuda-drivers` (proprietary kernel
+//!    modules) for the latest branch; on the other distributions, `nvidia-open` or
+//!    `cuda-drivers`, together with the kernel headers DKMS needs to build the modules. Its
+//!    version must belong to the expected branch: if it doesn't, the driver is removed then
+//!    installed again. `Latest` installs the newest driver once and doesn't upgrade it
+//!    afterwards (upgrades are left to the system updates).
 //! 4. The kernel module must be loaded with the expected flavor (`/proc/driver/nvidia/version`
 //!    tells `Open Kernel Module` apart) and `nvidia-smi` must work (no
 //!    `Driver/library version mismatch`). If not, a remediation tries to (re)load the module
@@ -53,8 +61,8 @@
 //!    avoids a delay at each start of a GPU application.
 //!
 //! `Absent` removes the driver packages (as listed in the "Removing the Driver" section of the
-//! guide), but keeps the repository, the branch pins and the NVIDIA Container Toolkit. A reboot
-//! is needed to unload a module still in memory.
+//! guide), but keeps the repository and the NVIDIA Container Toolkit. A reboot is needed to
+//! unload a module still in memory.
 //!
 //! Installing the driver builds the kernel modules with DKMS, which can take a while: the
 //! default timeout is 30 minutes.
@@ -271,7 +279,7 @@ impl KernelModules {
         }
     }
 
-    /// Meta package installing the whole driver
+    /// Floating meta package installing the whole driver (latest branch)
     pub fn package(&self) -> &'static str {
         match self {
             KernelModules::Open(_) => OPEN_PACKAGE,
@@ -279,21 +287,38 @@ impl KernelModules {
         }
     }
 
-    /// How the branch is selected on a distribution
-    fn branch_selection(&self, distro: DriverDistro) -> BranchSelection {
+    /// Meta package installing the driver with the expected branch: on apt, the branch
+    /// meta package `nvidia-driver-<branch>[-open]` (pinning the branch by construction,
+    /// shipped by the CUDA repository or the distribution archive); the floating meta
+    /// package otherwise
+    fn install_package(&self, distro: DriverDistro) -> String {
+        match (distro, self.branch()) {
+            (DriverDistro::Ubuntu | DriverDistro::Debian, Some(branch)) => match self.flavor() {
+                KernelModuleFlavor::Proprietary => format!("nvidia-driver-{}", branch),
+                KernelModuleFlavor::Open => format!("nvidia-driver-{}-open", branch),
+            },
+            _ => self.package().to_string(),
+        }
+    }
+
+    /// How the branch is selected on a distribution, `None` when the driver meta package
+    /// itself pins the branch (apt)
+    fn branch_selection(&self, distro: DriverDistro) -> Option<BranchSelection> {
         let branch = self.branch();
         match distro {
-            DriverDistro::Ubuntu | DriverDistro::Debian => BranchSelection::AptPinning(branch),
-            DriverDistro::RhelModular | DriverDistro::AmazonLinux => {
+            DriverDistro::Ubuntu | DriverDistro::Debian => None,
+            DriverDistro::RhelModular | DriverDistro::AmazonLinux => Some(
                 BranchSelection::ModuleStream(match (self.flavor(), branch) {
                     (KernelModuleFlavor::Open, None) => "open-dkms".to_string(),
                     (KernelModuleFlavor::Open, Some(branch)) => format!("{}-open", branch),
                     (KernelModuleFlavor::Proprietary, None) => "latest-dkms".to_string(),
                     (KernelModuleFlavor::Proprietary, Some(branch)) => format!("{}-dkms", branch),
-                })
+                }),
+            ),
+            DriverDistro::Rhel10 | DriverDistro::Fedora => {
+                Some(BranchSelection::VersionLock(branch))
             }
-            DriverDistro::Rhel10 | DriverDistro::Fedora => BranchSelection::VersionLock(branch),
-            DriverDistro::Suse => BranchSelection::ZypperLock(branch),
+            DriverDistro::Suse => Some(BranchSelection::ZypperLock(branch)),
         }
     }
 }
@@ -481,6 +506,16 @@ impl fmt::Display for ProprietaryBranch {
 }
 
 impl ProprietaryBranch {
+    /// Branch number of the proprietary kernel modules (e.g. `580`), from 570 to 610
+    ///
+    /// # Panics
+    ///
+    /// When the branch does not ship the proprietary kernel modules — use
+    /// `ProprietaryBranch::try_from` to handle an invalid branch.
+    pub fn new(branch: u32) -> Self {
+        Self::try_from(branch).unwrap_or_else(|error| panic!("{error}"))
+    }
+
     pub fn number(&self) -> u32 {
         self.0.number()
     }
@@ -556,8 +591,6 @@ fn invalid_value(what: &str, value: &str, details: &str) -> RegentError {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum BranchSelection {
-    /// `nvidia-driver-pinning-<branch>` package installed (apt)
-    AptPinning(Option<u32>),
     /// Enabled stream of the `nvidia-driver` DNF module
     ModuleStream(String),
     /// `dnf versionlock` on `*nvidia*<branch>*`
@@ -569,10 +602,6 @@ pub enum BranchSelection {
 impl fmt::Display for BranchSelection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            BranchSelection::AptPinning(Some(branch)) => {
-                write!(f, "install nvidia-driver-pinning-{}", branch)
-            }
-            BranchSelection::AptPinning(None) => write!(f, "remove the driver pinning packages"),
             BranchSelection::ModuleStream(stream) => {
                 write!(f, "enable DNF module stream nvidia-driver:{}", stream)
             }
@@ -597,8 +626,6 @@ impl fmt::Display for BranchSelection {
 /// Branch selection currently in place, with what must be undone to change it
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CurrentSelection {
-    /// Installed pinning packages
-    AptPins(Vec<String>),
     /// Enabled `nvidia-driver` module stream
     ModuleStream(Option<String>),
     /// Version locks of NVIDIA packages
@@ -610,14 +637,6 @@ enum CurrentSelection {
 impl CurrentSelection {
     fn matches(&self, expected: &BranchSelection) -> bool {
         match (self, expected) {
-            (CurrentSelection::AptPins(pins), BranchSelection::AptPinning(branch)) => {
-                match branch {
-                    None => pins.is_empty(),
-                    Some(branch) => {
-                        !pins.is_empty() && pins.iter().all(|pin| pin_branch(pin) == Some(*branch))
-                    }
-                }
-            }
             (CurrentSelection::ModuleStream(current), BranchSelection::ModuleStream(stream)) => {
                 current.as_deref() == Some(stream.as_str())
             }
@@ -647,7 +666,6 @@ impl CurrentSelection {
     /// Pins and locks to remove before applying a new selection
     fn to_undo(&self) -> Vec<String> {
         match self {
-            CurrentSelection::AptPins(pins) => pins.clone(),
             CurrentSelection::ModuleStream(_) => Vec::new(),
             CurrentSelection::VersionLocks(locks) => {
                 let mut names: Vec<String> = locks.iter().map(|lock| lock.name.clone()).collect();
@@ -657,13 +675,6 @@ impl CurrentSelection {
             CurrentSelection::ZypperLocks(locks) => locks.iter().map(ZypperLock::spec).collect(),
         }
     }
-}
-
-/// Branch of a pinning package: `nvidia-driver-pinning-580` or `nvidia-driver-pinning-580.105.08`
-fn pin_branch(package: &str) -> Option<u32> {
-    package
-        .strip_prefix("nvidia-driver-pinning-")
-        .and_then(version_branch)
 }
 
 /// Branch (major version) of a driver version: `3:580.105.08-1.el10` -> 580
@@ -801,18 +812,6 @@ fn branch_selection_commands(
 ) -> Vec<String> {
     let mut commands = Vec::new();
     match selection {
-        BranchSelection::AptPinning(Some(branch)) => {
-            // Pinning packages conflict with each other: apt replaces the installed one
-            commands.push(
-                PackageFamily::Apt
-                    .install_command(&[format!("nvidia-driver-pinning-{}", branch)], true),
-            );
-        }
-        BranchSelection::AptPinning(None) => {
-            if !undo.is_empty() {
-                commands.push(PackageFamily::Apt.remove_command(undo));
-            }
-        }
         BranchSelection::ModuleStream(stream) => {
             commands.push(quoted_command(&[
                 "dnf",
@@ -892,12 +891,82 @@ enum InstalledDriver {
     Different(String),
 }
 
+/// Driver meta package installed on an apt host: kernel module flavor, and branch for
+/// the branch meta packages (`nvidia-driver-580`, `nvidia-driver-580-open`,
+/// `nvidia-driver-580-server`, ...). `None` for the floating meta packages
+/// (`cuda-drivers`, `nvidia-driver`, `nvidia-open`, `nvidia-driver-open`).
+fn apt_driver_meta(name: &str) -> Option<(KernelModuleFlavor, Option<u32>)> {
+    match name {
+        PROPRIETARY_PACKAGE | "nvidia-driver" => Some((KernelModuleFlavor::Proprietary, None)),
+        OPEN_PACKAGE | "nvidia-driver-open" => Some((KernelModuleFlavor::Open, None)),
+        _ => name.strip_prefix("nvidia-driver-").and_then(|rest| {
+            let (branch, flavor) = if let Some(branch) = rest.strip_suffix("-server-open") {
+                (branch, KernelModuleFlavor::Open)
+            } else if let Some(branch) = rest.strip_suffix("-server") {
+                (branch, KernelModuleFlavor::Proprietary)
+            } else if let Some(branch) = rest.strip_suffix("-open") {
+                (branch, KernelModuleFlavor::Open)
+            } else {
+                (rest, KernelModuleFlavor::Proprietary)
+            };
+            branch
+                .parse::<u32>()
+                .ok()
+                .map(|branch| (flavor, Some(branch)))
+        }),
+    }
+}
+
+/// Meta packages telling which driver is installed: the floating ones, and on apt the
+/// branch ones (`nvidia-driver-<branch>[-open]`, pinning the branch by construction)
+fn driver_meta_patterns(distro: DriverDistro) -> &'static [&'static str] {
+    match distro {
+        DriverDistro::Ubuntu | DriverDistro::Debian => &[
+            OPEN_PACKAGE,
+            PROPRIETARY_PACKAGE,
+            "nvidia-driver",
+            "nvidia-driver-open",
+            "nvidia-driver-[0-9]*",
+        ],
+        _ => &[OPEN_PACKAGE, PROPRIETARY_PACKAGE],
+    }
+}
+
 /// Compare the installed driver meta packages (name -> version) with the expected driver
 fn installed_driver_status(
     installed: &BTreeMap<String, String>,
     modules: &KernelModules,
+    distro: DriverDistro,
 ) -> InstalledDriver {
     let branch = modules.branch();
+    if matches!(distro, DriverDistro::Ubuntu | DriverDistro::Debian) {
+        // On apt, the branch is pinned by its meta package: the expected driver is the
+        // branch meta package `nvidia-driver-<branch>[-open]` (or the floating meta
+        // package for the latest branch), any other driver meta package is another driver
+        let is_expected = |name: &str| {
+            apt_driver_meta(name).is_some_and(|(flavor, meta_branch)| {
+                flavor == modules.flavor() && meta_branch == branch
+            })
+        };
+        if installed.keys().any(|name| is_expected(name)) {
+            return InstalledDriver::Expected;
+        }
+        return match installed
+            .iter()
+            .find(|(name, _)| apt_driver_meta(name).is_some())
+        {
+            Some((name, version)) => InstalledDriver::Different(format!(
+                "{} {} is installed, expected {} ({} kernel modules)",
+                name,
+                version,
+                modules.install_package(distro),
+                modules.flavor()
+            )),
+            None => InstalledDriver::Missing,
+        };
+    }
+    // dnf/zypper: the floating meta package, kept in the expected branch by the module
+    // stream or the version locks
     let other_flavor = match modules.flavor() {
         KernelModuleFlavor::Open => installed
             .get(PROPRIETARY_PACKAGE)
@@ -1030,14 +1099,10 @@ fn driver_package_patterns(distro: DriverDistro) -> &'static [&'static str] {
     }
 }
 
-/// Installed driver packages to remove: the container toolkit and the branch pins are kept
+/// Installed driver packages to remove: the container toolkit is kept
 fn driver_packages_to_remove<'a>(installed: impl Iterator<Item = &'a String>) -> Vec<String> {
     installed
-        .filter(|name| {
-            !is_container_toolkit_package(name)
-                && !name.starts_with("nvidia-driver-pinning")
-                && !name.starts_with("cuda-toolkit")
-        })
+        .filter(|name| !is_container_toolkit_package(name) && !name.starts_with("cuda-toolkit"))
         .cloned()
         .collect()
 }
@@ -1209,21 +1274,11 @@ async fn detect_host<Handler: HostHandler>(
 /// Branch selection currently in place
 async fn current_selection<Handler: HostHandler>(
     host_handler: &mut Handler,
-    distro: DriverDistro,
+    selection: &BranchSelection,
     privilege: &Privilege,
 ) -> Result<CurrentSelection, RegentError> {
-    match distro {
-        DriverDistro::Ubuntu | DriverDistro::Debian => {
-            let pins = installed_packages(
-                host_handler,
-                PackageFamily::Apt,
-                &["nvidia-driver-pinning*"],
-                privilege,
-            )
-            .await?;
-            Ok(CurrentSelection::AptPins(pins.into_keys().collect()))
-        }
-        DriverDistro::RhelModular | DriverDistro::AmazonLinux => {
+    match selection {
+        BranchSelection::ModuleStream(_) => {
             // Fails when no stream is enabled: the output is what matters
             let result = query(
                 host_handler,
@@ -1235,7 +1290,7 @@ async fn current_selection<Handler: HostHandler>(
                 &result.stdout,
             )))
         }
-        DriverDistro::Rhel10 | DriverDistro::Fedora => {
+        BranchSelection::VersionLock(_) => {
             // Fails when the versionlock plugin is not installed: no lock then
             let result = query(
                 host_handler,
@@ -1250,7 +1305,7 @@ async fn current_selection<Handler: HostHandler>(
             };
             Ok(CurrentSelection::VersionLocks(locks))
         }
-        DriverDistro::Suse => {
+        BranchSelection::ZypperLock(_) => {
             let result = query(
                 host_handler,
                 &quoted_command(&["cat", "/etc/zypp/locks"]),
@@ -1354,11 +1409,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaDriverExpectedSta
                 let installed = installed_packages(
                     host_handler,
                     family,
-                    &[OPEN_PACKAGE, PROPRIETARY_PACKAGE],
+                    driver_meta_patterns(distro),
                     privilege,
                 )
                 .await?;
-                let installed_driver = installed_driver_status(&installed, modules);
+                let installed_driver = installed_driver_status(&installed, modules, distro);
                 let needs_install = installed_driver != InstalledDriver::Expected;
 
                 // Another branch or flavor: remove the current driver, then install the expected one
@@ -1378,27 +1433,29 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaDriverExpectedSta
                     });
                 }
 
-                let selection = modules.branch_selection(distro);
-                let current = current_selection(host_handler, distro, privilege).await?;
-                // Removing the driver resets the module stream
-                let is_stream_reset =
-                    is_switching && matches!(selection, BranchSelection::ModuleStream(_));
-                if is_stream_reset || !current.matches(&selection) {
-                    push(NvidiaDriverInternalApiCall::SelectBranch {
-                        distro,
-                        selection,
-                        undo: current.to_undo(),
-                    });
+                // On apt, the branch meta package pins the branch: nothing to select
+                if let Some(selection) = modules.branch_selection(distro) {
+                    let current = current_selection(host_handler, &selection, privilege).await?;
+                    // Removing the driver resets the module stream
+                    let is_stream_reset =
+                        is_switching && matches!(selection, BranchSelection::ModuleStream(_));
+                    if is_stream_reset || !current.matches(&selection) {
+                        push(NvidiaDriverInternalApiCall::SelectBranch {
+                            distro,
+                            selection,
+                            undo: current.to_undo(),
+                        });
+                    }
                 }
 
                 if needs_install {
-                    let mut packages = vec![modules.package().to_string()];
+                    let mut packages = vec![modules.install_package(distro)];
                     packages.extend(distro.kernel_headers_packages(&host.kernel_release));
                     push(NvidiaDriverInternalApiCall::InstallDriver { family, packages });
                     push(NvidiaDriverInternalApiCall::LoadKernelModule {
                         flavor: modules.flavor(),
                         branch,
-                        reason: format!("{} is being installed", modules.package()),
+                        reason: format!("{} is being installed", modules.install_package(distro)),
                     });
                 } else {
                     let loaded = loaded_driver(host_handler, privilege).await?;
@@ -1853,40 +1910,71 @@ State: !Present
     }
 
     #[test]
+    fn proprietary_branch_is_built_from_an_integer() {
+        let branch = ProprietaryBranch::new(580);
+        assert_eq!(branch.number(), 580);
+        assert_eq!(u32::from(branch), 580);
+        assert_eq!(branch.to_string(), "580");
+        assert_eq!(KernelModules::Proprietary(branch).branch(), Some(580));
+        assert_eq!(ProprietaryBranch::new(570).number(), 570);
+        assert_eq!(ProprietaryBranch::new(610).number(), 610);
+    }
+
+    #[test]
+    #[should_panic(expected = "proprietary kernel modules branch")]
+    fn proprietary_branch_new_panics_on_a_branch_without_proprietary_modules() {
+        ProprietaryBranch::new(615);
+    }
+
+    #[test]
     fn branch_selection_follows_the_distribution() {
         let open_580 = KernelModules::Open(DriverBranch::Branch("580".parse().unwrap()));
-        let proprietary = KernelModules::Proprietary("575".parse().unwrap());
+        let proprietary = KernelModules::Proprietary(ProprietaryBranch::new(575));
         let latest = KernelModules::default();
-        assert_eq!(
-            open_580.branch_selection(DriverDistro::Ubuntu),
-            BranchSelection::AptPinning(Some(580))
-        );
+        // On apt, the branch meta package pins the branch: no separate selection
+        assert_eq!(open_580.branch_selection(DriverDistro::Ubuntu), None);
+        assert_eq!(proprietary.branch_selection(DriverDistro::Debian), None);
         assert_eq!(
             open_580.branch_selection(DriverDistro::RhelModular),
-            BranchSelection::ModuleStream("580-open".to_string())
+            Some(BranchSelection::ModuleStream("580-open".to_string()))
         );
         assert_eq!(
             latest.branch_selection(DriverDistro::AmazonLinux),
-            BranchSelection::ModuleStream("open-dkms".to_string())
+            Some(BranchSelection::ModuleStream("open-dkms".to_string()))
         );
         assert_eq!(
             proprietary.branch_selection(DriverDistro::RhelModular),
-            BranchSelection::ModuleStream("575-dkms".to_string())
+            Some(BranchSelection::ModuleStream("575-dkms".to_string()))
         );
         assert_eq!(
             latest.branch_selection(DriverDistro::Fedora),
-            BranchSelection::VersionLock(None)
+            Some(BranchSelection::VersionLock(None))
+        );
+    }
+
+    #[test]
+    fn install_package_pins_the_branch_on_apt() {
+        let open_580 = KernelModules::Open(DriverBranch::Branch("580".parse().unwrap()));
+        let proprietary_580 = KernelModules::Proprietary(ProprietaryBranch::new(580));
+        let latest = KernelModules::default();
+        assert_eq!(
+            proprietary_580.install_package(DriverDistro::Ubuntu),
+            "nvidia-driver-580"
+        );
+        assert_eq!(
+            open_580.install_package(DriverDistro::Debian),
+            "nvidia-driver-580-open"
+        );
+        assert_eq!(latest.install_package(DriverDistro::Ubuntu), "nvidia-open");
+        assert_eq!(latest.install_package(DriverDistro::Fedora), "nvidia-open");
+        assert_eq!(
+            proprietary_580.install_package(DriverDistro::Fedora),
+            "cuda-drivers"
         );
     }
 
     #[test]
     fn current_branch_selection_is_compared() {
-        let pins = CurrentSelection::AptPins(vec!["nvidia-driver-pinning-580.105.08".to_string()]);
-        assert!(pins.matches(&BranchSelection::AptPinning(Some(580))));
-        assert!(!pins.matches(&BranchSelection::AptPinning(Some(590))));
-        assert!(!pins.matches(&BranchSelection::AptPinning(None)));
-        assert!(CurrentSelection::AptPins(vec![]).matches(&BranchSelection::AptPinning(None)));
-
         let stream = CurrentSelection::ModuleStream(Some("580-open".to_string()));
         assert!(stream.matches(&BranchSelection::ModuleStream("580-open".to_string())));
         assert!(!stream.matches(&BranchSelection::ModuleStream("open-dkms".to_string())));
@@ -1969,16 +2057,6 @@ State: !Present
     fn branch_selection_commands_are_quoted() {
         assert_eq!(
             branch_selection_commands(
-                &BranchSelection::AptPinning(Some(580)),
-                DriverDistro::Ubuntu,
-                &["nvidia-driver-pinning-570".to_string()]
-            ),
-            vec![
-                "DEBIAN_FRONTEND=noninteractive 'apt-get' 'install' '-y' '--allow-downgrades' 'nvidia-driver-pinning-580'"
-            ]
-        );
-        assert_eq!(
-            branch_selection_commands(
                 &BranchSelection::ModuleStream("580-open".to_string()),
                 DriverDistro::RhelModular,
                 &[]
@@ -2022,38 +2100,50 @@ State: !Present
                 .collect()
         };
         let open_580 = KernelModules::Open(DriverBranch::Branch("580".parse().unwrap()));
-        let proprietary_580 = KernelModules::Proprietary("580".parse().unwrap());
+        let proprietary_580 = KernelModules::Proprietary(ProprietaryBranch::new(580));
 
+        // dnf/zypper: the floating meta package, kept in the expected branch
         assert_eq!(
-            installed_driver_status(&installed(&[]), &open_580),
+            installed_driver_status(&installed(&[]), &open_580, DriverDistro::Fedora),
             InstalledDriver::Missing
         );
         assert_eq!(
             installed_driver_status(
                 &installed(&[("nvidia-open", "580.105.08-1ubuntu1")]),
-                &open_580
+                &open_580,
+                DriverDistro::Fedora
             ),
             InstalledDriver::Expected
         );
         assert_eq!(
             installed_driver_status(
                 &installed(&[("nvidia-open", "590.48.01-1ubuntu1")]),
-                &KernelModules::default()
+                &KernelModules::default(),
+                DriverDistro::Fedora
             ),
             InstalledDriver::Expected
         );
         assert!(matches!(
-            installed_driver_status(&installed(&[("nvidia-open", "590.48.01-1")]), &open_580),
+            installed_driver_status(
+                &installed(&[("nvidia-open", "590.48.01-1")]),
+                &open_580,
+                DriverDistro::Fedora
+            ),
             InstalledDriver::Different(reason) if reason.contains("expected branch 580")
         ));
         assert!(matches!(
-            installed_driver_status(&installed(&[("cuda-drivers", "580.105.08-1")]), &open_580),
+            installed_driver_status(
+                &installed(&[("cuda-drivers", "580.105.08-1")]),
+                &open_580,
+                DriverDistro::Fedora
+            ),
             InstalledDriver::Different(reason) if reason.contains("proprietary kernel modules) is installed")
         ));
         assert!(matches!(
             installed_driver_status(
                 &installed(&[("nvidia-open", "580.105.08-1")]),
-                &proprietary_580
+                &proprietary_580,
+                DriverDistro::Fedora
             ),
             InstalledDriver::Different(_)
         ));
@@ -2064,14 +2154,93 @@ State: !Present
                     ("nvidia-open", "615.71.09-1"),
                     ("cuda-drivers", "615.71.09-2")
                 ]),
-                &KernelModules::default()
+                &KernelModules::default(),
+                DriverDistro::Fedora
             ),
             InstalledDriver::Expected
+        );
+
+        // apt: the branch meta package pins the branch
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[("nvidia-driver-580", "580.178.04-0ubuntu0.26.04.1")]),
+                &proprietary_580,
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Expected
+        );
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[("nvidia-driver-580-server", "580.178.04-0ubuntu0.26.04.1")]),
+                &proprietary_580,
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Expected
+        );
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[("nvidia-driver-580-open", "580.178.04-1")]),
+                &open_580,
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Expected
+        );
+        // The floating meta package is another driver, even in the expected branch
+        assert!(matches!(
+            installed_driver_status(
+                &installed(&[("cuda-drivers", "580.105.08-1")]),
+                &proprietary_580,
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Different(reason) if reason.contains("expected nvidia-driver-580")
+        ));
+        // Another branch, another flavor
+        assert!(matches!(
+            installed_driver_status(
+                &installed(&[("nvidia-driver-575", "575.143.08-1")]),
+                &proprietary_580,
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Different(reason) if reason.contains("nvidia-driver-575")
+        ));
+        assert!(matches!(
+            installed_driver_status(
+                &installed(&[("nvidia-driver-580-open", "580.178.04-1")]),
+                &proprietary_580,
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Different(reason) if reason.contains("expected nvidia-driver-580")
+        ));
+        // Latest branch: the floating meta package, not a branch meta package
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[("nvidia-open", "615.71.09-1")]),
+                &KernelModules::default(),
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Expected
+        );
+        assert!(matches!(
+            installed_driver_status(
+                &installed(&[("nvidia-driver-580", "580.178.04-1")]),
+                &KernelModules::default(),
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Different(reason) if reason.contains("expected nvidia-open")
+        ));
+        // Pinning packages and other nvidia-driver-* packages are not driver meta packages
+        assert_eq!(
+            installed_driver_status(
+                &installed(&[("nvidia-driver-pinning-580", "580.105.08")]),
+                &proprietary_580,
+                DriverDistro::Ubuntu
+            ),
+            InstalledDriver::Missing
         );
     }
 
     #[test]
-    fn driver_removal_keeps_the_container_toolkit_and_pins() {
+    fn driver_removal_keeps_the_container_toolkit() {
         let installed = [
             "nvidia-open",
             "nvidia-driver-580-open",
@@ -2086,6 +2255,7 @@ State: !Present
             vec![
                 "nvidia-open",
                 "nvidia-driver-580-open",
+                "nvidia-driver-pinning-580",
                 "libnvidia-compute-580"
             ]
         );
