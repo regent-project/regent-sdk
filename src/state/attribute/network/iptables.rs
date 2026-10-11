@@ -1085,8 +1085,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesExpectedState {
             &format!("-C {} {}", chain_name, rule_args),
         );
         let check_rule_cmd = format!("{} 2>/dev/null", check_rule_cmd);
+        // Reading the ruleset requires root: run the check with the attribute's
+        // privilege, otherwise the check always fails as a non-root user and
+        // Present rules are re-added on every run.
         let check_result = host_handler
-            .run_command(&check_rule_cmd, &Privilege::None)
+            .run_command(&check_rule_cmd, privilege)
             .await
             .unwrap();
 
@@ -1853,7 +1856,7 @@ Details:
         Destination:
             Value: "2001:db8::/32"
             Inverted: true
-    Target: 
+    Target:
         Reject:
             With: IcmpPortUnreachable
         "#;
