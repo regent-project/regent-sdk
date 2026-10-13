@@ -11,7 +11,6 @@ use regent_sdk::{Privilege, RegentError};
 #[tokio::main]
 async fn main() {
     // Sending end
-    // Create a RegentTask out of multiple inputs
     let serialized_regent_task = create_a_regent_task();
     println!("{:?}", serialized_regent_task);
     // ...
@@ -19,7 +18,6 @@ async fn main() {
     // ...
 
     // Receiving end
-    // Build a SecretProvidersPool
     let secret_providers =
         SecretProvidersPool::with_default_provider(&SecretProvider::env_var("env_vars"));
 
@@ -29,7 +27,6 @@ async fn main() {
 }
 
 fn create_a_regent_task() -> String {
-    // Describe the ManagedHost through a ManagedHostBuilder
     let managed_host_builder = ManagedHostBuilder::new(
         "<host-id>",
         "<address:port>",
@@ -39,7 +36,6 @@ fn create_a_regent_task() -> String {
         ))),
     );
 
-    // Describe the expected state
     let apache_expected_state = PacmanExpectedState::package_present("apache");
 
     let expected_state = ExpectedState::new()

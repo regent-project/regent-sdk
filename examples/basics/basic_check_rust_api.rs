@@ -3,33 +3,30 @@ use regent_sdk::attribute::system::service::ServiceExpectedState;
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::ssh2::Ssh2Auth;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
-use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder, SecretReference};
 use regent_sdk::{Attribute, ExpectedState};
 
 #[tokio::main]
 async fn main() {
+    let files = SecretProvider::files("files");
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .with_default_provider(&SecretProvider::files("files"))
+        .with_default_provider(&files)
         .build()
         .unwrap();
 
-    // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(
         "<host-id>",
         "<address:port>",
         Some(ConnectionMethod::Ssh2(Ssh2Auth::username_password(
-            "/path/to/credentials/secret",
-            Some("files"),
+            SecretReference::from_provider("/path/to/credentials/secret", &files),
         ))),
     )
     .build(Some(secrets_providers_pool))
     .await
     .unwrap();
 
-    // Open connection with this ManageHost
     assert!(managed_host.connect().await.is_ok());
 
-    // Describe the expected state
     let httpd_service_active_and_enabled = ServiceExpectedState::started_and_enabled("httpd");
 
     let localhost_expected_state = ExpectedState::new()
@@ -40,7 +37,6 @@ async fn main() {
         ))
         .build();
 
-    // Assess whether the host is compliant or not
     match managed_host
         .assess_compliance(&localhost_expected_state, true)
         .await

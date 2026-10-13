@@ -1,42 +1,38 @@
-use regent_sdk::Privilege;
-use regent_sdk::attribute::package::apt::AptExpectedState;
-use regent_sdk::hosts::handlers::ConnectionMethod;
-use regent_sdk::hosts::handlers::TargetUser;
+use regent_sdk::ExpectedState;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
-use regent_sdk::{Attribute, ExpectedState};
 
 #[tokio::main]
 async fn main() {
-    // Build a SecretProvidersPool
     let secret_providers =
         SecretProvidersPool::with_default_provider(&SecretProvider::env_var("env_vars"));
 
-    // Describe the ManagedHost
-    let mut managed_host = ManagedHostBuilder::new(
-        "<host-id>",
-        "<host-endpoint>:<port>",
-        Some(ConnectionMethod::Localhost(TargetUser::current_user())),
-    )
-    .build(Some(secret_providers))
-    .await
-    .unwrap();
+    let host_description = r#"---
+Id: <host-id>
+Endpoint: <host-endpoint>:<port>
+HostConnectionMethod: !Localhost
+  UserKind: CurrentUser
+"#;
 
-    // Open connection with this ManageHost
+    let mut managed_host = ManagedHostBuilder::from_raw_yaml(host_description)
+        .unwrap()
+        .build(Some(secret_providers))
+        .await
+        .unwrap();
+
     assert!(managed_host.connect().await.is_ok());
 
-    // Describe the expected state
-    let apache_expected_state = AptExpectedState::package_present("apache2");
+    let expected_state_description = r#"---
+Attributes:
+  - Name: apache2 package is installed
+    Privilege: !WithSudo
+    Detail: !Apt
+      Package: apache2
+      State: Present
+"#;
 
-    let expected_state = ExpectedState::new()
-        .with_attribute(Attribute::apt(
-            apache_expected_state,
-            Privilege::WithSudo,
-            None,
-        ))
-        .build();
+    let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
 
-    // Assess whether the host is compliant or not
     match managed_host.assess_compliance(&expected_state, true).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {

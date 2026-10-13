@@ -33,13 +33,11 @@ async fn main() {
     .await
     .unwrap();
 
-    // Create a state for the webapp, holding the host expected configuration and how regent is supposed to interact with it
     let app_state = AppState {
         managed_host: localhost_manager,
         expected_state: localhost_expected_state,
     };
 
-    // Finally, create the http endpoint with a dedicated route for the healthcheck
     let api_app = Router::new()
         .route("/health", get(health_check))
         .with_state(app_state);

@@ -5,11 +5,9 @@ use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 
 #[tokio::main]
 async fn main() {
-    // Build a SecretProvidersPool
     let secret_providers =
         SecretProvidersPool::with_default_provider(&SecretProvider::env_var("env_vars"));
 
-    // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(
         "<host-id>",
         "<address:port>",
@@ -19,7 +17,6 @@ async fn main() {
     .await
     .unwrap();
 
-    // Open connection with this ManagedHost
     assert!(managed_host.connect().await.is_ok());
 
     // What kind of OS are we dealing with ?

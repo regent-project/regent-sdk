@@ -28,23 +28,22 @@ Hosts:
 
     let mut inventory = Inventory::from_raw_yaml(yaml_inventory_builder).unwrap();
 
-    // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
   - Name: token value set in conf file
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/my_token
-      Line: "A_VERY_LONG_TOKEN"
       State: !Present
-      Position: !Top
+        Position: !InsertBefore BOF
+      Line: !Raw A_VERY_LONG_TOKEN
 
   - Name: bluetooth available
     Privilege: !None
     Detail: !Service
       Name: "{{ service_name }}"
-      CurrentStatus: !Active
-      AutoStart: !Enabled
+      State: Started
+      Enabled: true
 "#;
 
     let expected_state = match ExpectedState::from_raw_yaml(expected_state_description) {
@@ -55,14 +54,12 @@ Attributes:
         }
     };
 
-    // Build a SecretProvidersPool
     let secret_providers =
         SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
 
     // Open connections within this Inventory
     let mut living_inventory = inventory.init(Some(secret_providers)).await.unwrap();
 
-    // Try reach compliance if not already there
     match living_inventory.reach_compliance(&expected_state).await {
         Ok(inventory_compliance) => {
             for (host_id, compliance_status) in inventory_compliance {

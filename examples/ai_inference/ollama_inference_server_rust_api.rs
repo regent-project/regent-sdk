@@ -1,11 +1,6 @@
 use regent_sdk::Privilege;
-use regent_sdk::attribute::ai::ollama::{
-    OllamaApiConfig, OllamaExpectedState, OllamaModel, OllamaModelState,
-};
-use regent_sdk::attribute::gpu::nvidia_driver::KernelModules;
-use regent_sdk::attribute::gpu::nvidia_driver::NvidiaDriverConfig;
-use regent_sdk::attribute::gpu::nvidia_driver::NvidiaDriverExpectedState;
-use regent_sdk::attribute::gpu::nvidia_driver::ProprietaryBranch;
+use regent_sdk::attribute::ai::ollama::{OllamaApiConfig, OllamaExpectedState, OllamaModel};
+use regent_sdk::attribute::gpu::nvidia_driver::{NvidiaDriverConfig, NvidiaDriverExpectedState};
 use regent_sdk::attribute::network::iptables::IptablesExpectedState;
 use regent_sdk::attribute::system::service::ServiceExpectedState;
 use regent_sdk::hosts::handlers::ConnectionMethod;
@@ -14,19 +9,17 @@ use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretReference;
 use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::{Attribute, ExpectedState};
-use std::time::Duration;
 use tracing::{error, info, warn};
+use std::time::Duration;
 
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
     info!("Let's handle an inference server from Rust code");
 
-    // Build a SecretProvidersPool
     let file = SecretProvider::files("file");
     let secret_providers = SecretProvidersPool::with_default_provider(&file);
 
-    // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(
         "srv-inference",
         "<host-address>",
@@ -39,37 +32,22 @@ async fn main() {
     .await
     .unwrap();
 
-    // Open connection with this ManageHost
     assert!(managed_host.connect().await.is_ok());
 
-    // ************************************************************************
-    // ********* DEFINE EACH ATTRIBUTE OF YOUR EXPECTED STATE *****************
-
-    // --> Nvidia driver is installed
     let nvidia_driver_is_installed = NvidiaDriverExpectedState::present(
         NvidiaDriverConfig::new()
-            .with_kernel_modules(KernelModules::Proprietary(ProprietaryBranch::new(580))),
+            .with_proprietary_kernel_modules(580)
+            .unwrap(),
     );
 
-    // --> Ollama is installed
     let ollama_is_installed = OllamaExpectedState::present_with_default_config()
-        .with_api_config(OllamaApiConfig {
-            host: Some("0.0.0.0:11434".to_string()),
-            ..Default::default()
-        })
-        .with_models(vec![OllamaModel {
-            name: "qwen2.5:1.5b".to_string(),
-            state: OllamaModelState::Present,
-        }]);
+        .with_api_config(OllamaApiConfig::new().with_host("0.0.0.0:11434"))
+        .with_models(vec![OllamaModel::present("qwen2.5:1.5b")]);
 
-    // --> Ollama is running and enabled
     let ollama_service_is_running = ServiceExpectedState::started_and_enabled("ollama");
 
-    // --> The listening port is allowed
     let port_is_open = IptablesExpectedState::allow_tcp_port(11434, Some(1));
 
-    // ************************************************************************
-    // ****** COMBINE EVERY ATTRIBUTE INTO A SINGLE DESCRIPTION ***************
     let expected_state = ExpectedState::new()
         .with_attribute(
             Attribute::nvidia_driver(
@@ -105,7 +83,6 @@ async fn main() {
         )
         .build();
 
-    // Assess whether the host is compliant or not
     match managed_host.assess_compliance(&expected_state, true).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {

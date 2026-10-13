@@ -39,19 +39,91 @@ tracing-subscriber  = "0.3.23"
 axum                = "0.8.9"
 chrono              = "0.4.45"
 
-[[example]]
-name = "aws_secrets_manager_usage"
-required-features = ["aws-secretsmanager"]
-
-[[example]]
-name = "gcp_secret_manager_usage"
-required-features = ["gcp-secretmanager"]
-
-[[example]]
-name = "multi_secrets_providers"
-required-features = ["aws-secretsmanager", "gcp-secretmanager"]
 
 [features]
 aws-secretsmanager  = ["dep:aws-config", "dep:aws-sdk-secretsmanager"]
 gcp-secretmanager   = ["dep:google-cloud-secretmanager-v1", "dep:google-cloud-gax"]
 windows            = []
+
+
+[[example]]
+name = "ollama_inference_server_rust_api"
+path = "examples/ai_inference/ollama_inference_server_rust_api.rs"
+
+[[example]]
+name = "ollama_inference_server_yaml_api"
+path = "examples/ai_inference/ollama_inference_server_yaml_api.rs"
+
+[[example]]
+name = "basic_check_rust_api"
+path = "examples/basics/basic_check_rust_api.rs"
+
+[[example]]
+name = "basic_check_yaml_api"
+path = "examples/basics/basic_check_yaml_api.rs"
+
+[[example]]
+name = "install_web_server_rust_api"
+path = "examples/basics/install_web_server_rust_api.rs"
+
+[[example]]
+name = "install_web_server_yaml_api"
+path = "examples/basics/install_web_server_yaml_api.rs"
+
+[[example]]
+name = "os_kind"
+path = "examples/basics/os_kind.rs"
+
+[[example]]
+name = "distribute_work_rust_api"
+path = "examples/distributed_work/distribute_work_rust_api.rs"
+
+[[example]]
+name = "distribute_work_yaml_api"
+path = "examples/distributed_work/distribute_work_yaml_api.rs"
+
+[[example]]
+name = "inventory_with_vars_rust_api"
+path = "examples/inventory/inventory_with_vars_rust_api.rs"
+
+[[example]]
+name = "inventory_with_vars_yaml_api"
+path = "examples/inventory/inventory_with_vars_yaml_api.rs"
+
+[[example]]
+name = "host_health_observability_rust_api"
+path = "examples/observability/host_health_observability_rust_api.rs"
+
+[[example]]
+name = "host_health_observability_yaml_api"
+path = "examples/observability/host_health_observability_yaml_api.rs"
+
+[[example]]
+name = "aws_secrets_manager_rust_api"
+path = "examples/secrets/aws_secrets_manager_rust_api.rs"
+required-features = ["aws-secretsmanager"]
+
+[[example]]
+name = "aws_secrets_manager_yaml_api"
+path = "examples/secrets/aws_secrets_manager_yaml_api.rs"
+required-features = ["aws-secretsmanager"]
+
+[[example]]
+name = "gcp_secret_manager_rust_api"
+path = "examples/secrets/gcp_secret_manager_rust_api.rs"
+required-features = ["gcp-secretmanager"]
+
+[[example]]
+name = "gcp_secret_manager_yaml_api"
+path = "examples/secrets/gcp_secret_manager_yaml_api.rs"
+required-features = ["gcp-secretmanager"]
+
+[[example]]
+name = "multi_secrets_providers_rust_api"
+path = "examples/secrets/multi_secrets_providers_rust_api.rs"
+required-features = ["aws-secretsmanager", "gcp-secretmanager"]
+
+[[example]]
+name = "multi_secrets_providers_yaml_api"
+path = "examples/secrets/multi_secrets_providers_yaml_api.rs"
+required-features = ["aws-secretsmanager", "gcp-secretmanager"]

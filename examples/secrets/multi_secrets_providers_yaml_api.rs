@@ -18,37 +18,36 @@ Hosts:
 
     let mut inventory = Inventory::from_raw_yaml(yaml_inventory_builder).unwrap();
 
-    // Describe the expected state
     let expected_state_description = r#"---
 Attributes:
   - Name: first line from AWS...
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/.my_app_conf_file
-      Line:
-        Provider: aws_prod_account
+      State: !Present
+        Position: !InsertBefore BOF
+      Line: !Raw
         SecRef: arn:aws:secretsmanager:eu-central-1:123456789:secret:MY_TOKEN_CONTENT-xyz
-      State: !Present
-      Position: !Top
+        Provider: aws_prod_account
 
-  - Name: ...seconde line from GCP...
+  - Name: ...second line from GCP...
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/.my_app_conf_file
-      Line:
-        Provider: gcp_regent_project
+      State: !Present
+        Position: !InsertAfter EOF
+      Line: !Raw
         SecRef: projects/123456789123/secrets/MY_VERY_LONG_TOKEN/versions/latest
-      State: !Present
-      Position: 2
+        Provider: gcp_regent_project
 
-  - Name: ...and the 3rd line taken out of an environment variable
+  - Name: ...and the 3rd line taken out of an environment variable (default provider)
     Privilege: !None
     Detail: !LineInFile
       FilePath: ~/.my_app_conf_file
-      Line:
-        SecRef: THIRD_LINE_CONTENT
       State: !Present
-      Position: 3
+        Position: !InsertAfter EOF
+      Line: !Raw
+        SecRef: THIRD_LINE_CONTENT
 "#;
 
     let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
@@ -66,7 +65,6 @@ Attributes:
         .await
         .unwrap();
 
-    // Now we can build a pool of secrets providers.
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
         .with_default_provider(&default_secrets_provider)
         .add_provider(&aws_secretsmanager_prod_account)
@@ -76,7 +74,6 @@ Attributes:
 
     let mut living_inventory = inventory.init(Some(secrets_providers_pool)).await.unwrap();
 
-    // Try reach compliance if not already there
     living_inventory
         .reach_compliance(&expected_state)
         .await
