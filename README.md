@@ -97,7 +97,7 @@ Attributes:
     // Build secret providers pool
     let config_aws = aws_config::load_from_env().await;
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .add_default_provider("aws", SecretProvider::aws_secretsmanager(config_aws))
+        .with_default_provider(&SecretProvider::aws_secretsmanager("aws", config_aws))
         .build()
         .unwrap();
 
@@ -188,4 +188,3 @@ We welcome contributions! The project needs help with:
 ## License
 
 Regent is licensed under the [Apache License, Version 2.0](LICENSE).
-

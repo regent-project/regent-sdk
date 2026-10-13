@@ -29,7 +29,7 @@ async fn test_secret_cache_basic_operations() {
 #[tokio::test]
 async fn test_secret_providers_pool_caching() {
     // Create a pool with file provider
-    let mut pool = SecretProvidersPool::from("files", SecretProvider::files());
+    let mut pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
 
     // Initially, caching should be disabled
     assert!(!pool.is_caching_enabled());
@@ -45,7 +45,7 @@ async fn test_secret_providers_pool_caching() {
 
 #[tokio::test]
 async fn test_cache_key_generation() {
-    let pool = SecretProvidersPool::from("files", SecretProvider::files());
+    let pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
 
     // Test cache key with default provider
     let secret_ref1 = SecretReference::from("my_secret", None);

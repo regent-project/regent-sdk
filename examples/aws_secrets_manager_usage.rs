@@ -51,11 +51,11 @@ Attributes:
     // Once the SdkConfig object is built, build a SecretProvidersPool from it
 
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .add_default_provider("env_vars", SecretProvider::env_var())
-        .add_provider(
+        .with_default_provider(&SecretProvider::env_var("env_vars"))
+        .add_provider(&SecretProvider::aws_secretsmanager(
             "aws_prod_account",
-            SecretProvider::aws_secretsmanager(config_aws),
-        )
+            config_aws,
+        ))
         .build()
         .unwrap();
 

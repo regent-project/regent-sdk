@@ -56,7 +56,8 @@ Attributes:
     };
 
     // Build a SecretProvidersPool
-    let secret_providers = SecretProvidersPool::from("env_vars", SecretProvider::files());
+    let secret_providers =
+        SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
 
     // Open connections within this Inventory
     let mut living_inventory = inventory.init(Some(secret_providers)).await.unwrap();

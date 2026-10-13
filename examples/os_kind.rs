@@ -6,7 +6,8 @@ use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 #[tokio::main]
 async fn main() {
     // Build a SecretProvidersPool
-    let secret_providers = SecretProvidersPool::from("env_vars", SecretProvider::env_var());
+    let secret_providers =
+        SecretProvidersPool::with_default_provider(&SecretProvider::env_var("env_vars"));
 
     // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(

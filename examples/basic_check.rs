@@ -9,7 +9,7 @@ use regent_sdk::{Attribute, ExpectedState};
 #[tokio::main]
 async fn main() {
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .add_default_provider("files", SecretProvider::files())
+        .with_default_provider(&SecretProvider::files("files"))
         .build()
         .unwrap();
 

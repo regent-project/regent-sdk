@@ -54,20 +54,23 @@ Attributes:
     let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
 
     // By default, secrets will be taken from environment variables...
-    let default_secrets_provider = SecretProvider::env_var();
+    let default_secrets_provider = SecretProvider::env_var("env_var");
 
     // ...but we will also have secrets on AWS SecretsManager...
     let config_aws = aws_config::load_from_env().await;
-    let aws_secretsmanager_prod_account = SecretProvider::aws_secretsmanager(config_aws);
+    let aws_secretsmanager_prod_account =
+        SecretProvider::aws_secretsmanager("aws_prod_account", config_aws);
 
     // ...and also on Google Cloud SecretManager, because why not ?
-    let gcp_secretmanager_regent_project = SecretProvider::gcp_secretmanager().await.unwrap();
+    let gcp_secretmanager_regent_project = SecretProvider::gcp_secretmanager("gcp_regent_project")
+        .await
+        .unwrap();
 
     // Now we can build a pool of secrets providers.
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .add_default_provider("env_var", default_secrets_provider)
-        .add_provider("aws_prod_account", aws_secretsmanager_prod_account)
-        .add_provider("gcp_regent_project", gcp_secretmanager_regent_project)
+        .with_default_provider(&default_secrets_provider)
+        .add_provider(&aws_secretsmanager_prod_account)
+        .add_provider(&gcp_secretmanager_regent_project)
         .build()
         .unwrap();
 

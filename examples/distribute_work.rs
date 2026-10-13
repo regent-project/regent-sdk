@@ -20,7 +20,8 @@ async fn main() {
 
     // Receiving end
     // Build a SecretProvidersPool
-    let secret_providers = SecretProvidersPool::from("env_vars", SecretProvider::env_var());
+    let secret_providers =
+        SecretProvidersPool::with_default_provider(&SecretProvider::env_var("env_vars"));
 
     let regent_task_result =
         run_a_given_regent_task(serialized_regent_task, Some(secret_providers)).await;

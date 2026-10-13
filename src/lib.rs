@@ -40,7 +40,7 @@
 //! async fn main() {
 //!     // 1. Create a secret providers pool
 //!     let secrets_pool = SecretProvidersPoolBuilder::new()
-//!         .add_default_provider("files", SecretProvider::files())
+//!         .with_default_provider(&SecretProvider::files("files"))
 //!         .build()
 //!         .unwrap();
 //!

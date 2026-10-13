@@ -14,16 +14,20 @@
 //! ## Quick Start
 //!
 //! ```no_run
-//! use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
+//! use regent_sdk::secrets::{SecretProvider, SecretProvidersPool, SecretProvidersPoolBuilder, SecretReference};
 //!
 //! // Create a pool with file-based secrets
+//! let files = SecretProvider::files("files");
 //! let pool = SecretProvidersPoolBuilder::new()
-//!     .add_default_provider("files", SecretProvider::files())
+//!     .with_default_provider(&files)
 //!     .build()
 //!     .unwrap();
 //!
+//! // Refer to a secret of this provider
+//! let ssh_key = SecretReference::from_provider("/path/to/key", &files);
+//!
 //! // Or use environment variables
-//! let pool = SecretProvidersPool::from("env", SecretProvider::env_var());
+//! let pool = SecretProvidersPool::with_default_provider(&SecretProvider::env_var("env"));
 //! ```
 
 pub mod local;
@@ -51,80 +55,56 @@ use crate::secrets::remote::gcp_secret_manager::GcpSecretProvider;
 /// A cache for storing resolved secrets to ensure idempotency.
 ///
 /// This cache stores secrets that have been retrieved from providers, ensuring
-/// that the same secret value is used throughout a compliance operation,
+/// that the same secret value is used throughout a run,
 /// even if the underlying secret is rotated during the operation.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub struct SecretCache {
-    /// Map from secret reference to cached secret value
     cache: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl SecretCache {
-    /// Create a new, empty secret cache.
     pub fn new() -> Self {
         Self {
             cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    /// Insert a secret into the cache.
     pub async fn insert(&self, secret_ref: String, value: String) {
         let mut cache = self.cache.lock().await;
         cache.insert(secret_ref, value);
     }
 
-    /// Get a secret from the cache if it exists
     pub async fn get(&self, secret_ref: &str) -> Option<String> {
         let cache = self.cache.lock().await;
         cache.get(secret_ref).cloned()
     }
 
-    /// Check if a secret is in the cache.
     pub async fn contains(&self, secret_ref: &str) -> bool {
         let cache = self.cache.lock().await;
         cache.contains_key(secret_ref)
     }
 }
 
-/// Enum representing different types of secret providers.
-///
-/// Each variant wraps a specific secret provider implementation.
-///
-/// # Variants
-///
-/// - `Files`: Secret provider that reads from files
-/// - `EnvironmentVariable`: Secret provider that reads from environment variables
-/// - `AwsSecretsManager`: AWS Secrets Manager provider (requires `aws-secretsmanager` feature)
-/// - `GcpSecretManager`: Google Cloud Secret Manager provider (requires `gcp-secretmanager` feature)
-///
-/// # Example
-///
-/// ```no_run
-/// use regent_sdk::secrets::SecretProvider;
-///
-/// // Create a file-based provider
-/// let provider = SecretProvider::files();
-///
-/// // Create an environment variable provider
-/// let provider = SecretProvider::env_var();
-///
-/// // Create an AWS provider (requires feature flag)
-/// // let provider = SecretProvider::aws_secretsmanager(aws_config);
-/// ```
+/// A named secret provider. The name identifies the provider in a [`SecretProvidersPool`]: it is the `Provider` of the
+/// [`SecretReference`]s pointing to its secrets. This wrapper type allows to map the "YAML API" with the rust code, meaning
+/// an artbitrary user-defined name with an actual rust item.
 #[derive(Clone)]
-pub enum SecretProvider {
+pub struct SecretProvider {
+    name: String,
+    backend: SecretBackend,
+}
+
+#[derive(Clone)]
+enum SecretBackend {
     /// Secret provider that retrieves secrets from files on disk.
     Files(FilesSecretProvider),
     /// Secret provider that retrieves secrets from environment variables.
     EnvironmentVariable(EnvVarSecretProvider),
     /// AWS Secrets Manager provider.
-    ///
     /// Requires the `aws-secretsmanager` feature to be enabled.
     #[cfg(feature = "aws-secretsmanager")]
     AwsSecretsManager(AwsSecretsManagerProvider),
     /// Google Cloud Secret Manager provider.
-    ///
     /// Requires the `gcp-secretmanager` feature to be enabled.
     #[cfg(feature = "gcp-secretmanager")]
     GcpSecretManager(GcpSecretProvider),
@@ -133,73 +113,44 @@ pub enum SecretProvider {
 }
 
 impl SecretProvider {
-    /// Create a file-based secret provider.
-    ///
     /// Secrets are retrieved from files on the filesystem.
-    /// The secret reference should be the file path.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use regent_sdk::secrets::SecretProvider;
-    ///
-    /// let provider = SecretProvider::files();
-    /// // Secret reference: "/path/to/secret/file"
-    /// ```
-    pub fn files() -> Self {
-        Self::Files(FilesSecretProvider::new())
+    /// The secret reference must be the file path.
+    pub fn files(name: &str) -> Self {
+        Self::new(name, SecretBackend::Files(FilesSecretProvider::new()))
     }
 
-    /// Create an environment variable-based secret provider.
-    ///
     /// Secrets are retrieved from environment variables.
-    /// The secret reference should be the environment variable name.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use regent_sdk::secrets::SecretProvider;
-    ///
-    /// let provider = SecretProvider::env_var();
-    /// // Secret reference: "MY_ENV_VAR"
-    /// ```
-    pub fn env_var() -> Self {
-        Self::EnvironmentVariable(EnvVarSecretProvider::new())
+    /// The secret reference must be the environment variable name.
+    pub fn env_var(name: &str) -> Self {
+        Self::new(
+            name,
+            SecretBackend::EnvironmentVariable(EnvVarSecretProvider::new()),
+        )
     }
 
     /// Create an AWS Secrets Manager provider.
     ///
+    /// The secret reference must be the ARN of the secret.
     /// Requires the `aws-secretsmanager` feature to be enabled.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use regent_sdk::secrets::SecretProvider;
-    /// use aws_config::SdkConfig;
-    ///
-    /// let aws_config = SdkConfig::default();
-    /// let provider = SecretProvider::aws_secretsmanager(aws_config);
-    /// ```
     #[cfg(feature = "aws-secretsmanager")]
-    pub fn aws_secretsmanager(aws_config: AwsConfig) -> Self {
-        Self::AwsSecretsManager(AwsSecretsManagerProvider::from(aws_config))
+    pub fn aws_secretsmanager(name: &str, aws_config: AwsConfig) -> Self {
+        Self::new(
+            name,
+            SecretBackend::AwsSecretsManager(AwsSecretsManagerProvider::from(aws_config)),
+        )
     }
 
     /// Create a Google Cloud Secret Manager provider.
     ///
+    /// The secret reference must be the Ressource Name of the secret.
     /// Requires the `gcp-secretmanager` feature to be enabled.
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use regent_sdk::secrets::SecretProvider;
-    ///
-    /// let provider = SecretProvider::gcp_secretmanager().await.unwrap();
-    /// ```
     #[cfg(feature = "gcp-secretmanager")]
-    pub async fn gcp_secretmanager() -> Result<Self, RegentError> {
+    pub async fn gcp_secretmanager(name: &str) -> Result<Self, RegentError> {
         match GcpSecretProvider::new().await {
-            Ok(gcp_secret_provider) => Ok(Self::GcpSecretManager(gcp_secret_provider)),
+            Ok(gcp_secret_provider) => Ok(Self::new(
+                name,
+                SecretBackend::GcpSecretManager(gcp_secret_provider),
+            )),
             Err(details) => Err(RegentError::SecretsIssue(format!(
                 "Failed to create a GCP SecretManager client : {}",
                 details
@@ -207,26 +158,37 @@ impl SecretProvider {
         }
     }
 
+    fn new(name: &str, backend: SecretBackend) -> Self {
+        Self {
+            name: name.to_string(),
+            backend,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub async fn get_secret_typed<T: DeserializeOwned>(
         &self,
         secret_reference: &str,
     ) -> Result<Secret<T>, RegentError> {
-        match self {
-            SecretProvider::Files(secret_provider) => {
+        match &self.backend {
+            SecretBackend::Files(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference).await
             }
-            SecretProvider::EnvironmentVariable(secret_provider) => {
+            SecretBackend::EnvironmentVariable(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference).await
             }
             #[cfg(feature = "aws-secretsmanager")]
-            SecretProvider::AwsSecretsManager(secret_provider) => {
+            SecretBackend::AwsSecretsManager(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference).await
             }
             #[cfg(feature = "gcp-secretmanager")]
-            SecretProvider::GcpSecretManager(secret_provider) => {
+            SecretBackend::GcpSecretManager(secret_provider) => {
                 secret_provider.get_secret_typed(secret_reference).await
-            } // SecretProvider::DelineaSecretServer => {}
-              // SecretProvider::HashicorpVault => {}
+            } // SecretBackend::DelineaSecretServer => {}
+              // SecretBackend::HashicorpVault => {}
         }
     }
 
@@ -234,22 +196,22 @@ impl SecretProvider {
         &self,
         secret_reference: &str,
     ) -> Result<Secret<String>, RegentError> {
-        match self {
-            SecretProvider::Files(secret_provider) => {
+        match &self.backend {
+            SecretBackend::Files(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference).await
             }
-            SecretProvider::EnvironmentVariable(secret_provider) => {
+            SecretBackend::EnvironmentVariable(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference).await
             }
             #[cfg(feature = "aws-secretsmanager")]
-            SecretProvider::AwsSecretsManager(secret_provider) => {
+            SecretBackend::AwsSecretsManager(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference).await
             }
             #[cfg(feature = "gcp-secretmanager")]
-            SecretProvider::GcpSecretManager(secret_provider) => {
+            SecretBackend::GcpSecretManager(secret_provider) => {
                 secret_provider.get_secret_raw(secret_reference).await
-            } // SecretProvider::DelineaSecretServer => {}
-              // SecretProvider::HashicorpVault => {}
+            } // SecretBackend::DelineaSecretServer => {}
+              // SecretBackend::HashicorpVault => {}
         }
     }
 }
@@ -423,6 +385,20 @@ impl SecretReference {
         }
     }
 
+    /// Create a reference to a secret of the given provider.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::secrets::{SecretProvider, SecretReference};
+    ///
+    /// let env = SecretProvider::env_var("env");
+    /// let api_key = SecretReference::from_provider("API_KEY", &env);
+    /// ```
+    pub fn from_provider(sec_ref: &str, provider: &SecretProvider) -> Self {
+        Self::from(sec_ref, Some(provider.name.clone()))
+    }
+
     /// Get the secret reference string.
     pub fn sec_ref(&self) -> &str {
         &self.sec_ref
@@ -445,8 +421,8 @@ impl SecretReference {
 /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
 ///
 /// let pool = SecretProvidersPoolBuilder::new()
-///     .add_provider("files", SecretProvider::files())
-///     .add_default_provider("env", SecretProvider::env_var())
+///     .add_provider(&SecretProvider::files("files"))
+///     .with_default_provider(&SecretProvider::env_var("env"))
 ///     .build()
 ///     .unwrap();
 /// ```
@@ -480,13 +456,16 @@ impl SecretProvidersPoolBuilder {
     /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
     ///
     /// let builder = SecretProvidersPoolBuilder::new()
-    ///     .add_provider("files", SecretProvider::files());
+    ///     .add_provider(&SecretProvider::files("files"));
     /// ```
-    pub fn add_provider(mut self, name: &str, provider: SecretProvider) -> Self {
-        if let Some(_old_secret_provider) = self.providers.insert(name.to_string(), provider) {
+    pub fn add_provider(mut self, provider: &SecretProvider) -> Self {
+        if let Some(_old_secret_provider) = self
+            .providers
+            .insert(provider.name.clone(), provider.clone())
+        {
             warn!(
                 "You just overrided a secret provider in the pool, also identified by the name {}",
-                name
+                provider.name
             );
         }
         self
@@ -502,20 +481,15 @@ impl SecretProvidersPoolBuilder {
     /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
     ///
     /// let builder = SecretProvidersPoolBuilder::new()
-    ///     .add_default_provider("files", SecretProvider::files());
+    ///     .with_default_provider(&SecretProvider::files("files"));
     /// ```
-    pub fn add_default_provider(mut self, name: &str, provider: SecretProvider) -> Self {
-        if let Some(_old_secret_provider) = self.providers.insert(name.to_string(), provider) {
-            warn!(
-                "You just overrided a secret provider in the pool, also identified by the name {}",
-                name
-            );
-        }
-        self.default_provider = Some(name.to_string());
-        self
+    pub fn with_default_provider(self, provider: &SecretProvider) -> Self {
+        let mut builder = self.add_provider(provider);
+        builder.default_provider = Some(provider.name.clone());
+        builder
     }
 
-    /// Set the default provider by name.
+    /// Set the default provider.
     ///
     /// The provider must have been previously added with `add_provider`.
     ///
@@ -524,13 +498,14 @@ impl SecretProvidersPoolBuilder {
     /// ```no_run
     /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
     ///
+    /// let files = SecretProvider::files("files");
     /// let builder = SecretProvidersPoolBuilder::new()
-    ///     .add_provider("files", SecretProvider::files())
-    ///     .add_provider("env", SecretProvider::env_var())
-    ///     .set_default("files".to_string());
+    ///     .add_provider(&files)
+    ///     .add_provider(&SecretProvider::env_var("env"))
+    ///     .set_default(&files);
     /// ```
-    pub fn set_default(mut self, name: String) -> Self {
-        self.default_provider = Some(name);
+    pub fn set_default(mut self, provider: &SecretProvider) -> Self {
+        self.default_provider = Some(provider.name.clone());
         self
     }
 
@@ -544,7 +519,7 @@ impl SecretProvidersPoolBuilder {
     /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPoolBuilder};
     ///
     /// let pool = SecretProvidersPoolBuilder::new()
-    ///     .add_default_provider("files", SecretProvider::files())
+    ///     .with_default_provider(&SecretProvider::files("files"))
     ///     .build()
     ///     .unwrap();
     /// ```
@@ -589,7 +564,7 @@ impl SecretProvidersPoolBuilder {
 /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool, SecretReference};
 ///
 /// // Create a pool with a single provider
-/// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+/// let pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
 ///
 /// // Retrieve a secret
 /// let secret_ref = SecretReference::from("/path/to/secret", None);
@@ -608,24 +583,23 @@ pub struct SecretProvidersPool {
 }
 
 impl SecretProvidersPool {
-    /// Create a new secret providers pool with a single provider.
+    /// Create a pool holding a single provider, used as the default provider.
     ///
-    /// This is a convenience constructor for pools with only one provider,
-    /// which will automatically be set as the default.
+    /// To hold several providers, use [`SecretProvidersPoolBuilder`].
     ///
     /// # Example
     ///
     /// ```no_run
     /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
     ///
-    /// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// let pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
     /// ```
-    pub fn from(name: &str, secret_provider: SecretProvider) -> Self {
+    pub fn with_default_provider(secret_provider: &SecretProvider) -> Self {
         let mut providers: HashMap<String, SecretProvider> = HashMap::new();
-        providers.insert(name.to_string(), secret_provider);
+        providers.insert(secret_provider.name.clone(), secret_provider.clone());
         Self {
             providers,
-            default_provider: name.to_string(),
+            default_provider: secret_provider.name.clone(),
             secret_cache: None,
         }
     }
@@ -642,7 +616,7 @@ impl SecretProvidersPool {
     /// ```no_run
     /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
     ///
-    /// let mut pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// let mut pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
     /// pool.enable_caching();
     /// ```
     pub fn enable_caching(&mut self) {
@@ -656,7 +630,7 @@ impl SecretProvidersPool {
     /// ```no_run
     /// use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
     ///
-    /// let mut pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// let mut pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
     /// pool.disable_caching();
     /// ```
     pub fn disable_caching(&mut self) {
@@ -694,7 +668,7 @@ impl SecretProvidersPool {
     ///     secret: String,
     /// }
     ///
-    /// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// let pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
     /// let secret_ref = SecretReference::from("api_creds.json", None);
     /// let creds: Secret<ApiCredentials> = pool.get_secret_typed(&secret_ref).await.unwrap();
     /// ```
@@ -733,7 +707,7 @@ impl SecretProvidersPool {
     /// ```no_run
     /// use regent_sdk::secrets::{SecretProvidersPool, SecretReference};
     ///
-    /// let pool = SecretProvidersPool::from("files", SecretProvider::files());
+    /// let pool = SecretProvidersPool::with_default_provider(&SecretProvider::files("files"));
     /// let secret_ref = SecretReference::from("/path/to/password.txt", None);
     /// let password = pool.get_secret_raw(&secret_ref).await.unwrap();
     /// let password_str: String = password.inner();

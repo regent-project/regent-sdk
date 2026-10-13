@@ -36,10 +36,11 @@ Attributes:
 
     // Authentication is handled outside of this crate. For GCP, we run '$ gcloud auth application-default login' prior to running this example.
     let secrets_providers_pool = SecretProvidersPoolBuilder::new()
-        .add_default_provider("env_vars", SecretProvider::env_var())
+        .with_default_provider(&SecretProvider::env_var("env_vars"))
         .add_provider(
-            "gpc_secret_manager",
-            SecretProvider::gcp_secretmanager().await.unwrap(),
+            &SecretProvider::gcp_secretmanager("gpc_secret_manager")
+                .await
+                .unwrap(),
         )
         .build()
         .unwrap();

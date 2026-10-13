@@ -22,7 +22,8 @@ async fn main() {
     info!("Let's handle an inference server from Rust code");
 
     // Build a SecretProvidersPool
-    let secret_providers = SecretProvidersPool::from("file", SecretProvider::files());
+    let file = SecretProvider::files("file");
+    let secret_providers = SecretProvidersPool::with_default_provider(&file);
 
     // Describe the ManagedHost
     let mut managed_host = ManagedHostBuilder::new(
@@ -30,7 +31,7 @@ async fn main() {
         "<host-address>",
         Some(ConnectionMethod::Ssh2(Ssh2Auth::key(
             "inference",
-            SecretReference::from("<ssh-private-key-path>", Some("file".to_string())),
+            SecretReference::from_provider("<ssh-private-key-path>", &file),
         ))),
     )
     .build(Some(secret_providers))
