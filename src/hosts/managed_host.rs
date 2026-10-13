@@ -800,7 +800,7 @@ impl ManagedHost {
             let iteration_result = async {
                 match attribute.consider_context(&self.context) {
                     Ok(context_aware_attribute) => {
-                        let timeout_duration = context_aware_attribute.timeout()?;
+                        let timeout_duration = context_aware_attribute.timeout();
 
                         match context_aware_attribute
                             .assess(

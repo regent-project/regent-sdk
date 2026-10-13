@@ -108,16 +108,27 @@ pub struct Attribute {
     pub name: Option<String>,
     pub privilege: Privilege,
     detail: AttributeDetail,
-    timeout: AttributeTimeout,
+    #[serde(with = "humantime_serde")]
+    timeout: Duration,
 }
 
 impl Attribute {
-    pub fn from(detail: AttributeDetail, privilege: Privilege, name: Option<String>) -> Attribute {
+    pub fn from(
+        detail: AttributeDetail,
+        privilege: Privilege,
+        name: Option<String>,
+        timeout: Option<Duration>,
+    ) -> Attribute {
+        let timeout = match timeout {
+            Some(duration) => duration,
+            None => detail.default_timeout(),
+        };
+
         Attribute {
             privilege,
             detail,
             name,
-            timeout: AttributeTimeout::Default,
+            timeout,
         }
     }
 
@@ -211,7 +222,7 @@ impl Attribute {
                 host_properties,
                 &self.privilege,
                 optional_secret_provider,
-                self.timeout()?,
+                self.timeout(),
             )
             .await
     }
@@ -228,7 +239,7 @@ impl Attribute {
                 host_properties,
                 &self.privilege,
                 optional_secret_provider,
-                self.timeout()?,
+                self.timeout(),
             )
             .await
     }
@@ -237,39 +248,20 @@ impl Attribute {
         self.detail.check()
     }
 
-    pub fn timeout(&self) -> Result<Duration, RegentError> {
-        match &self.timeout {
-            AttributeTimeout::Default => Ok(self.detail.default_timeout()),
-            AttributeTimeout::Duration(duration) => Ok(*duration),
-            AttributeTimeout::Seconds(seconds) => Ok(Duration::from_secs(*seconds)),
-            AttributeTimeout::Milliseconds(milliseconds) => {
-                Ok(Duration::from_millis(*milliseconds))
-            }
-        }
+    pub fn timeout(&self) -> Duration {
+        self.timeout
     }
 
     // Convenience methods for attributes building
 
     /// Set a timeout using a Duration
     pub fn with_timeout(mut self, user_defined_timeout: Duration) -> Self {
-        self.timeout = AttributeTimeout::Duration(user_defined_timeout);
-        self
-    }
-
-    /// Set a timeout using seconds
-    pub fn with_timeout_secs(mut self, seconds: u64) -> Self {
-        self.timeout = AttributeTimeout::Seconds(seconds);
-        self
-    }
-
-    /// Set a timeout using milliseconds
-    pub fn with_timeout_millis(mut self, milliseconds: u64) -> Self {
-        self.timeout = AttributeTimeout::Milliseconds(milliseconds);
+        self.timeout = user_defined_timeout;
         self
     }
 
     pub fn apt(details: AptExpectedState, privilege: Privilege, name: Option<String>) -> Attribute {
-        Attribute::from(AttributeDetail::Apt(details), privilege, name)
+        Attribute::from(AttributeDetail::Apt(details), privilege, name, None)
     }
 
     pub fn pacman(
@@ -277,7 +269,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Pacman(details), privilege, name)
+        Attribute::from(AttributeDetail::Pacman(details), privilege, name, None)
     }
 
     pub fn yumdnf(
@@ -285,7 +277,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::YumDnf(details), privilege, name)
+        Attribute::from(AttributeDetail::YumDnf(details), privilege, name, None)
     }
 
     pub fn command(
@@ -293,7 +285,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Command(details), privilege, name)
+        Attribute::from(AttributeDetail::Command(details), privilege, name, None)
     }
 
     pub fn service(
@@ -301,7 +293,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Service(details), privilege, name)
+        Attribute::from(AttributeDetail::Service(details), privilege, name, None)
     }
 
     pub fn debug(
@@ -309,7 +301,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Debug(details), privilege, name)
+        Attribute::from(AttributeDetail::Debug(details), privilege, name, None)
     }
 
     pub fn lineinfile(
@@ -317,7 +309,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::LineInFile(details), privilege, name)
+        Attribute::from(AttributeDetail::LineInFile(details), privilege, name, None)
     }
 
     pub fn ping(
@@ -325,7 +317,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Ping(details), privilege, name)
+        Attribute::from(AttributeDetail::Ping(details), privilege, name, None)
     }
 
     pub fn user(
@@ -333,7 +325,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::User(details), privilege, name)
+        Attribute::from(AttributeDetail::User(details), privilege, name, None)
     }
 
     pub fn group(
@@ -341,7 +333,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Group(details), privilege, name)
+        Attribute::from(AttributeDetail::Group(details), privilege, name, None)
     }
 
     pub fn cron(
@@ -349,7 +341,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Cron(details), privilege, name)
+        Attribute::from(AttributeDetail::Cron(details), privilege, name, None)
     }
 
     pub fn hostname(
@@ -357,7 +349,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Hostname(details), privilege, name)
+        Attribute::from(AttributeDetail::Hostname(details), privilege, name, None)
     }
 
     pub fn apt_repo(
@@ -365,7 +357,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::AptRepo(details), privilege, name)
+        Attribute::from(AttributeDetail::AptRepo(details), privilege, name, None)
     }
 
     pub fn dnf_repo(
@@ -373,11 +365,11 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::DnfRepo(details), privilege, name)
+        Attribute::from(AttributeDetail::DnfRepo(details), privilege, name, None)
     }
 
     pub fn dns(details: DnsExpectedState, privilege: Privilege, name: Option<String>) -> Attribute {
-        Attribute::from(AttributeDetail::Dns(details), privilege, name)
+        Attribute::from(AttributeDetail::Dns(details), privilege, name, None)
     }
 
     pub fn dhcp(
@@ -385,7 +377,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Dhcp(details), privilege, name)
+        Attribute::from(AttributeDetail::Dhcp(details), privilege, name, None)
     }
 
     pub fn iptables(
@@ -393,7 +385,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Iptables(details), privilege, name)
+        Attribute::from(AttributeDetail::Iptables(details), privilege, name, None)
     }
 
     pub fn ollama(
@@ -401,7 +393,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Ollama(details), privilege, name) // Used 'timeout' in 'from' method
+        Attribute::from(AttributeDetail::Ollama(details), privilege, name, None) // Used 'timeout' in 'from' method
     }
 
     pub fn onnx(
@@ -409,7 +401,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Onnx(details), privilege, name)
+        Attribute::from(AttributeDetail::Onnx(details), privilege, name, None)
     }
 
     pub fn template(
@@ -417,7 +409,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Template(details), privilege, name)
+        Attribute::from(AttributeDetail::Template(details), privilege, name, None)
     }
 
     pub fn docker(
@@ -425,7 +417,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Docker(details), privilege, name)
+        Attribute::from(AttributeDetail::Docker(details), privilege, name, None)
     }
 
     pub fn podman(
@@ -433,7 +425,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Podman(details), privilege, name)
+        Attribute::from(AttributeDetail::Podman(details), privilege, name, None)
     }
 
     pub fn apptainer(
@@ -441,7 +433,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Apptainer(details), privilege, name)
+        Attribute::from(AttributeDetail::Apptainer(details), privilege, name, None)
     }
 
     pub fn enroot(
@@ -449,14 +441,19 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::Enroot(details), privilege, name)
+        Attribute::from(AttributeDetail::Enroot(details), privilege, name, None)
     }
     pub fn nvidia_driver(
         details: NvidiaDriverExpectedState,
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::NvidiaDriver(details), privilege, name)
+        Attribute::from(
+            AttributeDetail::NvidiaDriver(details),
+            privilege,
+            name,
+            None,
+        )
     }
     pub fn nvidia_container_toolkit(
         details: NvidiaContainerToolkitExpectedState,
@@ -467,6 +464,7 @@ impl Attribute {
             AttributeDetail::NvidiaContainerToolkit(details),
             privilege,
             name,
+            None,
         )
     }
 
@@ -475,7 +473,7 @@ impl Attribute {
         privilege: Privilege,
         name: Option<String>,
     ) -> Attribute {
-        Attribute::from(AttributeDetail::AppleMps(details), privilege, name)
+        Attribute::from(AttributeDetail::AppleMps(details), privilege, name, None)
     }
 }
 

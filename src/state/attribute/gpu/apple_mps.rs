@@ -54,7 +54,7 @@
 //! Attributes:
 //!   - Name: MPS inference host prerequisites
 //!     Privilege: !WithSudo
-//!     Timeout: 1800
+//!     Timeout: 30m
 //!     Detail: !AppleMps
 //!       State: Present
 //!       AppleSilicon: true
@@ -720,7 +720,7 @@ CommandLineTools: true
         let raw_attribute = "---
 Name: MPS inference host prerequisites
 Privilege: !WithSudo
-Timeout: 1800
+Timeout: 30m
 Detail: !AppleMps
   State: Present
   AppleSilicon: true

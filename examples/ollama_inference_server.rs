@@ -14,6 +14,7 @@ use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretReference;
 use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::{Attribute, ExpectedState};
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 #[tokio::main]
@@ -76,7 +77,7 @@ async fn main() {
                 Privilege::WithSudo,
                 Some("NVIDIA driver is installed".to_string()),
             )
-            .with_timeout_secs(3600),
+            .with_timeout(Duration::from_secs(3600)),
         )
         .with_attribute(
             Attribute::ollama(
@@ -84,7 +85,7 @@ async fn main() {
                 Privilege::WithSudo,
                 Some("Ollama is installed with the Qwen2.5 1.5B model".to_string()),
             )
-            .with_timeout_secs(1800),
+            .with_timeout(Duration::from_secs(1800)),
         )
         .with_attribute(
             Attribute::service(
@@ -92,7 +93,7 @@ async fn main() {
                 Privilege::WithSudo,
                 Some("Ollama service is running and enabled at boot".to_string()),
             )
-            .with_timeout_secs(300),
+            .with_timeout(Duration::from_secs(300)),
         )
         .with_attribute(
             Attribute::iptables(
@@ -100,7 +101,7 @@ async fn main() {
                 Privilege::WithSudo,
                 Some("Port is open".to_string()),
             )
-            .with_timeout_secs(300),
+            .with_timeout(Duration::from_secs(300)),
         )
         .build();
 

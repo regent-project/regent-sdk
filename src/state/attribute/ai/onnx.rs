@@ -58,7 +58,7 @@
 //! Attributes:
 //!   - Name: ONNX Runtime GPU 1.20.0 in the inference venv
 //!     Privilege: !None
-//!     Timeout: 600
+//!     Timeout: 10m
 //!     Detail: !Onnx
 //!       State: Present
 //!       Runtime:
@@ -712,7 +712,7 @@ Runtime:
         let raw_attribute = "---
 Name: ONNX Runtime GPU in the inference venv
 Privilege: !None
-Timeout: 600
+Timeout: 10m
 Detail: !Onnx
   State: Present
   Runtime:
