@@ -19,11 +19,14 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::network::iptables::{IptablesExpectedState, IpVersion};
+//! use regent_sdk::state::attribute::network::iptables::IptablesExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Allow SSH on port 22 using convenience method (defaults to IPv4)
 //! let ssh_rule = IptablesExpectedState::allow_ssh(None);
+//!
+//! // Same rule for IPv6 (ip6tables)
+//! let ssh_rule_v6 = IptablesExpectedState::allow_ssh(None).for_ipv6();
 //!
 //! // Allow HTTP on port 80 at position 1
 //! let http_rule = IptablesExpectedState::allow_tcp_port(80, Some(1));
@@ -36,6 +39,7 @@
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::iptables(ssh_rule, Privilege::WithSudo, None))
+//!     .with_attribute(Attribute::iptables(ssh_rule_v6, Privilege::WithSudo, None))
 //!     .with_attribute(Attribute::iptables(http_rule, Privilege::WithSudo, None))
 //!     .build();
 //! ```
@@ -763,16 +767,49 @@ pub enum IptablesExpectedState {
 ///
 /// ```no_run
 /// use regent_sdk::state::attribute::network::iptables::{
-///     IptablesExpectedState, IpVersion, IptablesInsertionAction,
-///     IptablesRule, FilterChain, Protocol, MatchCriteria, IptablesTarget
+///     IptablesExpectedState, IptablesRule, FilterChain, Protocol, MatchCriteria,
+///     IptablesTarget, PortSpec,
 /// };
-/// use regent_sdk::state::attribute::network::iptables::PortSpec;
 /// use regent_sdk::{Attribute, ExpectedState, Privilege};
 ///
 /// // Allow SSH on port 22 using convenience method (defaults to IPv4)
 /// let ssh_rule = IptablesExpectedState::allow_ssh(None);
 ///
 /// // Or use the full API for more complex rules
+/// let web_rule = IptablesRule::Filter {
+///     chain: FilterChain::Input,
+///     criteria: MatchCriteria {
+///         protocol: Protocol::Tcp {
+///             source_port: None,
+///             dest_port: Some(PortSpec::Range { start: 8000, end: 8080 }),
+///             tcp_flags: None,
+///         },
+///         source: None,
+///         destination: None,
+///         network_interface_in: None,
+///         network_interface_out: None,
+///         fragment: None,
+///         limit: None,
+///         conntrack: None,
+///         owner: None,
+///         comment: Some("web".to_string()),
+///     },
+///     target: IptablesTarget::Accept,
+/// };
+///
+/// // Insert it at the top of the chain, for IPv4 and IPv6
+/// let web_v4 = IptablesExpectedState::inserted_at(1, web_rule.clone());
+/// let web_v6 = IptablesExpectedState::inserted_at(1, web_rule.clone()).for_ipv6();
+///
+/// // Ensure it is gone for IPv4
+/// let no_web_v4 = IptablesExpectedState::removed(web_rule);
+///
+/// let expected_state = ExpectedState::new()
+///     .with_attribute(Attribute::iptables(ssh_rule, Privilege::WithSudo, None))
+///     .with_attribute(Attribute::iptables(web_v4, Privilege::WithSudo, None))
+///     .with_attribute(Attribute::iptables(web_v6, Privilege::WithSudo, None))
+///     .build();
+/// ```
 impl IptablesExpectedState {
     pub fn present(
         ip_version: IpVersion,
@@ -788,6 +825,40 @@ impl IptablesExpectedState {
 
     pub fn absent(ip_version: IpVersion, rule: IptablesRule) -> IptablesExpectedState {
         IptablesExpectedState::Absent { ip_version, rule }
+    }
+
+    /// Rule must be present (IPv4), appended at the end of its chain if missing.
+    pub fn appended(rule: IptablesRule) -> IptablesExpectedState {
+        Self::present(IpVersion::V4, IptablesInsertionAction::Append, rule)
+    }
+
+    /// Rule must be present (IPv4), inserted at `position` (1-based) of its chain if missing.
+    pub fn inserted_at(position: u32, rule: IptablesRule) -> IptablesExpectedState {
+        Self::present(
+            IpVersion::V4,
+            IptablesInsertionAction::Insert { position },
+            rule,
+        )
+    }
+
+    /// Rule must be absent (IPv4).
+    pub fn removed(rule: IptablesRule) -> IptablesExpectedState {
+        Self::absent(IpVersion::V4, rule)
+    }
+
+    /// Apply this expected state to IPv6 (ip6tables) instead of IPv4.
+    pub fn for_ipv6(self) -> IptablesExpectedState {
+        match self {
+            IptablesExpectedState::Present { action, rule, .. } => IptablesExpectedState::Present {
+                ip_version: IpVersion::V6,
+                action,
+                rule,
+            },
+            IptablesExpectedState::Absent { rule, .. } => IptablesExpectedState::Absent {
+                ip_version: IpVersion::V6,
+                rule,
+            },
+        }
     }
 
     /// Allow incoming TCP traffic on a specific port in the INPUT chain.
@@ -960,20 +1031,18 @@ impl Check for IptablesExpectedState {
             | IptablesRule::Security {
                 chain: SecurityChain::Custom(c),
                 ..
-            } => {
-                if c.is_empty() {
-                    return Err(RegentError::IncoherentExpectedState(
-                        "custom chain name must not be empty.".to_string(),
-                    ));
-                }
+            } if c.is_empty() => {
+                return Err(RegentError::IncoherentExpectedState(
+                    "custom chain name must not be empty.".to_string(),
+                ));
             }
             _ => {}
         }
 
-        if let IptablesExpectedState::Present { action, .. } = self {
-            if let IptablesInsertionAction::Insert { position: _ } = action {
-                // Position is required in the Insert variant, so it's always valid
-            }
+        if let IptablesExpectedState::Present { action, .. } = self
+            && let IptablesInsertionAction::Insert { position: _ } = action
+        {
+            // Position is required in the Insert variant, so it's always valid
         }
 
         Ok(())
@@ -1071,7 +1140,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for IptablesExpectedState {
             }
         };
 
-        let binary = ip_version_to_str(&ip_version);
+        let binary = ip_version_to_str(ip_version);
         let table_arg = get_table_arg(rule);
         let chain_name = get_chain_name(rule);
 
@@ -1454,10 +1523,10 @@ async fn verify_rule_position<Handler: HostHandler>(
                     for line in list_result.stdout.lines() {
                         if line.contains(rule_args.as_str()) {
                             let parts: Vec<&str> = line.split_whitespace().collect();
-                            if parts.len() >= 1 {
-                                if let Ok(actual_position) = parts[0].parse::<u32>() {
-                                    return actual_position == *expected_position;
-                                }
+                            if !parts.is_empty()
+                                && let Ok(actual_position) = parts[0].parse::<u32>()
+                            {
+                                return actual_position == *expected_position;
                             }
                             break; // Found the rule, but couldn't parse position
                         }
@@ -1603,17 +1672,17 @@ fn build_rule_args_from_new_structures(rule: &IptablesRule) -> String {
     }
 
     // Source port
-    if let Some(ref sport) = get_source_port(&criteria.protocol) {
+    if let Some(sport) = get_source_port(&criteria.protocol) {
         parts.push(format!("--sport {}", port_spec_to_str(sport)));
     }
 
     // Destination port
-    if let Some(ref dport) = get_dest_port(&criteria.protocol) {
+    if let Some(dport) = get_dest_port(&criteria.protocol) {
         parts.push(format!("--dport {}", port_spec_to_str(dport)));
     }
 
     // TCP flags
-    if let Some(ref tcp_flags) = get_tcp_flags(&criteria.protocol) {
+    if let Some(tcp_flags) = get_tcp_flags(&criteria.protocol) {
         let mask_strs: Vec<&str> = tcp_flags.mask.iter().map(|f| tcp_flag_to_str(f)).collect();
         let comp_strs: Vec<&str> = tcp_flags.comp.iter().map(|f| tcp_flag_to_str(f)).collect();
         parts.push(format!(
@@ -1650,13 +1719,13 @@ fn build_rule_args_from_new_structures(rule: &IptablesRule) -> String {
     }
 
     // Fragment (with inversion support)
-    if let Some(ref fragment) = criteria.fragment {
-        if *fragment {
-            parts.push("-f".to_string());
-        }
-        // Note: For inverted fragment (! -f), we would need to track it differently
-        // For now, we assume fragment is not inverted in the new structure
+    if let Some(ref fragment) = criteria.fragment
+        && *fragment
+    {
+        parts.push("-f".to_string());
     }
+    // Note: For inverted fragment (! -f), we would need to track it differently
+    // For now, we assume fragment is not inverted in the new structure
 
     // ICMP type and code
     if let Some(ref icmp_type) = get_icmp_type(&criteria.protocol) {
@@ -2086,5 +2155,83 @@ Details:
         );
 
         assert_eq!(yaml_state, rust_state);
+    }
+
+    fn sample_rule() -> IptablesRule {
+        IptablesRule::Filter {
+            chain: FilterChain::Input,
+            criteria: MatchCriteria {
+                protocol: Protocol::Udp {
+                    source_port: None,
+                    dest_port: Some(PortSpec::Single(123)),
+                },
+                source: None,
+                destination: None,
+                network_interface_in: None,
+                network_interface_out: None,
+                fragment: None,
+                limit: None,
+                conntrack: None,
+                owner: None,
+                comment: None,
+            },
+            target: IptablesTarget::Accept,
+        }
+    }
+
+    #[test]
+    fn named_constructors_match_explicit_form() {
+        assert_eq!(
+            IptablesExpectedState::appended(sample_rule()),
+            IptablesExpectedState::present(
+                IpVersion::V4,
+                IptablesInsertionAction::Append,
+                sample_rule()
+            )
+        );
+        assert_eq!(
+            IptablesExpectedState::inserted_at(3, sample_rule()),
+            IptablesExpectedState::present(
+                IpVersion::V4,
+                IptablesInsertionAction::Insert { position: 3 },
+                sample_rule()
+            )
+        );
+        assert_eq!(
+            IptablesExpectedState::removed(sample_rule()),
+            IptablesExpectedState::absent(IpVersion::V4, sample_rule())
+        );
+    }
+
+    #[test]
+    fn for_ipv6_matches_explicit_form() {
+        assert_eq!(
+            IptablesExpectedState::inserted_at(3, sample_rule()).for_ipv6(),
+            IptablesExpectedState::present(
+                IpVersion::V6,
+                IptablesInsertionAction::Insert { position: 3 },
+                sample_rule()
+            )
+        );
+        assert_eq!(
+            IptablesExpectedState::removed(sample_rule()).for_ipv6(),
+            IptablesExpectedState::absent(IpVersion::V6, sample_rule())
+        );
+        assert_eq!(
+            IptablesExpectedState::allow_tcp_port(80, Some(1)).for_ipv6(),
+            IptablesExpectedState::allow_tcp_port_with_ip(80, IpVersion::V6, Some(1))
+        );
+        assert_eq!(
+            IptablesExpectedState::allow_udp_port(53, None).for_ipv6(),
+            IptablesExpectedState::allow_udp_port_with_ip(53, IpVersion::V6, None)
+        );
+        assert_eq!(
+            IptablesExpectedState::allow_ssh(None).for_ipv6(),
+            IptablesExpectedState::allow_ssh_with_ip(IpVersion::V6, None)
+        );
+        assert_eq!(
+            IptablesExpectedState::drop_all_incoming(Some(2)).for_ipv6(),
+            IptablesExpectedState::drop_all_incoming_with_ip(IpVersion::V6, Some(2))
+        );
     }
 }

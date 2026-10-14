@@ -12,7 +12,7 @@
 //!
 //! 1. creates a short-lived macvlan virtual interface on top of the parent one,
 //! 2. runs a one-shotdhclient probe on that virtual interface with
-//!   -sf /bin/true`, which suppressesdhclient-script entirely. This is what
+//!    -sf /bin/true`, which suppressesdhclient-script entirely. This is what
 //!    makes the probe read-only: the default script assigns the offered address,
 //!    installs the routes carried by therouters option (including a default
 //!    route) and rewrites/etc/resolv.conf — and that last change would outlive
@@ -545,7 +545,7 @@ pub struct DhcpApiCall {}
 
 impl DhcpApiCall {
     pub fn display(&self) -> String {
-        return format!("Should not have been called");
+        "Should not have been called".to_string()
     }
 }
 
@@ -753,14 +753,14 @@ impl DhcpResponse {
         if self.ip != Some(expected_response.ip) {
             return ComparisonOutcome::Different(format!(
                 "Different IP : expected {}, got {:?}",
-                expected_response.ip, &self.ip
+                expected_response.ip, self.ip
             ));
         }
 
         if self.mask != Some(expected_response.mask) {
             return ComparisonOutcome::Different(format!(
                 "Different mask : expected {}, got {:?}",
-                expected_response.mask, &self.mask
+                expected_response.mask, self.mask
             ));
         }
 
@@ -773,7 +773,7 @@ impl DhcpResponse {
         if got_dns != expected_dns {
             return ComparisonOutcome::Different(format!(
                 "Different DNS : expected {:?}, got {:?}",
-                expected_response.dns, &self.dns
+                expected_response.dns, self.dns
             ));
         }
 

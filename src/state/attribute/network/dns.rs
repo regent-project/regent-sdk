@@ -16,28 +16,21 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::network::dns::{DnsExpectedState, DnsRecordType};
+//! use regent_sdk::state::attribute::network::dns::DnsExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
-//! use std::net::IpAddr;
 //!
 //! // Assert www.example.com resolves to 93.184.216.34 (A record) via a specific server
-//! let dns = DnsExpectedState::check_response_and_server(
-//!     "www.example.com",
-//!     DnsRecordType::A("93.184.216.34".parse().unwrap()),
-//!     "8.8.8.8".parse().unwrap(),
-//! );
+//! let dns = DnsExpectedState::check_a_record("www.example.com", "93.184.216.34".parse().unwrap())
+//!     .via_server("8.8.8.8".parse().unwrap());
 //!
 //! // Assert www.example.com resolves to a known AAAA record using OS-configured servers
-//! let dns_os = DnsExpectedState::check_response(
+//! let dns_os = DnsExpectedState::check_aaaa_record(
 //!     "www.example.com",
-//!     DnsRecordType::Aaaa("2606:2800:220:1:248:1893:25c8:1946".parse().unwrap()),
+//!     "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap(),
 //! );
 //!
 //! // Assert alias.example.com is a CNAME for www.example.com using OS-configured servers
-//! let dns_cname = DnsExpectedState::check_response(
-//!     "alias.example.com",
-//!     DnsRecordType::Cname("www.example.com".to_string()),
-//! );
+//! let dns_cname = DnsExpectedState::check_cname_record("alias.example.com", "www.example.com");
 //!
 //! // Assert www.example.com resolves at all, querying a specific server
 //! let dns_server = DnsExpectedState::check_server(
@@ -130,7 +123,7 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -202,6 +195,47 @@ impl DnsExpectedState {
     pub fn simple_check(dns_name: &str) -> DnsExpectedState {
         DnsExpectedState::SimpleCheck {
             dns_name: dns_name.to_string(),
+        }
+    }
+
+    /// Assert `dns_name` has an A record pointing to `ip`, using OS-configured servers
+    pub fn check_a_record(dns_name: &str, ip: Ipv4Addr) -> DnsExpectedState {
+        Self::check_response(dns_name, DnsRecordType::A(IpAddr::V4(ip)))
+    }
+
+    /// Assert `dns_name` has an AAAA record pointing to `ip`, using OS-configured servers
+    pub fn check_aaaa_record(dns_name: &str, ip: Ipv6Addr) -> DnsExpectedState {
+        Self::check_response(dns_name, DnsRecordType::Aaaa(IpAddr::V6(ip)))
+    }
+
+    /// Assert `dns_name` is a CNAME for `target`, using OS-configured servers
+    pub fn check_cname_record(dns_name: &str, target: &str) -> DnsExpectedState {
+        Self::check_response(dns_name, DnsRecordType::Cname(target.to_string()))
+    }
+
+    /// Query `server` instead of the OS-configured servers
+    pub fn via_server(self, server: IpAddr) -> DnsExpectedState {
+        match self {
+            DnsExpectedState::CheckResponseAndServer {
+                dns_name,
+                expected_response,
+                server: _,
+            }
+            | DnsExpectedState::CheckResponse {
+                dns_name,
+                expected_response,
+            } => DnsExpectedState::CheckResponseAndServer {
+                dns_name,
+                expected_response,
+                server,
+            },
+            DnsExpectedState::CheckServer {
+                dns_name,
+                server: _,
+            }
+            | DnsExpectedState::SimpleCheck { dns_name } => {
+                DnsExpectedState::CheckServer { dns_name, server }
+            }
         }
     }
 }
@@ -330,10 +364,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnsExpectedState {
         // that A/AAAA/CNAME answers are each matched against the right kind of
         // value. When no response is expected we let `dig` use its default
         // lookup and only care whether anything came back.
-        let record_type = match expected_response {
-            Some(response) => Some(response.dig_arg_equivalent()),
-            None => None,
-        };
+        let record_type = expected_response.map(|response| response.dig_arg_equivalent());
 
         let dns_name = normalize_name(dns_name);
 
@@ -432,7 +463,7 @@ pub struct DnsApiCall {}
 
 impl DnsApiCall {
     pub fn display(&self) -> String {
-        return format!("Should not have been called");
+        "Should not have been called".to_string()
     }
 }
 
