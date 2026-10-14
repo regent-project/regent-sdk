@@ -16,9 +16,7 @@
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Execute a simple command
-//! let echo = CommandExpectedState::builder("echo 'Hello, World!'")
-//!     .build()
-//!     .unwrap();
+//! let echo = CommandExpectedState::new("echo 'Hello, World!'");
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::command(echo, Privilege::None, None))
@@ -136,9 +134,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for CommandExpectedState {
             privilege,
         }));
 
-        return Ok(AttributeComplianceAssessment::NonCompliant(
+        Ok(AttributeComplianceAssessment::NonCompliant(
             RemediationsList::from(remediations)?,
-        ));
+        ))
     }
 }
 
@@ -150,7 +148,7 @@ pub struct CommandApiCall {
 
 impl CommandApiCall {
     pub fn display(&self) -> String {
-        return format!("Run command : {}", self.cmd);
+        format!("Run command : {}", self.cmd)
     }
 }
 
