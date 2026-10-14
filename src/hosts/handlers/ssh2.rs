@@ -601,20 +601,9 @@ pub struct Ssh2Auth {
 }
 
 impl Ssh2Auth {
-    pub fn username_password(secret_reference: &str, secret_provider_name: Option<&str>) -> Self {
-        match secret_provider_name {
-            Some(name) => Self {
-                auth_method: Ssh2AuthReference::UsernamePassword(SecretReference::from(
-                    secret_reference,
-                    Some(name.to_string()),
-                )),
-            },
-            None => Self {
-                auth_method: Ssh2AuthReference::UsernamePassword(SecretReference::from(
-                    secret_reference,
-                    None,
-                )),
-            },
+    pub fn username_password(credentials: SecretReference) -> Self {
+        Self {
+            auth_method: Ssh2AuthReference::UsernamePassword(credentials),
         }
     }
 

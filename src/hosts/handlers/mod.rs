@@ -114,12 +114,16 @@ impl TargetUser {
 ///
 /// ```no_run
 /// use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser, Ssh2Auth};
+/// use regent_sdk::secrets::{SecretProvider, SecretReference};
 ///
 /// // Localhost connection
 /// let method = ConnectionMethod::Localhost(TargetUser::current_user());
 ///
 /// // SSH connection
-/// let method = ConnectionMethod::Ssh2(Ssh2Auth::username_password("creds", Some("files")));
+/// let files = SecretProvider::files("files");
+/// let method = ConnectionMethod::Ssh2(Ssh2Auth::username_password(
+///     SecretReference::from_provider("creds", &files),
+/// ));
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
