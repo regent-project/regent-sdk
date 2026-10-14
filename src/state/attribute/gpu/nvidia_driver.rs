@@ -81,14 +81,14 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::gpu::nvidia_driver::{
-//!     DriverBranch, KernelModules, NvidiaDriverConfig, NvidiaDriverExpectedState,
-//! };
+//! use regent_sdk::state::attribute::gpu::nvidia_driver::{NvidiaDriverConfig, NvidiaDriverExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege, RegentError};
 //!
 //! fn gpu_node() -> Result<ExpectedState, RegentError> {
+//!     // with_latest_open_kernel_modules() (default) | with_open_kernel_modules(<branch>)
+//!     // | with_proprietary_kernel_modules(<branch 570-610>)
 //!     let config = NvidiaDriverConfig::new()
-//!         .with_kernel_modules(KernelModules::Open(DriverBranch::Branch("580".parse()?)))
+//!         .with_open_kernel_modules(580)?
 //!         .with_cuda_toolkit("12.8".parse()?)
 //!         .with_persistence_mode(true);
 //!
@@ -232,6 +232,23 @@ impl NvidiaDriverConfig {
     pub fn with_kernel_modules(mut self, kernel_modules: KernelModules) -> Self {
         self.kernel_modules = kernel_modules;
         self
+    }
+
+    /// Open kernel modules, newest driver branch (the default)
+    pub fn with_latest_open_kernel_modules(self) -> Self {
+        self.with_kernel_modules(KernelModules::Open(DriverBranch::Latest))
+    }
+
+    /// Open kernel modules, driver pinned to this branch (from 570 on)
+    pub fn with_open_kernel_modules(self, branch: u32) -> Result<Self, RegentError> {
+        let branch = BranchNumber::try_from(branch)?;
+        Ok(self.with_kernel_modules(KernelModules::Open(DriverBranch::Branch(branch))))
+    }
+
+    /// Proprietary kernel modules, driver pinned to this branch (570 to 610)
+    pub fn with_proprietary_kernel_modules(self, branch: u32) -> Result<Self, RegentError> {
+        let branch = ProprietaryBranch::try_from(branch)?;
+        Ok(self.with_kernel_modules(KernelModules::Proprietary(branch)))
     }
 
     pub fn with_cuda_toolkit(mut self, cuda_toolkit: CudaVersion) -> Self {
@@ -1918,6 +1935,68 @@ State: !Present
         assert_eq!(KernelModules::Proprietary(branch).branch(), Some(580));
         assert_eq!(ProprietaryBranch::new(570).number(), 570);
         assert_eq!(ProprietaryBranch::new(610).number(), 610);
+    }
+
+    #[test]
+    fn kernel_modules_shortcuts_match_the_explicit_form() {
+        let with = |kernel_modules| NvidiaDriverConfig::new().with_kernel_modules(kernel_modules);
+        assert_eq!(
+            NvidiaDriverConfig::new()
+                .with_proprietary_kernel_modules(580)
+                .unwrap()
+                .with_latest_open_kernel_modules(),
+            with(KernelModules::Open(DriverBranch::Latest))
+        );
+        assert_eq!(
+            NvidiaDriverConfig::new().with_latest_open_kernel_modules(),
+            NvidiaDriverConfig::new()
+        );
+        assert_eq!(
+            NvidiaDriverConfig::new()
+                .with_open_kernel_modules(580)
+                .unwrap(),
+            with(KernelModules::Open(DriverBranch::Branch(
+                "580".parse().unwrap()
+            )))
+        );
+        assert_eq!(
+            NvidiaDriverConfig::new()
+                .with_proprietary_kernel_modules(580)
+                .unwrap(),
+            with(KernelModules::Proprietary(ProprietaryBranch::new(580)))
+        );
+        // Open modules exist on every branch from 570 on
+        assert!(
+            NvidiaDriverConfig::new()
+                .with_open_kernel_modules(615)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn kernel_modules_shortcuts_reject_invalid_branches() {
+        let rejected = [
+            (
+                NvidiaDriverConfig::new().with_open_kernel_modules(550),
+                "from 570 on",
+            ),
+            (
+                NvidiaDriverConfig::new().with_proprietary_kernel_modules(550),
+                "from 570 on",
+            ),
+            (
+                NvidiaDriverConfig::new().with_proprietary_kernel_modules(615),
+                "removed after branch 610",
+            ),
+        ];
+        for (result, reason) in rejected {
+            let error = result.unwrap_err().to_string();
+            assert!(
+                error.contains(reason),
+                "rejected for another reason: {}",
+                error
+            );
+        }
     }
 
     #[test]

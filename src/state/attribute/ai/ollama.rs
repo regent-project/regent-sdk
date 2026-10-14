@@ -35,7 +35,7 @@
 //! Attributes:
 //!   - Name: Ollama with the llama3 model must be installed
 //!     Privilege: !WithSudo
-//!     Timeout: 600
+//!     Timeout: 10m
 //!     Detail: !Ollama
 //!       State: Present
 //!       ApiConfig:
@@ -53,7 +53,7 @@
 //! Attributes:
 //!   - Name: Ollama must be removed
 //!     Privilege: !WithSudo
-//!     Timeout: 600
+//!     Timeout: 10m
 //!     Detail: !Ollama
 //!       State: Absent
 //! ```
@@ -766,7 +766,7 @@ Models:
         let raw_attribute = "---
 Name: Ollama with the llama3 model must be installed
 Privilege: !WithSudo
-Timeout: 600
+Timeout: 10m
 Detail: !Ollama
   State: Present
   ApiConfig:
@@ -790,7 +790,7 @@ Detail: !Ollama
 Attributes:
   - Name: Ollama must be installed with qwen2.5:1.5b
     Privilege: !WithSudo
-    Timeout: 1800
+    Timeout: 30m
     Detail: !Ollama
       State: Present
       ApiConfig:

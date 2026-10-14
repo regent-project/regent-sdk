@@ -44,8 +44,7 @@
 //!
 //! ```no_run
 //! use regent_sdk::state::attribute::container::apptainer::{
-//!     ApptainerExpectedState, ApptainerGpu, ApptainerImage, ApptainerProcess,
-//!     ApptainerServiceConfig, ApptainerIsolation,
+//!     ApptainerExpectedState, ApptainerServiceConfig,
 //! };
 //! use regent_sdk::state::attribute::container::container_spec::ContainerCommand;
 //! use regent_sdk::state::expected_state::Parameter;
@@ -53,20 +52,21 @@
 //! use regent_sdk::{Attribute, ExpectedState, Privilege, RegentError};
 //!
 //! fn inference_server() -> Result<ExpectedState, RegentError> {
-//!     let config = ApptainerServiceConfig::new(ApptainerImage::pulled(
+//!     let config = ApptainerServiceConfig::from_pulled_image(
 //!         "docker://vllm/vllm-openai:v0.6.3".parse()?,
 //!         "/opt/images/vllm-0.6.3.sif".parse()?,
-//!     ))
-//!     .with_process(ApptainerProcess::Exec(ContainerCommand::new(&[
+//!     )
+//!     .with_exec(ContainerCommand::new(&[
 //!         "vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct", "--port", "8000",
-//!     ])?))
-//!     .with_gpu(ApptainerGpu::Nvidia)
+//!     ])?)
+//!     .with_nvidia_gpus()
 //!     .with_binds(vec!["/srv/models:/root/.cache/huggingface".parse()?])
 //!     .with_env(
 //!         "HF_TOKEN".parse()?,
 //!         Parameter::Secret(SecretReference::from("hf_token", Some("files".to_string()))),
 //!     )
-//!     .with_isolation(ApptainerIsolation::ContainAll);
+//!     .with_contain_all()
+//!     .with_restart_always();
 //!
 //!     let vllm = ApptainerExpectedState::running("vllm".parse()?, config);
 //!
@@ -199,6 +199,12 @@ pub enum ApptainerImage {
 }
 
 impl ApptainerImage {
+    /// SIF file which must be present on the host (not managed)
+    pub fn local(path: AbsolutePath) -> Self {
+        ApptainerImage::Local(path)
+    }
+
+    /// SIF file pulled from `source` (`apptainer pull`) if it is missing
     pub fn pulled(source: ApptainerImageUri, path: AbsolutePath) -> Self {
         ApptainerImage::Pulled(ApptainerPulledImage { source, path })
     }
@@ -374,14 +380,55 @@ impl ApptainerServiceConfig {
         }
     }
 
+    /// Service running a local SIF file, which must be present on the host (not managed)
+    pub fn from_local_image(path: AbsolutePath) -> Self {
+        Self::new(ApptainerImage::local(path))
+    }
+
+    /// Service running a SIF file pulled from `source` (`apptainer pull`) if it is missing
+    pub fn from_pulled_image(source: ApptainerImageUri, path: AbsolutePath) -> Self {
+        Self::new(ApptainerImage::pulled(source, path))
+    }
+
     pub fn with_process(mut self, process: ApptainerProcess) -> Self {
         self.process = process;
         self
     }
 
+    /// Run the image's run script with these arguments (`apptainer run`, the default without
+    /// arguments). Replaces the command set by `with_exec()`.
+    pub fn with_run_script(self, args: &[&str]) -> Self {
+        self.with_process(ApptainerProcess::RunScript(
+            args.iter().map(|arg| arg.to_string()).collect(),
+        ))
+    }
+
+    /// Run this command instead of the run script (`apptainer exec`). Replaces the run script
+    /// arguments set by `with_run_script()`.
+    pub fn with_exec(self, command: ContainerCommand) -> Self {
+        self.with_process(ApptainerProcess::Exec(command))
+    }
+
     pub fn with_gpu(mut self, gpu: ApptainerGpu) -> Self {
         self.gpu = Some(gpu);
         self
+    }
+
+    /// NVIDIA GPUs, host libraries bound into the container (`--nv`). Replaces the GPU
+    /// setup chosen before.
+    pub fn with_nvidia_gpus(self) -> Self {
+        self.with_gpu(ApptainerGpu::Nvidia)
+    }
+
+    /// NVIDIA GPUs set up by `nvidia-container-cli` (`--nv --nvccli`, implies
+    /// `--writable-tmpfs`). Replaces the GPU setup chosen before.
+    pub fn with_nvidia_container_cli_gpus(self) -> Self {
+        self.with_gpu(ApptainerGpu::NvidiaContainerCli)
+    }
+
+    /// AMD GPUs (`--rocm`). Replaces the GPU setup chosen before.
+    pub fn with_rocm_gpus(self) -> Self {
+        self.with_gpu(ApptainerGpu::Rocm)
     }
 
     pub fn with_binds(mut self, binds: Vec<BindMount>) -> Self {
@@ -405,6 +452,18 @@ impl ApptainerServiceConfig {
     pub fn with_isolation(mut self, isolation: ApptainerIsolation) -> Self {
         self.isolation = Some(isolation);
         self
+    }
+
+    /// Minimal `/dev`, empty `/tmp` and home directory (`--contain`). Replaces
+    /// `with_contain_all()`.
+    pub fn with_contain(self) -> Self {
+        self.with_isolation(ApptainerIsolation::Contain)
+    }
+
+    /// Same as `with_contain()`, plus separate PID and IPC namespaces and a clean environment
+    /// (`--containall`). Replaces `with_contain()`.
+    pub fn with_contain_all(self) -> Self {
+        self.with_isolation(ApptainerIsolation::ContainAll)
     }
 
     pub fn with_writable_tmpfs(mut self, writable_tmpfs: bool) -> Self {
@@ -435,6 +494,21 @@ impl ApptainerServiceConfig {
     pub fn with_restart_policy(mut self, restart_policy: UnitRestartPolicy) -> Self {
         self.restart_policy = restart_policy;
         self
+    }
+
+    /// Never restart the service (`Restart=no`)
+    pub fn with_restart_never(self) -> Self {
+        self.with_restart_policy(UnitRestartPolicy::No)
+    }
+
+    /// Restart the service when it fails (`Restart=on-failure`, the default)
+    pub fn with_restart_on_failure(self) -> Self {
+        self.with_restart_policy(UnitRestartPolicy::OnFailure)
+    }
+
+    /// Always restart the service (`Restart=always`)
+    pub fn with_restart_always(self) -> Self {
+        self.with_restart_policy(UnitRestartPolicy::Always)
     }
 
     fn exec_start(&self, apptainer_path: &str) -> Vec<String> {
@@ -779,6 +853,7 @@ fn check_apptainer_host_compatibility(host_properties: &HostProperties) -> Resul
 mod tests {
     use super::*;
     use crate::secrets::SecretReference;
+    use crate::state::attribute::container::container_spec::to_strings;
     use crate::state::attribute::container::service_unit::UnitScope;
 
     fn full_yaml() -> &'static str {
@@ -1080,5 +1155,83 @@ State: !Running
             .build()
             .unwrap()
             .block_on(future)
+    }
+
+    #[test]
+    fn choice_methods_match_the_explicit_enums() {
+        let source = || {
+            "docker://vllm/vllm-openai:v0.6.3"
+                .parse::<ApptainerImageUri>()
+                .unwrap()
+        };
+        let path = || {
+            "/opt/images/vllm-0.6.3.sif"
+                .parse::<AbsolutePath>()
+                .unwrap()
+        };
+        assert_eq!(ApptainerImage::local(path()), ApptainerImage::Local(path()));
+        assert_eq!(
+            ApptainerServiceConfig::from_local_image(path()),
+            ApptainerServiceConfig::new(ApptainerImage::Local(path()))
+        );
+        assert_eq!(
+            ApptainerServiceConfig::from_pulled_image(source(), path()),
+            ApptainerServiceConfig::new(ApptainerImage::Pulled(ApptainerPulledImage {
+                source: source(),
+                path: path(),
+            }))
+        );
+
+        let new = || ApptainerServiceConfig::from_local_image(path());
+        let command = || ContainerCommand::new(&["vllm", "serve"]).unwrap();
+        assert_eq!(
+            new().with_run_script(&["--port", "8000"]),
+            new().with_process(ApptainerProcess::RunScript(to_strings(&["--port", "8000"])))
+        );
+        assert_eq!(new().with_run_script(&[]), new());
+        assert_eq!(
+            new()
+                .with_run_script(&["--port", "8000"])
+                .with_exec(command()),
+            new().with_process(ApptainerProcess::Exec(command()))
+        );
+        assert_eq!(
+            new().with_exec(command()).with_run_script(&[]),
+            new().with_process(ApptainerProcess::RunScript(Vec::new()))
+        );
+
+        for (config, gpu) in [
+            (new().with_nvidia_gpus(), ApptainerGpu::Nvidia),
+            (
+                new().with_rocm_gpus().with_nvidia_container_cli_gpus(),
+                ApptainerGpu::NvidiaContainerCli,
+            ),
+            (
+                new().with_nvidia_gpus().with_rocm_gpus(),
+                ApptainerGpu::Rocm,
+            ),
+        ] {
+            assert_eq!(config, new().with_gpu(gpu));
+        }
+
+        assert_eq!(
+            new().with_contain_all().with_contain(),
+            new().with_isolation(ApptainerIsolation::Contain)
+        );
+        assert_eq!(
+            new().with_contain().with_contain_all(),
+            new().with_isolation(ApptainerIsolation::ContainAll)
+        );
+
+        for (config, policy) in [
+            (new().with_restart_never(), UnitRestartPolicy::No),
+            (
+                new().with_restart_never().with_restart_on_failure(),
+                UnitRestartPolicy::OnFailure,
+            ),
+            (new().with_restart_always(), UnitRestartPolicy::Always),
+        ] {
+            assert_eq!(config, new().with_restart_policy(policy));
+        }
     }
 }

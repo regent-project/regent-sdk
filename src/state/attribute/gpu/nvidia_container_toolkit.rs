@@ -70,16 +70,15 @@
 //!
 //! ```no_run
 //! use regent_sdk::state::attribute::gpu::nvidia_container_toolkit::{
-//!     CdiMode, ContainerRuntime, NvidiaContainerToolkitConfig,
-//!     NvidiaContainerToolkitExpectedState,
+//!     NvidiaContainerToolkitConfig, NvidiaContainerToolkitExpectedState,
 //! };
 //! use regent_sdk::{Attribute, ExpectedState, Privilege, RegentError};
 //!
 //! fn gpu_containers() -> Result<ExpectedState, RegentError> {
 //!     let config = NvidiaContainerToolkitConfig::new()
 //!         .with_version("1.20.1-1".parse()?)?
-//!         .with_runtime(ContainerRuntime::Docker)
-//!         .with_cdi(CdiMode::Automatic)?;
+//!         .with_docker_runtime() // | with_containerd_runtime() | with_crio_runtime()
+//!         .with_automatic_cdi()?; // toolkit 1.18+ | with_static_cdi()
 //!
 //!     Ok(ExpectedState::new()
 //!         .with_attribute(Attribute::nvidia_container_toolkit(
@@ -270,10 +269,38 @@ impl NvidiaContainerToolkitConfig {
         self
     }
 
+    /// Configure the `nvidia` runtime of Docker
+    pub fn with_docker_runtime(self) -> Self {
+        self.with_runtime(ContainerRuntime::Docker)
+    }
+
+    /// Configure the `nvidia` runtime of containerd
+    pub fn with_containerd_runtime(self) -> Self {
+        self.with_runtime(ContainerRuntime::Containerd)
+    }
+
+    /// Configure the `nvidia` runtime of CRI-O
+    pub fn with_crio_runtime(self) -> Self {
+        self.with_runtime(ContainerRuntime::CriO)
+    }
+
     /// Manage the CDI specification
     pub fn with_cdi(mut self, cdi: CdiMode) -> Result<Self, RegentError> {
         self.cdi = Some(cdi);
         self.validated()
+    }
+
+    /// Keep the CDI specification current with the `nvidia-cdi-refresh` units: needs the
+    /// toolkit 1.18.0 or later
+    pub fn with_automatic_cdi(self) -> Result<Self, RegentError> {
+        self.with_cdi(CdiMode::Automatic)
+    }
+
+    /// Generate the CDI specification with `nvidia-ctk cdi generate`, automatic refresh
+    /// disabled (any toolkit version)
+    pub fn with_static_cdi(mut self) -> Self {
+        self.cdi = Some(CdiMode::Static);
+        self
     }
 
     fn validated(self) -> Result<Self, RegentError> {
@@ -1029,6 +1056,37 @@ State: !Present
                 .unwrap()
                 .with_version("1.17.8-1".parse().unwrap())
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn runtime_and_cdi_shortcuts_match_the_explicit_form() {
+        let new = NvidiaContainerToolkitConfig::new;
+        assert_eq!(
+            new()
+                .with_docker_runtime()
+                .with_containerd_runtime()
+                .with_crio_runtime(),
+            new()
+                .with_runtime(ContainerRuntime::Docker)
+                .with_runtime(ContainerRuntime::Containerd)
+                .with_runtime(ContainerRuntime::CriO)
+        );
+        assert_eq!(
+            new().with_automatic_cdi().unwrap(),
+            new().with_cdi(CdiMode::Automatic).unwrap()
+        );
+        assert_eq!(
+            new().with_static_cdi(),
+            new().with_cdi(CdiMode::Static).unwrap()
+        );
+
+        // The automatic refresh still needs the toolkit 1.18.0 or later
+        let old_version = || new().with_version("1.17.8-1".parse().unwrap()).unwrap();
+        assert!(old_version().with_automatic_cdi().is_err());
+        assert_eq!(
+            old_version().with_static_cdi(),
+            old_version().with_cdi(CdiMode::Static).unwrap()
         );
     }
 

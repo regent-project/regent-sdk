@@ -11,21 +11,21 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::service::{ServiceExpectedState, ServiceExpectedStatus, ServiceAction};
+//! use regent_sdk::state::attribute::system::service::ServiceExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Ensure httpd service is running and enabled
-//! let httpd = ServiceExpectedState::state(
-//!     "httpd",
-//!     ServiceExpectedStatus::Started,
-//!     true
-//! );
+//! let httpd = ServiceExpectedState::started_and_enabled("httpd");
 //!
-//! // Just manage service state (running/stopped)
-//! let nginx = ServiceExpectedState::state("nginx", ServiceExpectedStatus::Started, false);
+//! // Ensure nginx is running but not started at boot
+//! let nginx = ServiceExpectedState::started_and_disabled("nginx");
+//!
+//! // Ensure cups is stopped and not started at boot
+//! let cups = ServiceExpectedState::stopped_and_disabled("cups");
 //!
 //! // Just manage whether service is enabled at boot
 //! let mysql = ServiceExpectedState::enabled("mysql", true);
+//! let postfix = ServiceExpectedState::disabled("postfix");
 //!
 //! // Manage unconditional action (restart)
 //! let redis = ServiceExpectedState::restarted("redis");
@@ -171,13 +171,28 @@ impl ServiceExpectedState {
         }
     }
 
-    /// Create an enabled-only configuration (no state management, only enablement)
+    /// Create a state configuration: running and enabled at boot
     pub fn started_and_enabled(name: &str) -> ServiceExpectedState {
         ServiceExpectedState::State {
             name: name.to_string(),
             state: Some(ServiceExpectedStatus::Started),
             enabled: true,
         }
+    }
+
+    /// Create a state configuration: running but disabled at boot
+    pub fn started_and_disabled(name: &str) -> ServiceExpectedState {
+        Self::state(name, ServiceExpectedStatus::Started, false)
+    }
+
+    /// Create a state configuration: stopped but enabled at boot
+    pub fn stopped_and_enabled(name: &str) -> ServiceExpectedState {
+        Self::state(name, ServiceExpectedStatus::Stopped, true)
+    }
+
+    /// Create a state configuration: stopped and disabled at boot
+    pub fn stopped_and_disabled(name: &str) -> ServiceExpectedState {
+        Self::state(name, ServiceExpectedStatus::Stopped, false)
     }
 
     /// Create an enabled-only configuration (no state management, only enablement)
@@ -187,6 +202,11 @@ impl ServiceExpectedState {
             state: None,
             enabled,
         }
+    }
+
+    /// Create a disabled-only configuration (no state management, only enablement)
+    pub fn disabled(name: &str) -> ServiceExpectedState {
+        Self::enabled(name, false)
     }
 
     /// Create a restarted action configuration
@@ -297,7 +317,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                     #[cfg(feature = "windows")]
                     OsKind::Windows(_) => {
                         if let Some(expected_state) = state {
-                            match windows_service_is_active(host_handler, &name).await {
+                            match windows_service_is_active(host_handler, name).await {
                                 Ok(current_service_activity) => {
                                     match (current_service_activity, expected_state) {
                                         (
@@ -340,7 +360,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                         ) => {
                                             return Ok(
                                                 AttributeComplianceAssessment::NonCompliantFatal(
-                                                    format!("service not found"),
+                                                    "service not found".to_string(),
                                                 ),
                                             );
                                         }
@@ -350,7 +370,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                         ) => {
                                             return Ok(
                                                 AttributeComplianceAssessment::NonCompliantFatal(
-                                                    format!("{details}"),
+                                                    details.to_string(),
                                                 ),
                                             );
                                         }
@@ -364,7 +384,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                             }
                         }
 
-                        match windows_service_is_enabled(host_handler, &name).await {
+                        match windows_service_is_enabled(host_handler, name).await {
                             Ok(current_service_enabling) => {
                                 match (current_service_enabling, *enabled) {
                                     (ServiceEnablingStatus::Enabled, true)
@@ -394,7 +414,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                     (ServiceEnablingStatus::ServiceNotFound, _expected_state) => {
                                         return Ok(
                                             AttributeComplianceAssessment::NonCompliantFatal(
-                                                format!("service not found"),
+                                                "service not found".to_string(),
                                             ),
                                         );
                                     }
@@ -404,7 +424,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                     ) => {
                                         return Ok(
                                             AttributeComplianceAssessment::NonCompliantFatal(
-                                                format!("{details}"),
+                                                details.to_string(),
                                             ),
                                         );
                                     }
@@ -419,7 +439,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                     }
                     OsKind::Linux(_) => {
                         if let Some(expected_state) = state {
-                            match service_is_active(host_handler, &name).await {
+                            match service_is_active(host_handler, name).await {
                                 Ok(current_service_activity) => {
                                     match (current_service_activity, expected_state) {
                                         (
@@ -462,7 +482,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                         ) => {
                                             return Ok(
                                                 AttributeComplianceAssessment::NonCompliantFatal(
-                                                    format!("service not found"),
+                                                    "service not found".to_string(),
                                                 ),
                                             );
                                         }
@@ -472,7 +492,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                         ) => {
                                             return Ok(
                                                 AttributeComplianceAssessment::NonCompliantFatal(
-                                                    format!("{details}"),
+                                                    details.to_string(),
                                                 ),
                                             );
                                         }
@@ -486,7 +506,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                             }
                         }
 
-                        match service_is_enabled(host_handler, &name).await {
+                        match service_is_enabled(host_handler, name).await {
                             Ok(current_service_enabling) => {
                                 match (current_service_enabling, *enabled) {
                                     (ServiceEnablingStatus::Enabled, true)
@@ -516,7 +536,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                     (ServiceEnablingStatus::ServiceNotFound, _expected_state) => {
                                         return Ok(
                                             AttributeComplianceAssessment::NonCompliantFatal(
-                                                format!("service not found"),
+                                                "service not found".to_string(),
                                             ),
                                         );
                                     }
@@ -526,7 +546,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for ServiceExpectedState {
                                     ) => {
                                         return Ok(
                                             AttributeComplianceAssessment::NonCompliantFatal(
-                                                format!("{details}"),
+                                                details.to_string(),
                                             ),
                                         );
                                     }
@@ -899,6 +919,20 @@ async fn windows_service_is_enabled<Handler: HostHandler>(
     }
 }
 
+enum ServiceActivityStatus {
+    Active,
+    Inactive,
+    ServiceNotFound,
+    UnsupportedCase(String),
+}
+
+enum ServiceEnablingStatus {
+    Enabled,
+    Disabled,
+    ServiceNotFound,
+    UnsupportedCase(String),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -925,18 +959,28 @@ mod tests {
         ";
         let _: Vec<ServiceExpectedState> = yaml_serde::from_str(raw).unwrap();
     }
-}
 
-enum ServiceActivityStatus {
-    Active,
-    Inactive,
-    ServiceNotFound,
-    UnsupportedCase(String),
-}
-
-enum ServiceEnablingStatus {
-    Enabled,
-    Disabled,
-    ServiceNotFound,
-    UnsupportedCase(String),
+    #[test]
+    fn named_constructors_match_explicit_state() {
+        assert_eq!(
+            ServiceExpectedState::started_and_enabled("nginx"),
+            ServiceExpectedState::state("nginx", ServiceExpectedStatus::Started, true)
+        );
+        assert_eq!(
+            ServiceExpectedState::started_and_disabled("nginx"),
+            ServiceExpectedState::state("nginx", ServiceExpectedStatus::Started, false)
+        );
+        assert_eq!(
+            ServiceExpectedState::stopped_and_enabled("nginx"),
+            ServiceExpectedState::state("nginx", ServiceExpectedStatus::Stopped, true)
+        );
+        assert_eq!(
+            ServiceExpectedState::stopped_and_disabled("nginx"),
+            ServiceExpectedState::state("nginx", ServiceExpectedStatus::Stopped, false)
+        );
+        assert_eq!(
+            ServiceExpectedState::disabled("nginx"),
+            ServiceExpectedState::enabled("nginx", false)
+        );
+    }
 }

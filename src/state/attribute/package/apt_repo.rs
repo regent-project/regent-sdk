@@ -11,16 +11,30 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::{RepoExpectedStatus, apt_repo::{AptRepoExpectedState, AptRepoType}};
+//! use regent_sdk::state::attribute::package::apt_repo::AptRepoExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
-//! // Add a repository using legacy format
-//! let repo = AptRepoExpectedState::builder("docker")
-//!     .with_state(RepoExpectedStatus::Present)
-//!     .with_repo("deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable")
-//!     .with_update_cache(true)
-//!     .build()
-//!     .unwrap();
+//! // Add a repository using legacy format, then update the APT cache
+//! let repo = AptRepoExpectedState::present_legacy(
+//!     "docker",
+//!     "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable",
+//!     true,
+//! );
+//!
+//! // Add a repository using deb822 format (binary packages only)
+//! let repo_deb822 = AptRepoExpectedState::present_deb822(
+//!     "docker",
+//!     vec!["https://download.docker.com/linux/ubuntu".to_string()],
+//!     vec!["jammy".to_string()],
+//!     Some(vec!["stable".to_string()]),
+//!     Some("/etc/apt/keyrings/docker.asc".to_string()),
+//!     None,
+//!     Some(vec!["amd64".to_string()]),
+//!     true,
+//! );
+//!
+//! // Remove a repository
+//! let repo_absent = AptRepoExpectedState::absent("docker", true);
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::apt_repo(repo, Privilege::WithSudo, None))
@@ -143,6 +157,7 @@ impl AptRepoExpectedState {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn deb822_format(
         filename: &str,
         state: RepoExpectedStatus,
@@ -168,6 +183,84 @@ impl AptRepoExpectedState {
                 enabled,
                 architectures,
             }),
+        }
+    }
+
+    /// Repository must be present, written in legacy one-liner format (`.list`)
+    pub fn present_legacy(
+        filename: &str,
+        repo: &str,
+        cache_up_to_date: bool,
+    ) -> AptRepoExpectedState {
+        AptRepoExpectedState::legacy_format(
+            filename,
+            repo,
+            RepoExpectedStatus::Present,
+            cache_up_to_date,
+        )
+    }
+
+    /// Repository must be present, written in deb822 format (`.sources`), for binary
+    /// packages only (`Types: deb`)
+    #[allow(clippy::too_many_arguments)]
+    pub fn present_deb822(
+        filename: &str,
+        uris: Vec<String>,
+        suites: Vec<String>,
+        components: Option<Vec<String>>,
+        signed_by: Option<String>,
+        enabled: Option<bool>,
+        architectures: Option<Vec<String>>,
+        cache_up_to_date: bool,
+    ) -> AptRepoExpectedState {
+        AptRepoExpectedState::deb822_format(
+            filename,
+            RepoExpectedStatus::Present,
+            vec![AptRepoType::Deb],
+            uris,
+            suites,
+            components,
+            signed_by,
+            enabled,
+            architectures,
+            cache_up_to_date,
+        )
+    }
+
+    /// Repository must be present, written in deb822 format (`.sources`), for binary and
+    /// source packages (`Types: deb deb-src`)
+    #[allow(clippy::too_many_arguments)]
+    pub fn present_deb822_with_source_packages(
+        filename: &str,
+        uris: Vec<String>,
+        suites: Vec<String>,
+        components: Option<Vec<String>>,
+        signed_by: Option<String>,
+        enabled: Option<bool>,
+        architectures: Option<Vec<String>>,
+        cache_up_to_date: bool,
+    ) -> AptRepoExpectedState {
+        AptRepoExpectedState::deb822_format(
+            filename,
+            RepoExpectedStatus::Present,
+            vec![AptRepoType::Deb, AptRepoType::DebSrc],
+            uris,
+            suites,
+            components,
+            signed_by,
+            enabled,
+            architectures,
+            cache_up_to_date,
+        )
+    }
+
+    /// Repository file must be removed (no format to describe)
+    pub fn absent(filename: &str, cache_up_to_date: bool) -> AptRepoExpectedState {
+        AptRepoExpectedState {
+            filename: filename.to_string(),
+            state: RepoExpectedStatus::Absent,
+            cache_up_to_date,
+            format: None,
         }
     }
 }
@@ -230,7 +323,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
                     .as_ref()
                     .expect("Format must be provided for Present state");
                 let expected_content = match format {
-                    AptRepoFormat::Legacy { repo } => build_legacy_content(&repo),
+                    AptRepoFormat::Legacy { repo } => build_legacy_content(repo),
                     AptRepoFormat::Deb822 {
                         types: _,
                         uris: _,
@@ -243,16 +336,16 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for AptRepoExpectedState {
                 };
 
                 if current_content.is_some() {
-                    if let Some(current) = current_content {
-                        if current.trim() != expected_content.trim() {
-                            remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
-                                AptRepoModuleInternalApiCall::WriteFile {
-                                    path: self.filename.clone(),
-                                    content: expected_content,
-                                },
-                                privilege.clone(),
-                            )));
-                        }
+                    if let Some(current) = current_content
+                        && current.trim() != expected_content.trim()
+                    {
+                        remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
+                            AptRepoModuleInternalApiCall::WriteFile {
+                                path: self.filename.clone(),
+                                content: expected_content,
+                            },
+                            privilege.clone(),
+                        )));
                     }
                 } else {
                     remediations.push(Remediation::AptRepo(AptRepoApiCall::from(
@@ -394,6 +487,8 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for AptRepoApiCall {
     }
 }
 
+// Not wired into the assessment yet
+#[allow(dead_code)]
 fn apt_repo_file_path(filename: &str, is_legacy: bool) -> String {
     let ext = if is_legacy { "list" } else { "sources" };
     format!("/etc/apt/sources.list.d/{}.{}", filename, ext)
@@ -433,15 +528,15 @@ fn build_deb822_content(format: &AptRepoFormat) -> String {
             if !suites.is_empty() {
                 lines.push(format!("Suites: {}", suites.join(" ")));
             }
-            if let Some(components) = components {
-                if !components.is_empty() {
-                    lines.push(format!("Components: {}", components.join(" ")));
-                }
+            if let Some(components) = components
+                && !components.is_empty()
+            {
+                lines.push(format!("Components: {}", components.join(" ")));
             }
-            if let Some(archs) = architectures {
-                if !archs.is_empty() {
-                    lines.push(format!("Architectures: {}", archs.join(" ")));
-                }
+            if let Some(archs) = architectures
+                && !archs.is_empty()
+            {
+                lines.push(format!("Architectures: {}", archs.join(" ")));
             }
             if let Some(signed_by) = signed_by {
                 lines.push(format!("Signed-By: {}", signed_by));
@@ -459,6 +554,8 @@ fn escape_for_printf(content: &str) -> String {
         .replace('\n', "\\n")
 }
 
+// Not wired into the assessment yet
+#[allow(dead_code)]
 /// Ensures that repository URLs are explicitly checked during assessment.
 fn extract_uris_from_deb822(content: &str) -> Option<Vec<String>> {
     for line in content.lines() {
@@ -541,5 +638,73 @@ mod tests {
     fn escape_for_printf_handles_special_chars() {
         let escaped = escape_for_printf("a\nb%c\\d");
         assert_eq!(escaped, "a\\nb%%c\\\\d");
+    }
+
+    #[test]
+    fn present_and_absent_shortcuts_match_explicit_states() {
+        assert_eq!(
+            AptRepoExpectedState::present_legacy(
+                "docker",
+                "deb https://example.com focal main",
+                true
+            ),
+            AptRepoExpectedState::legacy_format(
+                "docker",
+                "deb https://example.com focal main",
+                RepoExpectedStatus::Present,
+                true
+            )
+        );
+
+        let uris = vec!["https://download.docker.com/linux/ubuntu".to_string()];
+        let suites = vec!["focal".to_string()];
+        let components = Some(vec!["stable".to_string()]);
+        let signed_by = Some("/usr/share/keyrings/docker.gpg".to_string());
+        let architectures = Some(vec!["amd64".to_string()]);
+        let explicit = |types: Vec<AptRepoType>| {
+            AptRepoExpectedState::deb822_format(
+                "docker",
+                RepoExpectedStatus::Present,
+                types,
+                uris.clone(),
+                suites.clone(),
+                components.clone(),
+                signed_by.clone(),
+                Some(false),
+                architectures.clone(),
+                false,
+            )
+        };
+        assert_eq!(
+            AptRepoExpectedState::present_deb822(
+                "docker",
+                uris.clone(),
+                suites.clone(),
+                components.clone(),
+                signed_by.clone(),
+                Some(false),
+                architectures.clone(),
+                false,
+            ),
+            explicit(vec![AptRepoType::Deb])
+        );
+        assert_eq!(
+            AptRepoExpectedState::present_deb822_with_source_packages(
+                "docker",
+                uris.clone(),
+                suites.clone(),
+                components.clone(),
+                signed_by.clone(),
+                Some(false),
+                architectures.clone(),
+                false,
+            ),
+            explicit(vec![AptRepoType::Deb, AptRepoType::DebSrc])
+        );
+
+        // Same as `State: Absent` in YAML: no format
+        let parsed: AptRepoExpectedState =
+            yaml_serde::from_str("Filename: docker\nState: Absent\nCacheUpToDate: true\n").unwrap();
+        assert_eq!(AptRepoExpectedState::absent("docker", true), parsed);
     }
 }

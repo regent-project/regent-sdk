@@ -10,14 +10,18 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::group::{GroupExpectedState, GroupExpectedStatus};
+//! use regent_sdk::state::attribute::system::group::GroupExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Create a group with a specific GID
 //! let developers = GroupExpectedState::present("developers", Some(1500), Some(vec!["daniel".to_string(), "chris".to_string()]), None, None);
 //!
-//!
 //! let group_cleaning = GroupExpectedState::absent("oldgroup", None);
+//!
+//! let expected_state = ExpectedState::new()
+//!     .with_attribute(Attribute::group(developers, Privilege::WithSudo, None))
+//!     .with_attribute(Attribute::group(group_cleaning, Privilege::WithSudo, None))
+//!     .build();
 //! ```
 //!
 //! ## YAML API
@@ -168,21 +172,21 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
             } => {
                 match opt_group_info {
                     Some(current_group_info) => {
-                        if let Some(expected_gid) = gid {
-                            if current_group_info.gid != *expected_gid {
-                                return Ok(AttributeComplianceAssessment::NonCompliant(
-                                    RemediationsList::from(vec![Remediation::Group(
-                                        GroupApiCall::from(
-                                            GroupModuleInternalApiCall::ModifyGid {
-                                                groupname: self.name.clone(),
-                                                gid: *expected_gid,
-                                            },
-                                            privilege.clone(),
-                                        ),
-                                    )])
-                                    .unwrap(),
-                                ));
-                            }
+                        if let Some(expected_gid) = gid
+                            && current_group_info.gid != *expected_gid
+                        {
+                            return Ok(AttributeComplianceAssessment::NonCompliant(
+                                RemediationsList::from(vec![Remediation::Group(
+                                    GroupApiCall::from(
+                                        GroupModuleInternalApiCall::ModifyGid {
+                                            groupname: self.name.clone(),
+                                            gid: *expected_gid,
+                                        },
+                                        privilege.clone(),
+                                    ),
+                                )])
+                                .unwrap(),
+                            ));
                         }
 
                         if let Some(expected_members) = members {
@@ -369,14 +373,14 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
             ),
             GroupModuleInternalApiCall::ModifyMembers { groupname, members } => {
                 let current_members = match get_group_info(host_handler, groupname).await {
-                    Ok(opt_group_info) => match opt_group_info {
-                        Some(group_info) => group_info.members,
-                        None => {
-                            return Ok(InternalApiCallOutcome::Failure(format!(
-                                "Failed to get current group members: group does not exist anymore"
-                            )));
+                    Ok(opt_group_info) => {
+                        match opt_group_info {
+                            Some(group_info) => group_info.members,
+                            None => {
+                                return Ok(InternalApiCallOutcome::Failure("Failed to get current group members: group does not exist anymore".to_string()));
+                            }
                         }
-                    },
+                    }
                     Err(e) => {
                         return Ok(InternalApiCallOutcome::Failure(format!(
                             "Failed to get current group members: {}",
@@ -434,6 +438,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
 }
 
 struct Group {
+    #[allow(dead_code)]
     name: String,
     gid: u32,
     members: Vec<String>,

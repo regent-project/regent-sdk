@@ -11,24 +11,33 @@
 //!
 //! ```no_run
 //! use regent_sdk::state::attribute::system::cron::{
-//!     CronExpectedState, CronExpectedStatus, CronSpecialTime, CronSchedule, CronCommand, CronTarget
+//!     CronCommand, CronExpectedState, CronSchedule, CronSpecialTime, CronTarget,
 //! };
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
-//! // Schedule a daily backup job for the root user's crontab
-//! let backup = CronExpectedState::present(
-//!     CronSchedule::SpecialTime(CronSpecialTime::Daily),
-//!     CronCommand::Specific("/usr/local/bin/backup.sh".to_string()),
-//!     Some("backup".to_string()),
-//!     CronTarget::Crontab(None),
-//! );
+//! // Schedule a daily backup job for the current user's crontab
+//! let backup = CronExpectedState::daily("backup", "/usr/local/bin/backup.sh");
 //!
-//! // Schedule a weekly cleanup job in /etc/cron.d/ for a specific user
-//! let cleanup = CronExpectedState::present(
-//!     CronSchedule::SpecialTime(CronSpecialTime::Weekly),
-//!     CronCommand::Specific("/usr/local/bin/cleanup.sh".to_string()),
-//!     Some("cleanup".to_string()),
-//!     CronTarget::CronDFile("backupuser".to_string(), "cleanup_jobs".to_string()),
+//! // Schedule a weekly cleanup job in /etc/cron.d/cleanup_jobs, run as a specific user
+//! let cleanup = CronExpectedState::weekly("cleanup", "/usr/local/bin/cleanup.sh")
+//!     .in_cron_d_file("backupuser", "cleanup_jobs");
+//!
+//! // Schedule a job at boot in the crontab of a specific user
+//! let warmup = CronExpectedState::at_reboot("warmup", "/usr/local/bin/warmup.sh")
+//!     .in_crontab_of("appuser");
+//!
+//! // Custom schedules and absent jobs use the explicit form
+//! let report = CronExpectedState::present(
+//!     CronSchedule::Custom {
+//!         minute: Some("30".to_string()),
+//!         hour: Some("2".to_string()),
+//!         day: None,
+//!         month: None,
+//!         weekday: Some("1-5".to_string()),
+//!     },
+//!     CronCommand::Specific("/usr/local/bin/report.sh".to_string()),
+//!     Some("report".to_string()),
+//!     CronTarget::Crontab(None),
 //! );
 //!
 //! // Ensure a cron job is absent
@@ -36,12 +45,15 @@
 //!     CronSchedule::SpecialTime(CronSpecialTime::Daily),
 //!     CronCommand::Any,
 //!     Some("old_job".to_string()),
-//!     CronTarget::Crontab(Some("user".to_string())),
-//! );
+//!     CronTarget::Crontab(None),
+//! )
+//! .in_crontab_of("user");
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::cron(backup, Privilege::WithSudo, None))
 //!     .with_attribute(Attribute::cron(cleanup, Privilege::WithSudo, None))
+//!     .with_attribute(Attribute::cron(warmup, Privilege::WithSudo, None))
+//!     .with_attribute(Attribute::cron(report, Privilege::WithSudo, None))
 //!     .with_attribute(Attribute::cron(remove_old_job, Privilege::WithSudo, None))
 //!     .build();
 //! ```
@@ -238,6 +250,65 @@ impl CronExpectedState {
             name,
             target,
         }
+    }
+
+    // --- Present jobs on a special time, in the current user's crontab ---
+
+    /// Create a job run once at boot time (`@reboot`)
+    pub fn at_reboot(name: &str, command: &str) -> CronExpectedState {
+        Self::present_on_special_time(name, command, CronSpecialTime::Reboot)
+    }
+
+    /// Create a job run once an hour (`@hourly`)
+    pub fn hourly(name: &str, command: &str) -> CronExpectedState {
+        Self::present_on_special_time(name, command, CronSpecialTime::Hourly)
+    }
+
+    /// Create a job run once a day at midnight (`@daily`)
+    pub fn daily(name: &str, command: &str) -> CronExpectedState {
+        Self::present_on_special_time(name, command, CronSpecialTime::Daily)
+    }
+
+    /// Create a job run once a week at midnight on Sunday (`@weekly`)
+    pub fn weekly(name: &str, command: &str) -> CronExpectedState {
+        Self::present_on_special_time(name, command, CronSpecialTime::Weekly)
+    }
+
+    /// Create a job run once a month at midnight on the first day (`@monthly`)
+    pub fn monthly(name: &str, command: &str) -> CronExpectedState {
+        Self::present_on_special_time(name, command, CronSpecialTime::Monthly)
+    }
+
+    /// Create a job run once a year at midnight on Jan 1 (`@yearly`)
+    pub fn yearly(name: &str, command: &str) -> CronExpectedState {
+        Self::present_on_special_time(name, command, CronSpecialTime::Yearly)
+    }
+
+    fn present_on_special_time(
+        name: &str,
+        command: &str,
+        special_time: CronSpecialTime,
+    ) -> CronExpectedState {
+        Self::present(
+            CronSchedule::SpecialTime(special_time),
+            CronCommand::Specific(command.to_string()),
+            Some(name.to_string()),
+            CronTarget::Crontab(None),
+        )
+    }
+
+    // --- Target selection ---
+
+    /// Work on the crontab of `user` instead of the current user's one
+    pub fn in_crontab_of(mut self, user: &str) -> Self {
+        self.target = CronTarget::Crontab(Some(user.to_string()));
+        self
+    }
+
+    /// Work on `/etc/cron.d/<file>` instead of a crontab, the job running as `user`
+    pub fn in_cron_d_file(mut self, user: &str, file: &str) -> Self {
+        self.target = CronTarget::CronDFile(user.to_string(), file.to_string());
+        self
     }
 }
 
@@ -617,7 +688,7 @@ async fn get_cron_content<Handler: HostHandler>(
                 String::new()
             })
         }
-        CronTarget::CronDFile(user, filename) => {
+        CronTarget::CronDFile(_user, filename) => {
             let result = host_handler
                 .run_command(&format!("cat /etc/cron.d/{}", filename), &Privilege::None)
                 .await
@@ -638,10 +709,7 @@ fn find_cron_entry(content: &str, name: &str) -> Option<String> {
         if line == marker {
             // Skip empty lines to find the actual cron job line
             // Note: We don't skip lines starting with # because disabled cron jobs start with #
-            return lines
-                .skip_while(|l| l.trim().is_empty())
-                .next()
-                .map(|l| l.to_string());
+            return lines.find(|l| !l.trim().is_empty()).map(|l| l.to_string());
         }
     }
     None
@@ -674,7 +742,7 @@ fn build_cron_line(
         }
     };
 
-    let body = match cron_d_user {
+    match cron_d_user {
         Some(user) => {
             // /etc/cron.d/ entries require an explicit username field
             format!("{} {} {}", timing, user, command)
@@ -682,9 +750,7 @@ fn build_cron_line(
         None => {
             format!("{} {}", timing, command)
         }
-    };
-
-    body
+    }
 }
 
 #[cfg(test)]
@@ -704,5 +770,81 @@ mod tests {
     fn find_cron_entry_not_found() {
         let content = "# regent: other\n0 2 * * * /usr/local/bin/other.sh\n";
         assert!(find_cron_entry(content, "backup").is_none());
+    }
+
+    fn explicit_present(special_time: CronSpecialTime) -> CronExpectedState {
+        CronExpectedState::present(
+            CronSchedule::SpecialTime(special_time),
+            CronCommand::Specific("/usr/local/bin/job.sh".to_string()),
+            Some("job".to_string()),
+            CronTarget::Crontab(None),
+        )
+    }
+
+    #[test]
+    fn special_time_constructors_match_explicit_form() {
+        let command = "/usr/local/bin/job.sh";
+        assert_eq!(
+            CronExpectedState::at_reboot("job", command),
+            explicit_present(CronSpecialTime::Reboot)
+        );
+        assert_eq!(
+            CronExpectedState::hourly("job", command),
+            explicit_present(CronSpecialTime::Hourly)
+        );
+        assert_eq!(
+            CronExpectedState::daily("job", command),
+            explicit_present(CronSpecialTime::Daily)
+        );
+        assert_eq!(
+            CronExpectedState::weekly("job", command),
+            explicit_present(CronSpecialTime::Weekly)
+        );
+        assert_eq!(
+            CronExpectedState::monthly("job", command),
+            explicit_present(CronSpecialTime::Monthly)
+        );
+        assert_eq!(
+            CronExpectedState::yearly("job", command),
+            explicit_present(CronSpecialTime::Yearly)
+        );
+    }
+
+    #[test]
+    fn target_builders_match_explicit_form() {
+        assert_eq!(
+            CronExpectedState::daily("job", "/usr/local/bin/job.sh").in_crontab_of("alice"),
+            CronExpectedState::present(
+                CronSchedule::SpecialTime(CronSpecialTime::Daily),
+                CronCommand::Specific("/usr/local/bin/job.sh".to_string()),
+                Some("job".to_string()),
+                CronTarget::Crontab(Some("alice".to_string())),
+            )
+        );
+        assert_eq!(
+            CronExpectedState::daily("job", "/usr/local/bin/job.sh")
+                .in_cron_d_file("alice", "jobs"),
+            CronExpectedState::present(
+                CronSchedule::SpecialTime(CronSpecialTime::Daily),
+                CronCommand::Specific("/usr/local/bin/job.sh".to_string()),
+                Some("job".to_string()),
+                CronTarget::CronDFile("alice".to_string(), "jobs".to_string()),
+            )
+        );
+        assert_eq!(
+            CronExpectedState::absent(
+                CronSchedule::SpecialTime(CronSpecialTime::Daily),
+                CronCommand::Any,
+                Some("job".to_string()),
+                CronTarget::Crontab(None),
+            )
+            .in_crontab_of("alice"),
+            CronExpectedState::absent(
+                CronSchedule::SpecialTime(CronSpecialTime::Daily),
+                CronCommand::Any,
+                Some("job".to_string()),
+                CronTarget::Crontab(Some("alice".to_string())),
+            )
+        );
     }
 }

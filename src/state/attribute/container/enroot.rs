@@ -62,23 +62,21 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::container::container_spec::{ContainerCommand, GpuSelection};
-//! use regent_sdk::state::attribute::container::enroot::{
-//!     EnrootExpectedState, EnrootImage, EnrootServiceConfig,
-//! };
+//! use regent_sdk::state::attribute::container::container_spec::ContainerCommand;
+//! use regent_sdk::state::attribute::container::enroot::{EnrootExpectedState, EnrootServiceConfig};
 //! use regent_sdk::state::expected_state::Parameter;
 //! use regent_sdk::secrets::SecretReference;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege, RegentError};
 //!
 //! fn inference_server() -> Result<ExpectedState, RegentError> {
-//!     let config = EnrootServiceConfig::new(EnrootImage::imported(
+//!     let config = EnrootServiceConfig::from_imported_image(
 //!         "docker://vllm/vllm-openai:v0.6.3".parse()?,
 //!         "/opt/images/vllm-0.6.3.sqsh".parse()?,
-//!     ))
+//!     )
 //!     .with_command(ContainerCommand::new(&[
 //!         "vllm", "serve", "meta-llama/Llama-3.1-8B-Instruct", "--port", "8000",
 //!     ])?)
-//!     .with_gpus(GpuSelection::All)
+//!     .with_all_gpus()
 //!     .with_mounts(vec!["/srv/models:/root/.cache/huggingface".parse()?])
 //!     .with_env(
 //!         "HF_TOKEN".parse()?,
@@ -153,7 +151,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
 
-use super::container_spec::{ContainerCommand, ContainerName, GpuSelection, invalid};
+use super::container_spec::{ContainerCommand, ContainerName, GpuId, GpuSelection, invalid};
 use super::service_unit::{
     AbsolutePath, BindMount, ServiceEngine, ServiceEnvVarName, ServiceStep, ServiceUnitAction,
     ServiceUnitId, UnitRestartPolicy, UnitScope, UnitSpec, file_exists, needs_removal,
@@ -214,6 +212,12 @@ pub enum EnrootImage {
 }
 
 impl EnrootImage {
+    /// Squashfs file which must be present on the host (not managed)
+    pub fn local(path: AbsolutePath) -> Self {
+        EnrootImage::Local(path)
+    }
+
+    /// Squashfs file imported from `source` (`enroot import`) if it is missing
     pub fn imported(source: EnrootImageUri, path: AbsolutePath) -> Self {
         EnrootImage::Imported(EnrootImportedImage { source, path })
     }
@@ -362,6 +366,16 @@ impl EnrootServiceConfig {
         }
     }
 
+    /// Service running a local squashfs file, which must be present on the host (not managed)
+    pub fn from_local_image(path: AbsolutePath) -> Self {
+        Self::new(EnrootImage::local(path))
+    }
+
+    /// Service running a squashfs file imported from `source` (`enroot import`) if it is missing
+    pub fn from_imported_image(source: EnrootImageUri, path: AbsolutePath) -> Self {
+        Self::new(EnrootImage::imported(source, path))
+    }
+
     pub fn with_command(mut self, command: ContainerCommand) -> Self {
         self.command = Some(command);
         self
@@ -369,6 +383,19 @@ impl EnrootServiceConfig {
 
     pub fn with_gpus(mut self, gpus: GpuSelection) -> Self {
         self.gpus = Some(gpus);
+        self
+    }
+
+    /// Give all the GPUs to the container (`NVIDIA_VISIBLE_DEVICES=all`). Replaces the devices
+    /// added before.
+    pub fn with_all_gpus(self) -> Self {
+        self.with_gpus(GpuSelection::All)
+    }
+
+    /// Give a GPU to the container, in addition to the devices added before. Replaces
+    /// `with_all_gpus()`.
+    pub fn with_gpu_device(mut self, gpu: GpuId) -> Self {
+        self.gpus = Some(GpuSelection::add_device(self.gpus.take(), gpu));
         self
     }
 
@@ -398,6 +425,21 @@ impl EnrootServiceConfig {
     pub fn with_restart_policy(mut self, restart_policy: UnitRestartPolicy) -> Self {
         self.restart_policy = restart_policy;
         self
+    }
+
+    /// Never restart the service (`Restart=no`)
+    pub fn with_restart_never(self) -> Self {
+        self.with_restart_policy(UnitRestartPolicy::No)
+    }
+
+    /// Restart the service when it fails (`Restart=on-failure`, the default)
+    pub fn with_restart_on_failure(self) -> Self {
+        self.with_restart_policy(UnitRestartPolicy::OnFailure)
+    }
+
+    /// Always restart the service (`Restart=always`)
+    pub fn with_restart_always(self) -> Self {
+        self.with_restart_policy(UnitRestartPolicy::Always)
     }
 
     /// Checks between fields (run while parsing, and by `check()` for the Rust API)
@@ -1001,6 +1043,7 @@ mod tests {
     use super::*;
     use crate::secrets::SecretReference;
 
+    use crate::state::attribute::container::container_spec::GpuList;
     fn full_yaml() -> &'static str {
         "---
 Name: vllm
@@ -1338,5 +1381,59 @@ NVIDIA_DRIVER_CAPABILITIES=\"compute,utility\"
             call.display(),
             "Write regent-enroot-vllm.service (user unit) and its environment file (environment file differs)"
         );
+    }
+
+    #[test]
+    fn choice_methods_match_the_explicit_enums() {
+        let source = || {
+            "docker://vllm/vllm-openai:v0.6.3"
+                .parse::<EnrootImageUri>()
+                .unwrap()
+        };
+        let path = || {
+            "/opt/images/vllm-0.6.3.sqsh"
+                .parse::<AbsolutePath>()
+                .unwrap()
+        };
+        assert_eq!(EnrootImage::local(path()), EnrootImage::Local(path()));
+        assert_eq!(
+            EnrootServiceConfig::from_local_image(path()),
+            EnrootServiceConfig::new(EnrootImage::Local(path()))
+        );
+        assert_eq!(
+            EnrootServiceConfig::from_imported_image(source(), path()),
+            EnrootServiceConfig::new(EnrootImage::Imported(EnrootImportedImage {
+                source: source(),
+                path: path(),
+            }))
+        );
+
+        let new = || EnrootServiceConfig::from_local_image(path());
+        assert_eq!(new().with_all_gpus(), new().with_gpus(GpuSelection::All));
+        let devices = GpuSelection::Devices(
+            GpuList::try_from(vec!["0".parse().unwrap(), "MIG-1a2b".parse().unwrap()]).unwrap(),
+        );
+        assert_eq!(
+            new()
+                .with_all_gpus()
+                .with_gpu_device("0".parse().unwrap())
+                .with_gpu_device("MIG-1a2b".parse().unwrap()),
+            new().with_gpus(devices)
+        );
+        assert_eq!(
+            new().with_gpu_device("0".parse().unwrap()).with_all_gpus(),
+            new().with_gpus(GpuSelection::All)
+        );
+
+        for (config, policy) in [
+            (new().with_restart_never(), UnitRestartPolicy::No),
+            (
+                new().with_restart_always().with_restart_on_failure(),
+                UnitRestartPolicy::OnFailure,
+            ),
+            (new().with_restart_always(), UnitRestartPolicy::Always),
+        ] {
+            assert_eq!(config, new().with_restart_policy(policy));
+        }
     }
 }

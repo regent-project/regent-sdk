@@ -25,7 +25,7 @@
 //! );
 //!
 //! // Render an inline template with a context map
-//! let mut context = HashMap::from(vec![("port".to_string(), "8080".to_string()]);
+//! let context = HashMap::from([("port".to_string(), "8080".to_string())]);
 //!
 //! let server_block = TemplateExpectedState::from_inline_with_additional_context(
 //!     "server { listen {{ port }}; }".to_string(),
@@ -208,7 +208,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for TemplateExpectedState {
 
         // Check whether the destination file already exists on the host.
         let file_exists = host_handler
-            .run_command(&format!("test -f {}", destination), &privilege)
+            .run_command(&format!("test -f {}", destination), privilege)
             .await
             .map_err(|details| {
                 RegentError::FailedDryRunEvaluation(format!(
@@ -232,7 +232,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for TemplateExpectedState {
         }
 
         let current_content = host_handler
-            .run_command(&format!("cat {}", destination), &privilege)
+            .run_command(&format!("cat {}", destination), privilege)
             .await
             .map_err(|details| {
                 RegentError::FailedDryRunEvaluation(format!(
@@ -296,8 +296,8 @@ impl Check for TemplateApiCall {
 impl TemplateApiCall {
     pub fn display(&self) -> String {
         match &self.destination_action {
-            DestinationFileAction::WrongContent => format!("Destination file content is wrong"),
-            DestinationFileAction::CreateFile => format!("Destination file does not exist"),
+            DestinationFileAction::WrongContent => "Destination file content is wrong".to_string(),
+            DestinationFileAction::CreateFile => "Destination file does not exist".to_string(),
         }
     }
 }

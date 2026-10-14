@@ -24,18 +24,21 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::dnf_repo::{DnfRepoExpectedState, DnfRepoSource};
+//! use regent_sdk::state::attribute::package::dnf_repo::DnfRepoExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Using factory methods (recommended for most cases)
-//! let repo = DnfRepoExpectedState::present("docker-ce",
-//!     DnfRepoSource::Baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()])
+//! let repo = DnfRepoExpectedState::present_with_baseurl(
+//!     "docker-ce",
+//!     vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()],
 //! );
 //!
 //! // Or using struct literal syntax for full configuration
 //! let repo = DnfRepoExpectedState::Present {
 //!     name: "docker-ce".to_string(),
-//!     source: DnfRepoSource::Baseurl(vec!["https://download.docker.com/linux/centos/7/x86_64/stable".to_string()]),
+//!     source: regent_sdk::state::attribute::package::dnf_repo::DnfRepoSource::Baseurl(vec![
+//!         "https://download.docker.com/linux/centos/7/x86_64/stable".to_string(),
+//!     ]),
 //!     description: Some("Docker CE Stable".to_string()),
 //!     enabled: Some(true),
 //!     gpgcheck: Some(true),
@@ -216,6 +219,21 @@ impl DnfRepoExpectedState {
         }
     }
 
+    /// Repository must be present, with these base URLs (`baseurl=`)
+    pub fn present_with_baseurl(name: &str, baseurls: Vec<String>) -> DnfRepoExpectedState {
+        DnfRepoExpectedState::present(name, DnfRepoSource::Baseurl(baseurls))
+    }
+
+    /// Repository must be present, with this mirror list URL (`mirrorlist=`)
+    pub fn present_with_mirrorlist(name: &str, mirrorlist: &str) -> DnfRepoExpectedState {
+        DnfRepoExpectedState::present(name, DnfRepoSource::Mirrorlist(mirrorlist.to_string()))
+    }
+
+    /// Repository must be present, with this metalink URL (`metalink=`)
+    pub fn present_with_metalink(name: &str, metalink: &str) -> DnfRepoExpectedState {
+        DnfRepoExpectedState::present(name, DnfRepoSource::Metalink(metalink.to_string()))
+    }
+
     pub fn absent(name: &str) -> DnfRepoExpectedState {
         DnfRepoExpectedState::Absent {
             name: name.to_string(),
@@ -337,29 +355,28 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for DnfRepoExpectedState {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
 
-                if let Some(ref current) = current_content {
-                    if let Some(current_section) = extract_section(current, name) {
-                        let current_sources = extract_source_urls_from_section(&current_section);
-                        let expected_sources = extract_source_urls_from_section(&expected_section);
+                if let Some(ref current) = current_content
+                    && let Some(current_section) = extract_section(current, name)
+                {
+                    let current_sources = extract_source_urls_from_section(&current_section);
+                    let expected_sources = extract_source_urls_from_section(&expected_section);
 
-                        if let (Some(current_sources), Some(expected_sources)) =
-                            (current_sources, expected_sources)
-                        {
-                            if current_sources != expected_sources {
-                                return Ok(AttributeComplianceAssessment::NonCompliant(
-                                    RemediationsList::from(vec![Remediation::DnfRepo(
-                                        DnfRepoApiCall::from(
-                                            DnfRepoModuleInternalApiCall::UpsertSection {
-                                                file_name,
-                                                repo_name: name.clone(),
-                                                section_content: expected_section,
-                                            },
-                                            privilege.clone(),
-                                        ),
-                                    )])?,
-                                ));
-                            }
-                        }
+                    if let (Some(current_sources), Some(expected_sources)) =
+                        (current_sources, expected_sources)
+                        && current_sources != expected_sources
+                    {
+                        return Ok(AttributeComplianceAssessment::NonCompliant(
+                            RemediationsList::from(vec![Remediation::DnfRepo(
+                                DnfRepoApiCall::from(
+                                    DnfRepoModuleInternalApiCall::UpsertSection {
+                                        file_name,
+                                        repo_name: name.clone(),
+                                        section_content: expected_section,
+                                    },
+                                    privilege.clone(),
+                                ),
+                            )])?,
+                        ));
                     }
                 }
 
@@ -887,5 +904,28 @@ mod tests {
             }
             _ => panic!("Expected Absent variant"),
         }
+    }
+
+    #[test]
+    fn source_shortcuts_match_explicit_source() {
+        let urls = vec!["https://example.com/repo".to_string()];
+        assert_eq!(
+            DnfRepoExpectedState::present_with_baseurl("example", urls.clone()),
+            DnfRepoExpectedState::present("example", DnfRepoSource::Baseurl(urls))
+        );
+        assert_eq!(
+            DnfRepoExpectedState::present_with_mirrorlist("example", "https://example.com/mirrors"),
+            DnfRepoExpectedState::present(
+                "example",
+                DnfRepoSource::Mirrorlist("https://example.com/mirrors".to_string())
+            )
+        );
+        assert_eq!(
+            DnfRepoExpectedState::present_with_metalink("example", "https://example.com/metalink"),
+            DnfRepoExpectedState::present(
+                "example",
+                DnfRepoSource::Metalink("https://example.com/metalink".to_string())
+            )
+        );
     }
 }

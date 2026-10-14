@@ -59,28 +59,27 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::container::container_spec::{NetworkList, RestartPolicy};
 //! use regent_sdk::state::attribute::container::podman::{
-//!     PodmanAttachedNetworking, PodmanContainerConfig, PodmanExpectedState, PodmanNetworking,
-//!     PodmanPlacement, PodmanStandalone,
+//!     PodmanAttachedNetworking, PodmanContainerConfig, PodmanExpectedState, PodmanStandalone,
 //! };
 //! use regent_sdk::state::expected_state::Parameter;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege, RegentError};
 //!
 //! fn web_server() -> Result<ExpectedState, RegentError> {
 //!     let networking = PodmanAttachedNetworking::new()
-//!         .with_networks(NetworkList::try_from(vec!["frontend".parse()?])?)
-//!         .with_ports(vec!["8080:80".parse()?]);
+//!         .with_network("frontend".parse()?)
+//!         .with_published_port("8080:80".parse()?);
 //!
 //!     let config = PodmanContainerConfig::new("docker.io/library/nginx:1.27".parse()?)
-//!         .with_placement(PodmanPlacement::Standalone(
+//!         .with_standalone(
 //!             PodmanStandalone::new()
 //!                 .with_hostname("web01")
-//!                 .with_networking(PodmanNetworking::Attached(networking)),
-//!         ))
+//!                 .with_keep_id_userns()
+//!                 .with_attached_networking(networking),
+//!         )
 //!         .with_volumes(vec!["/srv/www:/usr/share/nginx/html:ro,Z".parse()?])
 //!         .with_env("TZ".parse()?, Parameter::Clear("Europe/Paris".to_string()))
-//!         .with_restart_policy(RestartPolicy::Always);
+//!         .with_restart_always();
 //!
 //!     let web = PodmanExpectedState::running("web".parse()?, config);
 //!
@@ -214,8 +213,8 @@ use std::time::Duration;
 
 use super::container_spec::{
     Capability, ContainerCommand, ContainerImage, ContainerName, ContainerVolume, CpuCount,
-    EnvVarName, ExtraHost, GpuSelection, HostDevice, IpcNamespace, MemorySize, NetworkList,
-    PortBinding, PublishedPort, PullPolicy, RestartPolicy, compare_sets, invalid,
+    EnvVarName, ExtraHost, GpuId, GpuSelection, HostDevice, IpcNamespace, MemorySize, NetworkList,
+    NetworkName, PortBinding, PublishedPort, PullPolicy, RestartPolicy, compare_sets, invalid,
     is_valid_object_name, parse_inspect_output, pointer, quoted_command, string_list, to_strings,
 };
 
@@ -295,13 +294,82 @@ impl PodmanStandalone {
         self
     }
 
+    /// No user namespace (`--userns host`)
+    pub fn with_host_userns(self) -> Self {
+        self.with_userns(PodmanUserNamespace::Host)
+    }
+
+    /// New user namespace (`--userns private`)
+    pub fn with_private_userns(self) -> Self {
+        self.with_userns(PodmanUserNamespace::Private)
+    }
+
+    /// Unique user namespace with automatically picked IDs (`--userns auto`)
+    pub fn with_auto_userns(self) -> Self {
+        self.with_userns(PodmanUserNamespace::Auto)
+    }
+
+    /// Map the current user to the same UID inside the container (`--userns keep-id`, rootless)
+    pub fn with_keep_id_userns(self) -> Self {
+        self.with_userns(PodmanUserNamespace::KeepId)
+    }
+
+    /// Don't map the current user inside the container (`--userns nomap`, rootless)
+    pub fn with_nomap_userns(self) -> Self {
+        self.with_userns(PodmanUserNamespace::NoMap)
+    }
+
     pub fn with_networking(mut self, networking: PodmanNetworking) -> Self {
         self.networking = Some(networking);
         self
     }
 
+    /// Share the host network stack (`--network host`). Replaces attached networking.
+    pub fn with_host_networking(self) -> Self {
+        self.with_networking(PodmanNetworking::Host)
+    }
+
+    /// No network at all (`--network none`). Replaces attached networking.
+    pub fn with_isolated_networking(self) -> Self {
+        self.with_networking(PodmanNetworking::Isolated)
+    }
+
+    /// Attached to networks, with published ports, DNS servers and extra hosts. Replaces
+    /// `Host` or `Isolated` networking.
+    pub fn with_attached_networking(self, attached: PodmanAttachedNetworking) -> Self {
+        self.with_networking(PodmanNetworking::Attached(attached))
+    }
+
     pub fn with_ipc(mut self, ipc: IpcNamespace) -> Self {
         self.ipc = Some(ipc);
+        self
+    }
+
+    /// Share the host IPC namespace and `/dev/shm` (`--ipc host`). Replaces a private namespace
+    /// and its `/dev/shm` size.
+    pub fn with_host_ipc(self) -> Self {
+        self.with_ipc(IpcNamespace::Host)
+    }
+
+    /// Own IPC namespace (`--ipc private`). Replaces the host namespace, keeps the `/dev/shm`
+    /// size set before.
+    pub fn with_private_ipc(mut self) -> Self {
+        self.ipc = Some(IpcNamespace::private(self.ipc.take()));
+        self
+    }
+
+    /// Own IPC namespace which other containers can join (`--ipc shareable`). Replaces the host
+    /// namespace, keeps the `/dev/shm` size set before.
+    pub fn with_shareable_ipc(mut self) -> Self {
+        self.ipc = Some(IpcNamespace::shareable(self.ipc.take()));
+        self
+    }
+
+    /// Size of `/dev/shm` (`--shm-size`), which only exists in the container's own IPC
+    /// namespace: replaces the host namespace by a private one (a shareable namespace stays
+    /// shareable).
+    pub fn with_shm_size(mut self, shm_size: MemorySize) -> Self {
+        self.ipc = Some(IpcNamespace::with_shm_size(self.ipc.take(), shm_size));
         self
     }
 }
@@ -365,8 +433,21 @@ impl PodmanAttachedNetworking {
         self
     }
 
+    /// Attach the container to a network, after the networks added before (the first one is
+    /// used at creation)
+    pub fn with_network(mut self, network: NetworkName) -> Self {
+        self.networks = Some(NetworkList::add(self.networks.take(), network));
+        self
+    }
+
     pub fn with_ports(mut self, ports: Vec<PublishedPort>) -> Self {
         self.ports = Some(ports);
+        self
+    }
+
+    /// Publish a port, in addition to the ports published before
+    pub fn with_published_port(mut self, port: PublishedPort) -> Self {
+        self.ports.get_or_insert_with(Vec::new).push(port);
         self
     }
 
@@ -454,6 +535,16 @@ impl PodmanContainerConfig {
         self
     }
 
+    /// Pull the image only if it is not present on the host (default, `PullPolicy::Missing`)
+    pub fn with_pull_if_missing(self) -> Self {
+        self.with_pull_policy(PullPolicy::Missing)
+    }
+
+    /// Never pull the image: a missing image makes the attribute non-compliant (`PullPolicy::Never`)
+    pub fn with_pull_never(self) -> Self {
+        self.with_pull_policy(PullPolicy::Never)
+    }
+
     pub fn with_command(mut self, command: ContainerCommand) -> Self {
         self.command = Some(command);
         self
@@ -482,9 +573,42 @@ impl PodmanContainerConfig {
         self
     }
 
+    /// Join an existing pod (`--pod`), sharing its network, IPC and UTS namespaces. Replaces
+    /// the standalone options set before, as a pod member can't have any.
+    pub fn in_pod(self, pod: PodName) -> Self {
+        self.with_placement(PodmanPlacement::Pod(pod))
+    }
+
+    /// Standalone container (not in a pod) with these namespace options. Replaces the pod set
+    /// before.
+    pub fn with_standalone(self, standalone: PodmanStandalone) -> Self {
+        self.with_placement(PodmanPlacement::Standalone(standalone))
+    }
+
     pub fn with_restart_policy(mut self, restart_policy: RestartPolicy) -> Self {
         self.restart_policy = Some(restart_policy);
         self
+    }
+
+    /// Never restart the container (`--restart no`)
+    pub fn with_restart_never(self) -> Self {
+        self.with_restart_policy(RestartPolicy::No)
+    }
+
+    /// Always restart the container (`--restart always`)
+    pub fn with_restart_always(self) -> Self {
+        self.with_restart_policy(RestartPolicy::Always)
+    }
+
+    /// Restart the container unless it was stopped (`--restart unless-stopped`)
+    pub fn with_restart_unless_stopped(self) -> Self {
+        self.with_restart_policy(RestartPolicy::UnlessStopped)
+    }
+
+    /// Restart the container when it fails, at most `max_retries` times (0 means unlimited,
+    /// `--restart on-failure[:max-retries]`)
+    pub fn with_restart_on_failure(self, max_retries: u32) -> Self {
+        self.with_restart_policy(RestartPolicy::OnFailure(max_retries))
     }
 
     pub fn with_user(mut self, user: &str) -> Self {
@@ -546,6 +670,19 @@ impl PodmanContainerConfig {
 
     pub fn with_gpus(mut self, gpus: GpuSelection) -> Self {
         self.gpus = Some(gpus);
+        self
+    }
+
+    /// Give all the GPUs to the container (`--device nvidia.com/gpu=all`). Replaces the devices
+    /// added before.
+    pub fn with_all_gpus(self) -> Self {
+        self.with_gpus(GpuSelection::All)
+    }
+
+    /// Give a GPU to the container, in addition to the devices added before. Replaces
+    /// `with_all_gpus()`.
+    pub fn with_gpu_device(mut self, gpu: GpuId) -> Self {
+        self.gpus = Some(GpuSelection::add_device(self.gpus.take(), gpu));
         self
     }
 
@@ -1773,6 +1910,7 @@ impl PodName {
 mod tests {
     use super::*;
     use crate::secrets::SecretReference;
+    use crate::state::attribute::container::container_spec::{GpuList, PrivateIpc};
 
     const IMAGE_ID: &str = "4f67c83422ec747235357c04556616234e66fc3fa39cb4f40b2d4441ddd8f100";
 
@@ -2198,5 +2336,149 @@ State: !Running
         let output = format!("WARN[0000] some warning\n{}\n", IMAGE_ID);
         assert_eq!(extract_id(&output, "image inspect").unwrap(), IMAGE_ID);
         assert!(extract_id("garbage", "image inspect").is_err());
+    }
+
+    #[test]
+    fn choice_methods_match_the_explicit_enums() {
+        let new = || PodmanContainerConfig::new("docker.io/library/nginx:1.27".parse().unwrap());
+
+        assert_eq!(
+            new().with_pull_never(),
+            new().with_pull_policy(PullPolicy::Never)
+        );
+        assert_eq!(
+            new().with_pull_never().with_pull_if_missing(),
+            new().with_pull_policy(PullPolicy::Missing)
+        );
+
+        for (config, policy) in [
+            (new().with_restart_never(), RestartPolicy::No),
+            (new().with_restart_always(), RestartPolicy::Always),
+            (
+                new().with_restart_unless_stopped(),
+                RestartPolicy::UnlessStopped,
+            ),
+            (
+                new().with_restart_on_failure(0),
+                RestartPolicy::OnFailure(0),
+            ),
+        ] {
+            assert_eq!(config, new().with_restart_policy(policy));
+        }
+
+        assert_eq!(new().with_all_gpus(), new().with_gpus(GpuSelection::All));
+        assert_eq!(
+            new()
+                .with_all_gpus()
+                .with_gpu_device("0".parse().unwrap())
+                .with_gpu_device("1".parse().unwrap()),
+            new().with_gpus(GpuSelection::Devices(
+                GpuList::try_from(vec!["0".parse().unwrap(), "1".parse().unwrap()]).unwrap()
+            ))
+        );
+
+        // A pod member and a standalone container replace each other
+        let pod: PodName = "app-pod".parse().unwrap();
+        let standalone = PodmanStandalone::new().with_hostname("web01");
+        assert_eq!(
+            new().in_pod(pod.clone()),
+            new().with_placement(PodmanPlacement::Pod(pod.clone()))
+        );
+        assert_eq!(
+            new()
+                .with_standalone(standalone.clone())
+                .in_pod(pod.clone()),
+            new().with_placement(PodmanPlacement::Pod(pod.clone()))
+        );
+        assert_eq!(
+            new().in_pod(pod).with_standalone(standalone.clone()),
+            new().with_placement(PodmanPlacement::Standalone(standalone))
+        );
+    }
+
+    #[test]
+    fn standalone_choice_methods_match_the_explicit_enums() {
+        let new = PodmanStandalone::new;
+
+        for (standalone, userns) in [
+            (new().with_host_userns(), PodmanUserNamespace::Host),
+            (new().with_private_userns(), PodmanUserNamespace::Private),
+            (new().with_auto_userns(), PodmanUserNamespace::Auto),
+            (new().with_keep_id_userns(), PodmanUserNamespace::KeepId),
+            (new().with_nomap_userns(), PodmanUserNamespace::NoMap),
+        ] {
+            assert_eq!(standalone, new().with_userns(userns));
+        }
+
+        let attached = PodmanAttachedNetworking::new()
+            .with_networks(
+                NetworkList::try_from(vec![
+                    "frontend".parse().unwrap(),
+                    "backend".parse().unwrap(),
+                ])
+                .unwrap(),
+            )
+            .with_ports(vec![
+                "8080:80".parse().unwrap(),
+                "127.0.0.1:8443:443".parse().unwrap(),
+            ]);
+        assert_eq!(
+            PodmanAttachedNetworking::new()
+                .with_network("frontend".parse().unwrap())
+                .with_published_port("8080:80".parse().unwrap())
+                .with_network("backend".parse().unwrap())
+                .with_published_port("127.0.0.1:8443:443".parse().unwrap()),
+            attached
+        );
+        assert_eq!(
+            new().with_host_networking(),
+            new().with_networking(PodmanNetworking::Host)
+        );
+        assert_eq!(
+            new().with_isolated_networking(),
+            new().with_networking(PodmanNetworking::Isolated)
+        );
+        assert_eq!(
+            new().with_attached_networking(attached.clone()),
+            new().with_networking(PodmanNetworking::Attached(attached.clone()))
+        );
+        assert_eq!(
+            new()
+                .with_attached_networking(attached)
+                .with_host_networking(),
+            new().with_networking(PodmanNetworking::Host)
+        );
+
+        let shm_size = || "1g".parse::<MemorySize>().unwrap();
+        let own = || PrivateIpc::new().with_shm_size(shm_size());
+        assert_eq!(new().with_host_ipc(), new().with_ipc(IpcNamespace::Host));
+        assert_eq!(
+            new().with_private_ipc(),
+            new().with_ipc(IpcNamespace::Private(PrivateIpc::new()))
+        );
+        assert_eq!(
+            new().with_shareable_ipc(),
+            new().with_ipc(IpcNamespace::Shareable(PrivateIpc::new()))
+        );
+        // The /dev/shm size replaces the host namespace, and is kept between own namespaces
+        assert_eq!(
+            new().with_host_ipc().with_shm_size(shm_size()),
+            new().with_ipc(IpcNamespace::Private(own()))
+        );
+        assert_eq!(
+            new().with_shm_size(shm_size()).with_shareable_ipc(),
+            new().with_ipc(IpcNamespace::Shareable(own()))
+        );
+        assert_eq!(
+            new()
+                .with_shareable_ipc()
+                .with_shm_size(shm_size())
+                .with_private_ipc(),
+            new().with_ipc(IpcNamespace::Private(own()))
+        );
+        assert_eq!(
+            new().with_shm_size(shm_size()).with_host_ipc(),
+            new().with_ipc(IpcNamespace::Host)
+        );
     }
 }

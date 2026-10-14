@@ -12,14 +12,14 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::hostname::{HostnameExpectedState, HostnameMethod};
+//! use regent_sdk::state::attribute::system::hostname::HostnameExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Set hostname using systemd method
-//! let hostname = HostnameExpectedState::builder("myserver.example.com")
-//!     .with_method(HostnameMethod::Systemd)
-//!     .build()
-//!     .unwrap();
+//! let hostname = HostnameExpectedState::via_systemd("myserver.example.com");
+//!
+//! // Or let the method be picked from the host's properties
+//! let auto_hostname = HostnameExpectedState::named("myserver.example.com");
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::hostname(hostname, Privilege::WithSudo, None))
@@ -84,6 +84,28 @@ impl HostnameExpectedState {
             name: hostname.to_string(),
             method,
         }
+    }
+
+    /// Set the hostname with the default method of the host's OS
+    /// (systemd on Linux, generic on macOS and FreeBSD, Windows on Windows)
+    pub fn named(hostname: &str) -> HostnameExpectedState {
+        Self::new(hostname, None)
+    }
+
+    /// Set the hostname with `hostnamectl set-hostname` (systemd)
+    pub fn via_systemd(hostname: &str) -> HostnameExpectedState {
+        Self::new(hostname, Some(HostnameMethod::Systemd))
+    }
+
+    /// Set the hostname with the `hostname` command and `/etc/hostname` (non-systemd systems)
+    pub fn via_generic(hostname: &str) -> HostnameExpectedState {
+        Self::new(hostname, Some(HostnameMethod::Generic))
+    }
+
+    /// Set the hostname with the Windows hostname command
+    #[cfg(feature = "windows")]
+    pub fn via_windows(hostname: &str) -> HostnameExpectedState {
+        Self::new(hostname, Some(HostnameMethod::Windows))
     }
 }
 
@@ -448,6 +470,27 @@ mod tests {
         ";
 
         let _attributes: Vec<HostnameExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
+    }
+
+    #[test]
+    fn method_constructors_match_explicit_form() {
+        assert_eq!(
+            HostnameExpectedState::named("myserver"),
+            HostnameExpectedState::new("myserver", None)
+        );
+        assert_eq!(
+            HostnameExpectedState::via_systemd("myserver"),
+            HostnameExpectedState::new("myserver", Some(HostnameMethod::Systemd))
+        );
+        assert_eq!(
+            HostnameExpectedState::via_generic("myserver"),
+            HostnameExpectedState::new("myserver", Some(HostnameMethod::Generic))
+        );
+        #[cfg(feature = "windows")]
+        assert_eq!(
+            HostnameExpectedState::via_windows("myserver"),
+            HostnameExpectedState::new("myserver", Some(HostnameMethod::Windows))
+        );
     }
 
     #[test]

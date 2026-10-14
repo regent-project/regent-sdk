@@ -57,7 +57,7 @@
 //!     managed_host.connect().unwrap();
 //!
 //!     // 3. Define the expected state using attributes
-//!     let nginx_service = ServiceExpectedState::state("nginx", ServiceExpectedState::Started, true);
+//!     let nginx_service = ServiceExpectedState::started_and_enabled("nginx");
 //!
 //!     let expected_state = ExpectedState::new()
 //!         .with_attribute(Attribute::service(

@@ -10,19 +10,26 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::utilities::lineinfile::{LineInFileExpectedState, LineExpectedState};
+//! use regent_sdk::state::attribute::utilities::lineinfile::LineInFileExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
-//! // Ensure a line exists in /etc/environment
-//! let env_line = LineInFileExpectedState::builder("/etc/environment")
-//!     .with_state(LineExpectedState::Present)
-//!     .with_line("KEY=value")
-//!     .with_create(true)
-//!     .build()
-//!     .unwrap();
+//! // Ensure a line exists in /etc/environment, creating the file if needed
+//! let env_line = LineInFileExpectedState::present_at_bottom(
+//!     "/etc/environment",
+//!     LineInFileExpectedState::raw_line_from_str("KEY=value"),
+//!     Some(true),
+//! );
+//!
+//! // Ensure no line matching a regex remains in /etc/hosts
+//! let old_host = LineInFileExpectedState::absent(
+//!     "/etc/hosts",
+//!     LineInFileExpectedState::regexp_line(r"^192\.168\.1\.10\s"),
+//!     false,
+//! );
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::lineinfile(env_line, Privilege::WithSudo, None))
+//!     .with_attribute(Attribute::lineinfile(old_host, Privilege::WithSudo, None))
 //!     .build();
 //! ```
 //!
@@ -46,7 +53,7 @@ use crate::error::RegentError;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
-use crate::secrets::SecretProvidersPool;
+use crate::secrets::{SecretProvidersPool, SecretReference};
 use crate::state::Check;
 use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
@@ -100,8 +107,8 @@ impl Display for Line {
             Line::Raw(_) => write!(f, "Line::Raw"),
             Line::Regexp(_) => write!(f, "Line::Regexp"),
             Line::RegexpWithBackrefs {
-                regexp,
-                content_to_insert,
+                regexp: _,
+                content_to_insert: _,
             } => write!(f, "Line::RegexpWithBackrefs"),
             Line::SearchString(_) => write!(f, "Line::SearchString"),
         }
@@ -248,6 +255,16 @@ impl LineInFileExpectedState {
         Line::Raw(content)
     }
 
+    /// Helper to create a `Line::Raw` from a clear (non-secret) string.
+    pub fn raw_line_from_str(content: &str) -> Line {
+        Line::Raw(Parameter::Clear(content.to_string()))
+    }
+
+    /// Helper to create a `Line::Raw` from a secret reference.
+    pub fn raw_line_from_secret(sec_ref: SecretReference) -> Line {
+        Line::Raw(Parameter::Secret(sec_ref))
+    }
+
     /// Helper to create a `Line::Regexp` from a regex pattern.
     pub fn regexp_line(pattern: &str) -> Line {
         Line::Regexp(pattern.to_string())
@@ -341,7 +358,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState
                 }
             },
             LineExpectedState::Present {
-                position,
+                position: _,
                 firstmatch,
                 create,
             } => {
@@ -372,7 +389,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState
                                         file_path: self.file_path.clone(),
                                         line: self.line.clone(),
                                         api_call: LineInFileModuleInternalApiCall::CreateFile {
-                                            line_content: line_content,
+                                            line_content,
                                         },
                                         privilege: privilege.clone(),
                                     },
@@ -443,7 +460,7 @@ async fn assess_absence<Handler: HostHandler>(
         }
         Line::RegexpWithBackrefs {
             regexp,
-            content_to_insert,
+            content_to_insert: _,
         } => {
             let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
             if matches.is_empty() {
@@ -687,6 +704,7 @@ async fn grep_exact_line<Handler: HostHandler>(
         .collect()
 }
 
+#[allow(dead_code)]
 async fn get_line<Handler: HostHandler>(
     host_handler: &mut Handler,
     line_number: u64,
@@ -873,7 +891,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
         &self,
         host_handler: &mut Handler,
         host_properties: &Option<HostProperties>,
-        optional_secret_provider: &Option<SecretProvidersPool>,
+        _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
@@ -910,7 +928,7 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
                 format!(
                     "sed -i '{}a\\{}' {}",
                     line_number,
-                    escape_sed_text(&line_content),
+                    escape_sed_text(line_content),
                     self.file_path
                 )
             }
@@ -1019,7 +1037,7 @@ async fn verify_file_state<Handler: HostHandler>(
                 content
                     .lines()
                     .next()
-                    .map_or(false, |first_line| first_line.trim() == line_content.trim())
+                    .is_some_and(|first_line| first_line.trim() == line_content.trim())
             } else {
                 false
             }
@@ -1030,7 +1048,7 @@ async fn verify_file_state<Handler: HostHandler>(
                 content
                     .lines()
                     .last()
-                    .map_or(false, |last_line| last_line.trim() == line_content.trim())
+                    .is_some_and(|last_line| last_line.trim() == line_content.trim())
             } else {
                 false
             }
@@ -1089,7 +1107,7 @@ async fn verify_file_state<Handler: HostHandler>(
         LineInFileModuleInternalApiCall::ReplaceWithBackrefs {
             line_content,
             line_number,
-            regexp,
+            regexp: _,
         } => {
             // For backrefs, check that the line exists at the expected position
             if let Some(content) = read_file_content(host_handler, file_path, privilege).await {
@@ -1133,7 +1151,7 @@ async fn verify_file_state<Handler: HostHandler>(
                 content
                     .lines()
                     .next()
-                    .map_or(false, |first_line| first_line.trim() == line_content.trim())
+                    .is_some_and(|first_line| first_line.trim() == line_content.trim())
             } else {
                 false
             }
@@ -1158,11 +1176,10 @@ async fn read_file_content<Handler: HostHandler>(
     }
 }
 
-use std::assert_matches;
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::assert_matches;
 
     #[test]
     fn parsing_lineinfile_module_block_from_yaml_str() {
@@ -1395,6 +1412,22 @@ mod tests {
                 firstmatch: None,
                 create: None,
             }
+        );
+    }
+
+    #[test]
+    fn raw_line_helpers_match_explicit_form() {
+        assert_eq!(
+            LineInFileExpectedState::raw_line_from_str("KEY=value"),
+            Line::Raw(Parameter::Clear("KEY=value".to_string()))
+        );
+        assert_eq!(
+            LineInFileExpectedState::raw_line_from_secret(SecretReference::from("line", None)),
+            Line::Raw(Parameter::Secret(SecretReference::from("line", None)))
+        );
+        assert_eq!(
+            LineInFileExpectedState::raw_line_from_str("KEY=value"),
+            LineInFileExpectedState::raw_line(Parameter::Clear("KEY=value".to_string()))
         );
     }
 }

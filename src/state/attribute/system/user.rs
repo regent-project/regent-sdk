@@ -12,21 +12,26 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::system::user::{UserExpectedState, UserExpectedStatus};
+//! use regent_sdk::state::attribute::system::user::{UserDetails, UserExpectedState};
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Create a user with specific properties
-//! let alice = UserExpectedState::builder("alice")
-//!     .with_state(UserExpectedStatus::Present)
-//!     .with_uid(1001)
-//!     .with_shell("/bin/bash")
-//!     .with_home("/home/alice")
-//!     .with_comment("Alice Smith")
-//!     .build()
-//!     .unwrap();
+//! let alice = UserExpectedState::present_with_details(
+//!     "alice",
+//!     UserDetails::default()
+//!         .with_uid(1001)
+//!         .with_shell("/bin/bash")
+//!         .with_home("/home/alice")
+//!         .with_comment("Alice Smith")
+//!         .finish(),
+//! );
+//!
+//! // Remove a user along with its home directory
+//! let bob = UserExpectedState::absent_remove_home("bob");
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::user(alice, Privilege::WithSudo, None))
+//!     .with_attribute(Attribute::user(bob, Privilege::WithSudo, None))
 //!     .build();
 //! ```
 //!
@@ -191,6 +196,26 @@ impl UserExpectedState {
         }
     }
 
+    /// Create a configuration for a user that must not exist, keeping its home directory
+    pub fn absent_keep_home(username: &str) -> UserExpectedState {
+        UserExpectedState {
+            name: username.to_string(),
+            state: UserExpectedStatus::Absent {
+                remove_home: Some(false),
+            },
+        }
+    }
+
+    /// Create a configuration for a user that must not exist, removing its home directory too
+    pub fn absent_remove_home(username: &str) -> UserExpectedState {
+        UserExpectedState {
+            name: username.to_string(),
+            state: UserExpectedStatus::Absent {
+                remove_home: Some(true),
+            },
+        }
+    }
+
     pub fn present_with_defaults(username: &str) -> UserExpectedState {
         UserExpectedState {
             name: username.to_string(),
@@ -273,7 +298,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
                 if !user_exists {
                     return Ok(AttributeComplianceAssessment::Compliant);
                 }
-                return Ok(AttributeComplianceAssessment::NonCompliant(
+                Ok(AttributeComplianceAssessment::NonCompliant(
                     RemediationsList::from(vec![Remediation::User(UserApiCall::from(
                         UserModuleInternalApiCall::Delete {
                             username: self.name.clone(),
@@ -282,7 +307,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
                         privilege.clone(),
                     ))])
                     .unwrap(),
-                ));
+                ))
             }
             UserExpectedStatus::Present { details } => {
                 if !user_exists {
@@ -325,28 +350,28 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for UserExpectedState {
                             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
                         };
 
-                        if let Some(expected_uid) = details.uid {
-                            if passwd_entry.uid != expected_uid {
-                                mod_uid = Some(expected_uid);
-                            }
+                        if let Some(expected_uid) = details.uid
+                            && passwd_entry.uid != expected_uid
+                        {
+                            mod_uid = Some(expected_uid);
                         }
 
-                        if let Some(expected_shell) = &details.shell {
-                            if passwd_entry.shell != *expected_shell {
-                                mod_shell = Some(expected_shell.clone());
-                            }
+                        if let Some(expected_shell) = &details.shell
+                            && passwd_entry.shell != *expected_shell
+                        {
+                            mod_shell = Some(expected_shell.clone());
                         }
 
-                        if let Some(expected_home) = &details.home {
-                            if passwd_entry.home != *expected_home {
-                                mod_home = Some(expected_home.clone());
-                            }
+                        if let Some(expected_home) = &details.home
+                            && passwd_entry.home != *expected_home
+                        {
+                            mod_home = Some(expected_home.clone());
                         }
 
-                        if let Some(expected_comment) = &details.comment {
-                            if passwd_entry.comment != *expected_comment {
-                                mod_comment = Some(expected_comment.clone());
-                            }
+                        if let Some(expected_comment) = &details.comment
+                            && passwd_entry.comment != *expected_comment
+                        {
+                            mod_comment = Some(expected_comment.clone());
                         }
 
                         if let Some(expected_group) = &details.group {
@@ -650,10 +675,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for UserApiCall {
                         if let Some(g) = group {
                             args.push(format!("-g {}", g));
                         }
-                        if let Some(gs) = groups {
-                            if !gs.is_empty() {
-                                args.push(format!("-G {}", gs.join(",")));
-                            }
+                        if let Some(gs) = groups
+                            && !gs.is_empty()
+                        {
+                            args.push(format!("-G {}", gs.join(",")));
                         }
                         if let Some(s) = shell {
                             args.push(format!("-s {}", s));
@@ -883,7 +908,6 @@ async fn get_supplementary_groups<Handler: HostHandler>(
             // id -Gn returns all groups (primary + supplementary); subtract primary
             Ok(result
                 .stdout
-                .trim()
                 .split_whitespace()
                 .map(|s| s.to_string())
                 .filter(|g| g != &primary_group)
@@ -944,5 +968,18 @@ State: !Present
         );
 
         assert_eq!(yaml_defined, rusty_defined);
+    }
+
+    #[test]
+    fn absent_constructors_match_explicit_form() {
+        let mut any = UserExpectedState::present_with_defaults("placeholder");
+        assert_eq!(
+            UserExpectedState::absent_keep_home("bob"),
+            any.absent("bob", Some(false))
+        );
+        assert_eq!(
+            UserExpectedState::absent_remove_home("bob"),
+            any.absent("bob", Some(true))
+        );
     }
 }

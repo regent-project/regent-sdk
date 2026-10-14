@@ -365,6 +365,13 @@ impl NetworkList {
     pub fn networks(&self) -> &[NetworkName] {
         &self.0
     }
+
+    /// Appends a network to a list, which is created if needed
+    pub(super) fn add(networks: Option<NetworkList>, network: NetworkName) -> NetworkList {
+        let mut networks = networks.map(Vec::from).unwrap_or_default();
+        networks.push(network);
+        NetworkList(networks)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -683,6 +690,16 @@ impl GpuSelection {
             GpuSelection::Devices(gpus) => gpus.0.iter().map(|gpu| gpu.0.clone()).collect(),
         }
     }
+
+    /// Appends a device to a selection: `All` (or no selection) is replaced by this device
+    pub(super) fn add_device(selection: Option<GpuSelection>, gpu: GpuId) -> GpuSelection {
+        let mut gpus = match selection {
+            Some(GpuSelection::Devices(gpus)) => gpus.0,
+            Some(GpuSelection::All) | None => Vec::new(),
+        };
+        gpus.push(gpu);
+        GpuSelection::Devices(GpuList(gpus))
+    }
 }
 
 /// GPU identifier: an index (`0`), a GPU UUID (`GPU-<uuid>`) or a MIG device (`MIG-<uuid>`)
@@ -800,6 +817,34 @@ impl IpcNamespace {
         match self {
             IpcNamespace::Host => None,
             IpcNamespace::Private(ipc) | IpcNamespace::Shareable(ipc) => ipc.shm_size.as_ref(),
+        }
+    }
+
+    /// Settings of the container's own namespace, kept when switching between `Private` and
+    /// `Shareable` (default settings when the namespace was `Host` or not set)
+    fn own_settings(ipc: Option<IpcNamespace>) -> PrivateIpc {
+        match ipc {
+            Some(IpcNamespace::Private(ipc) | IpcNamespace::Shareable(ipc)) => ipc,
+            Some(IpcNamespace::Host) | None => PrivateIpc::new(),
+        }
+    }
+
+    pub(super) fn private(ipc: Option<IpcNamespace>) -> IpcNamespace {
+        IpcNamespace::Private(Self::own_settings(ipc))
+    }
+
+    pub(super) fn shareable(ipc: Option<IpcNamespace>) -> IpcNamespace {
+        IpcNamespace::Shareable(Self::own_settings(ipc))
+    }
+
+    /// Sets the size of `/dev/shm`, keeping a `Shareable` namespace shareable: `Host` (or no
+    /// namespace) is replaced by a `Private` namespace
+    pub(super) fn with_shm_size(ipc: Option<IpcNamespace>, shm_size: MemorySize) -> IpcNamespace {
+        match ipc {
+            Some(IpcNamespace::Shareable(ipc)) => {
+                IpcNamespace::Shareable(ipc.with_shm_size(shm_size))
+            }
+            other => IpcNamespace::Private(Self::own_settings(other).with_shm_size(shm_size)),
         }
     }
 }
