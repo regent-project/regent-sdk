@@ -9,8 +9,8 @@ use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::SecretReference;
 use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::{Attribute, ExpectedState};
-use tracing::{error, info, warn};
 use std::time::Duration;
+use tracing::{error, info, warn};
 
 #[tokio::main]
 async fn main() {
