@@ -12,7 +12,7 @@
 //!
 //! ```no_run
 //! use regent_sdk::state::attribute::ai::ollama::{
-//!     OllamaApiConfig, OllamaExpectedState, OllamaModel, OllamaModelState,
+//!     OllamaApiConfig, OllamaExpectedState, OllamaModel,
 //! };
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
@@ -22,10 +22,7 @@
 //!         host: Some("0.0.0.0:11434".to_string()),
 //!         ..Default::default()
 //!     })
-//!     .with_models(vec![OllamaModel {
-//!         name: "llama3".to_string(),
-//!         state: OllamaModelState::Present,
-//!     }]);
+//!     .with_models(vec![OllamaModel::present("llama3")]);
 //!
 //! let expected_state = ExpectedState::new()
 //!     .with_attribute(Attribute::ollama(ollama, Privilege::WithSudo, None))
@@ -38,7 +35,7 @@
 //! Attributes:
 //!   - Name: Ollama with the llama3 model must be installed
 //!     Privilege: !WithSudo
-//!     Timeout: 10m
+//!     Timeout: 600
 //!     Detail: !Ollama
 //!       State: Present
 //!       ApiConfig:
@@ -56,7 +53,7 @@
 //! Attributes:
 //!   - Name: Ollama must be removed
 //!     Privilege: !WithSudo
-//!     Timeout: 10m
+//!     Timeout: 600
 //!     Detail: !Ollama
 //!       State: Absent
 //! ```
@@ -99,6 +96,24 @@ pub struct OllamaModel {
     /// Name of the model (e.g., "llama3", "mistral:7b")
     pub name: String,
     pub state: OllamaModelState,
+}
+
+impl OllamaModel {
+    /// Model which must be pulled
+    pub fn present(name: &str) -> OllamaModel {
+        OllamaModel {
+            name: name.to_string(),
+            state: OllamaModelState::Present,
+        }
+    }
+
+    /// Model which must be removed
+    pub fn absent(name: &str) -> OllamaModel {
+        OllamaModel {
+            name: name.to_string(),
+            state: OllamaModelState::Absent,
+        }
+    }
 }
 
 /// REST API and environment configuration for Ollama
@@ -670,6 +685,24 @@ mod tests {
     use crate::state::attribute::Attribute;
 
     #[test]
+    fn model_constructors_set_the_state() {
+        assert_eq!(
+            OllamaModel::present("llama3"),
+            OllamaModel {
+                name: "llama3".to_string(),
+                state: OllamaModelState::Present,
+            }
+        );
+        assert_eq!(
+            OllamaModel::absent("mistral:7b"),
+            OllamaModel {
+                name: "mistral:7b".to_string(),
+                state: OllamaModelState::Absent,
+            }
+        );
+    }
+
+    #[test]
     fn parsing_ollama_module_block_from_yaml_str() {
         let raw = "---
 State: Present
@@ -733,7 +766,7 @@ Models:
         let raw_attribute = "---
 Name: Ollama with the llama3 model must be installed
 Privilege: !WithSudo
-Timeout: 10m
+Timeout: 600
 Detail: !Ollama
   State: Present
   ApiConfig:
@@ -757,7 +790,7 @@ Detail: !Ollama
 Attributes:
   - Name: Ollama must be installed with qwen2.5:1.5b
     Privilege: !WithSudo
-    Timeout: 30m
+    Timeout: 1800
     Detail: !Ollama
       State: Present
       ApiConfig:
