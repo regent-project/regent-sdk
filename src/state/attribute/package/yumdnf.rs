@@ -10,14 +10,14 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::{PackageExpectedState, yumdnf::YumDnfExpectedState};
+//! use regent_sdk::state::attribute::package::yumdnf::YumDnfExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install httpd package
-//! let httpd = YumDnfExpectedState::package_state("httpd", PackageExpectedState::Present);
+//! let httpd = YumDnfExpectedState::package_present("httpd");
 //!
 //! // Remove a package
-//! let nginx = YumDnfExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//! let nginx = YumDnfExpectedState::package_absent("nginx");
 //!
 //! // Trigger a full system upgrade
 //! let upgrade = YumDnfExpectedState::full_system_upgrade();
@@ -35,7 +35,7 @@
 //!     Privilege: !WithSudo
 //!     Detail: !YumDnf
 //!       Package: httpd
-//!       State: present
+//!       State: Present
 //! ```
 //!
 //! For a full system upgrade:
@@ -117,6 +117,20 @@ impl YumDnfExpectedState {
             state,
         }
     }
+
+    pub fn package_present(package: &str) -> YumDnfExpectedState {
+        YumDnfExpectedState::PackageState {
+            package: package.to_string(),
+            state: PackageExpectedState::Present,
+        }
+    }
+
+    pub fn package_absent(package: &str) -> YumDnfExpectedState {
+        YumDnfExpectedState::PackageState {
+            package: package.to_string(),
+            state: PackageExpectedState::Absent,
+        }
+    }
 }
 
 impl Check for YumDnfExpectedState {
@@ -154,25 +168,23 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for YumDnfExpectedState {
             self.check_host_compatibility(props)?;
         }
 
-        let package_manager: RedHatFlavoredPackageManager;
-
-        if host_handler
+        let package_manager: RedHatFlavoredPackageManager = if host_handler
             .is_this_command_available("dnf", &Privilege::None)
             .await
             .unwrap()
         {
-            package_manager = RedHatFlavoredPackageManager::Dnf;
+            RedHatFlavoredPackageManager::Dnf
         } else if host_handler
             .is_this_command_available("yum", &Privilege::None)
             .await
             .unwrap()
         {
-            package_manager = RedHatFlavoredPackageManager::Yum;
+            RedHatFlavoredPackageManager::Yum
         } else {
             return Err(RegentError::FailedDryRunEvaluation(
                 "Neither YUM nor DNF work on this host".to_string(),
             ));
-        }
+        };
 
         let mut remediations: Vec<Remediation> = Vec::new();
 
@@ -254,14 +266,12 @@ impl YumDnfApiCall {
     pub fn display(&self) -> String {
         match &self.api_call {
             YumDnfModuleInternalApiCall::Install(package_name) => {
-                return format!("Install - {}", package_name);
+                format!("Install - {}", package_name)
             }
             YumDnfModuleInternalApiCall::Remove(package_name) => {
-                return format!("Remove - {}", package_name);
+                format!("Remove - {}", package_name)
             }
-            YumDnfModuleInternalApiCall::Upgrade => {
-                return String::from("Upgrade");
-            }
+            YumDnfModuleInternalApiCall::Upgrade => String::from("Upgrade"),
         }
     }
 }
@@ -387,11 +397,7 @@ async fn is_package_installed<Handler: HostHandler>(
         .await
         .unwrap();
 
-    if test.return_code == 0 {
-        return true;
-    } else {
-        return false;
-    }
+    test.return_code == 0
 }
 
 #[cfg(test)]

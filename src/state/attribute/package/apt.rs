@@ -10,14 +10,14 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::{PackageExpectedState, apt::AptExpectedState};
+//! use regent_sdk::state::attribute::package::apt::AptExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install a package
-//! let apache = AptExpectedState::package_state("apache2", PackageExpectedState::Present);
+//! let apache = AptExpectedState::package_present("apache2");
 //!
 //! // Remove a package
-//! let nginx = AptExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//! let nginx = AptExpectedState::package_absent("nginx");
 //!
 //! // Trigger a full system upgrade
 //! let upgrade = AptExpectedState::full_system_upgrade();
@@ -122,6 +122,13 @@ impl AptExpectedState {
         AptExpectedState::PackageState {
             package: package.to_string(),
             state: PackageExpectedState::Present,
+        }
+    }
+
+    pub fn package_absent(package: &str) -> AptExpectedState {
+        AptExpectedState::PackageState {
+            package: package.to_string(),
+            state: PackageExpectedState::Absent,
         }
     }
 }
@@ -295,14 +302,12 @@ impl AptApiCall {
     pub fn display(&self) -> String {
         match &self.api_call {
             AptModuleInternalApiCall::Install(package_name) => {
-                return format!("Install - {}", package_name);
+                format!("Install - {}", package_name)
             }
             AptModuleInternalApiCall::Remove(package_name) => {
-                return format!("Remove - {}", package_name);
+                format!("Remove - {}", package_name)
             }
-            AptModuleInternalApiCall::Upgrade => {
-                return String::from("Upgrade");
-            }
+            AptModuleInternalApiCall::Upgrade => String::from("Upgrade"),
         }
     }
 }
@@ -400,7 +405,7 @@ async fn is_package_installed<Handler: HostHandler>(
         .await
         .unwrap();
 
-    if test.return_code == 0 { true } else { false }
+    test.return_code == 0
 }
 
 #[cfg(test)]

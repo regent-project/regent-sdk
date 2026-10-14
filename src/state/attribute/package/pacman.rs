@@ -10,14 +10,14 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::package::{PackageExpectedState, pacman::PacmanExpectedState};
+//! use regent_sdk::state::attribute::package::pacman::PacmanExpectedState;
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Install a package
-//! let pkg = PacmanExpectedState::package_state("nginx", PackageExpectedState::Present);
+//! let pkg = PacmanExpectedState::package_present("nginx");
 //!
 //! // Remove a package
-//! let pkg = PacmanExpectedState::package_state("nginx", PackageExpectedState::Absent);
+//! let pkg = PacmanExpectedState::package_absent("nginx");
 //!
 //! // Trigger a full system upgrade
 //! let upgrade = PacmanExpectedState::system_upgrade();
@@ -122,6 +122,13 @@ impl PacmanExpectedState {
         PacmanExpectedState::PackageState {
             package: package.to_string(),
             state: PackageExpectedState::Present,
+        }
+    }
+
+    pub fn package_absent(package: &str) -> PacmanExpectedState {
+        PacmanExpectedState::PackageState {
+            package: package.to_string(),
+            state: PackageExpectedState::Absent,
         }
     }
 }
@@ -248,14 +255,12 @@ impl PacmanApiCall {
     pub fn display(&self) -> String {
         match &self.api_call {
             PacmanModuleInternalApiCall::Install(package_name) => {
-                return format!("Install - {}", package_name);
+                format!("Install - {}", package_name)
             }
             PacmanModuleInternalApiCall::Remove(package_name) => {
-                return format!("Remove - {}", package_name);
+                format!("Remove - {}", package_name)
             }
-            PacmanModuleInternalApiCall::Upgrade => {
-                return String::from("Upgrade");
-            }
+            PacmanModuleInternalApiCall::Upgrade => String::from("Upgrade"),
         }
     }
 }
