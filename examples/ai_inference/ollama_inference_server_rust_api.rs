@@ -40,9 +40,10 @@ async fn main() {
             .unwrap(),
     );
 
-    let ollama_is_installed = OllamaExpectedState::present_with_default_config()
-        .with_api_config(OllamaApiConfig::new().with_host("0.0.0.0:11434"))
-        .with_models(vec![OllamaModel::present("qwen2.5:1.5b")]);
+    let ollama_is_installed = OllamaExpectedState::present_with_config_and_models(
+        OllamaApiConfig::new().with_listening_endpoint("0.0.0.0:11434"),
+        vec![OllamaModel::present("qwen2.5:1.5b")],
+    );
 
     let ollama_service_is_running = ServiceExpectedState::started_and_enabled("ollama");
 

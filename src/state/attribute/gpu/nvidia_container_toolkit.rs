@@ -10,7 +10,8 @@
 //! The toolkit also installs `nvidia-container-cli` (`libnvidia-container-tools`), which is what
 //! the Enroot GPU hook relies on.
 //!
-//! **Compatible OS:** Linux hosts with `apt-get`, `dnf` or `zypper` (detected at assessment time).
+//! **Compatible OS:** Linux distributions based on `apt-get`, `dnf` or `zypper` (detected from
+//! `/etc/os-release` at assessment time, like the `NvidiaDriver` attribute).
 //!
 //! **Privilege:** installing packages and configuring the engines needs root, use `!WithSudo`.
 //! Rootless Docker (`~/.config/docker/daemon.json`) is not managed.
@@ -33,16 +34,17 @@
 //! 1. The NVIDIA Container Toolkit repository must be configured (`nvidia-container-toolkit.list`
 //!    and its signing key for apt, `nvidia-container-toolkit.repo` for dnf and zypper). It is never
 //!    removed by this attribute.
-//! 2. `nvidia-container-toolkit` must be installed. With `Version`, the four toolkit packages
-//!    (`nvidia-container-toolkit`, `nvidia-container-toolkit-base`, `libnvidia-container-tools`,
-//!    `libnvidia-container1`) are installed in that version (upgraded or downgraded). Without it,
-//!    the toolkit is installed once and not upgraded afterwards.
+//! 2. `nvidia-container-toolkit` must be installed. With `Version`, each of the four toolkit
+//!    packages (`nvidia-container-toolkit`, `nvidia-container-toolkit-base`,
+//!    `libnvidia-container-tools`, `libnvidia-container1`) must be installed in that version: the
+//!    ones in another version are upgraded or downgraded. Without it, the toolkit is installed
+//!    once and not upgraded afterwards.
 //! 3. Each engine of `Runtimes` must know the `nvidia` runtime: `runtimes.nvidia` in
 //!    `/etc/docker/daemon.json` for Docker, a runtime using `nvidia-container-runtime` in the
 //!    containerd (`/etc/containerd/config.toml`, `/etc/containerd/conf.d/`) or CRI-O
 //!    (`/etc/crio/`) configuration. If not, `nvidia-ctk runtime configure --runtime=<engine>` is
-//!    run, then the engine is restarted if it is running (`systemctl try-restart`), which
-//!    restarts its containers. Engines left out of `Runtimes` are not managed.
+//!    run, then the engine is restarted if it is running, which restarts its containers. Engines
+//!    left out of `Runtimes` are not managed.
 //! 4. `Cdi`, if set, manages the CDI specification of the GPUs. It embeds the paths of the
 //!    driver libraries, which contain the driver version, so it must be generated again when the
 //!    driver changes. The specification is current when it declares `nvidia.com/gpu` devices and
@@ -125,7 +127,6 @@
 //! ```
 
 use crate::error::RegentError;
-use crate::hosts::handlers::shell_quote;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::HostProperties;
@@ -145,11 +146,12 @@ use std::fmt;
 use std::str::FromStr;
 use std::time::Duration;
 
-use super::platform::{
-    PackageFamily, available_package_family, check_linux_host, download_command,
-    installed_packages, is_repository_configured, loaded_driver, query, run_steps, sh_script,
-    unit_state,
+use crate::attribute::shared::{
+    PackageFamily, UnitEnablement, add_repo_file, check_linux_host, download, host_package_family,
+    installed_packages, is_repository_configured, is_success, loaded_driver, make_temp_dir, query,
+    remove_temp_dir, run_step, run_steps, unit_state,
 };
+use std::collections::BTreeMap;
 
 const ATTRIBUTE: &str = "NvidiaContainerToolkit";
 
@@ -177,34 +179,28 @@ const STATIC_CDI_SPEC: &str = "/etc/cdi/nvidia.yaml";
 const CDI_REFRESH_PATH_UNIT: &str = "nvidia-cdi-refresh.path";
 const CDI_REFRESH_SERVICE_UNIT: &str = "nvidia-cdi-refresh.service";
 
-/// Expected state of the NVIDIA Container Toolkit
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
 pub struct NvidiaContainerToolkitExpectedState {
-    /// Desired state, with the toolkit configuration when it must be installed
     state: NvidiaContainerToolkitState,
 }
 
-/// Desired state of the toolkit
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum NvidiaContainerToolkitState {
     /// Toolkit installed with this configuration
     Present(Box<NvidiaContainerToolkitConfig>),
-    /// Toolkit packages removed
     Absent,
 }
 
 impl NvidiaContainerToolkitExpectedState {
-    /// Toolkit must be installed with this configuration
     pub fn present(config: NvidiaContainerToolkitConfig) -> Self {
         Self {
             state: NvidiaContainerToolkitState::Present(Box::new(config)),
         }
     }
 
-    /// Toolkit packages must be removed
     pub fn absent() -> Self {
         Self {
             state: NvidiaContainerToolkitState::Absent,
@@ -212,18 +208,14 @@ impl NvidiaContainerToolkitExpectedState {
     }
 }
 
-/// Configuration of an installed toolkit
-///
 /// Optional fields left out are not managed.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "NvidiaContainerToolkitConfigFields")]
 #[serde(rename_all = "PascalCase")]
 pub struct NvidiaContainerToolkitConfig {
-    /// Version of the toolkit packages
     version: Option<ToolkitVersion>,
     /// Container engines which must know the `nvidia` runtime
     runtimes: BTreeSet<ContainerRuntime>,
-    /// CDI specification management
     cdi: Option<CdiMode>,
 }
 
@@ -269,22 +261,18 @@ impl NvidiaContainerToolkitConfig {
         self
     }
 
-    /// Configure the `nvidia` runtime of Docker
     pub fn with_docker_runtime(self) -> Self {
         self.with_runtime(ContainerRuntime::Docker)
     }
 
-    /// Configure the `nvidia` runtime of containerd
     pub fn with_containerd_runtime(self) -> Self {
         self.with_runtime(ContainerRuntime::Containerd)
     }
 
-    /// Configure the `nvidia` runtime of CRI-O
     pub fn with_crio_runtime(self) -> Self {
         self.with_runtime(ContainerRuntime::CriO)
     }
 
-    /// Manage the CDI specification
     pub fn with_cdi(mut self, cdi: CdiMode) -> Result<Self, RegentError> {
         self.cdi = Some(cdi);
         self.validated()
@@ -340,21 +328,30 @@ impl ContainerRuntime {
         self.ctk_name()
     }
 
-    /// Command printing the configuration files of the engine
+    /// Command printing what [`has_nvidia_runtime`](Self::has_nvidia_runtime) inspects: the
+    /// Docker configuration, or the configuration lines of containerd and CRI-O mentioning
+    /// `nvidia-container-runtime`. Missing files make it fail: only the output matters.
     fn config_command(&self) -> String {
-        let files = match self {
-            ContainerRuntime::Docker => "/etc/docker/daemon.json",
-            ContainerRuntime::Containerd => {
-                "/etc/containerd/config.toml /etc/containerd/conf.d/*.toml"
-            }
-            ContainerRuntime::CriO => {
-                "/etc/crio/crio.conf /etc/crio/crio.conf.d/* /etc/crio/conf.d/*"
-            }
-        };
-        sh_script(&format!("cat {} 2>/dev/null; true", files))
+        match self {
+            ContainerRuntime::Docker => quoted_command(&["cat", "/etc/docker/daemon.json"]),
+            ContainerRuntime::Containerd => quoted_command(&[
+                "grep",
+                "-rhsF",
+                "nvidia-container-runtime",
+                "/etc/containerd/config.toml",
+                "/etc/containerd/conf.d",
+            ]),
+            ContainerRuntime::CriO => quoted_command(&[
+                "grep",
+                "-rhsF",
+                "nvidia-container-runtime",
+                "/etc/crio/crio.conf",
+                "/etc/crio/crio.conf.d",
+                "/etc/crio/conf.d",
+            ]),
+        }
     }
 
-    /// Whether the configuration declares the `nvidia` runtime
     fn has_nvidia_runtime(&self, config: &str) -> bool {
         match self {
             ContainerRuntime::Docker => serde_json::from_str::<Value>(config)
@@ -514,36 +511,93 @@ impl ToolkitVersion {
         )
     }
 
-    /// Packages to install, with their version
-    fn packages(&self, family: PackageFamily) -> Vec<String> {
-        TOOLKIT_PACKAGES
-            .iter()
-            .map(|package| match family {
-                PackageFamily::Apt => format!("{}={}", package, self),
-                PackageFamily::Dnf | PackageFamily::Zypper => format!("{}-{}", package, self),
-            })
-            .collect()
+    /// Package specification pinning `package` to this version
+    fn package_spec(&self, package: &str, family: PackageFamily) -> String {
+        match family {
+            PackageFamily::Apt => format!("{}={}", package, self),
+            PackageFamily::Dnf | PackageFamily::Zypper => format!("{}-{}", package, self),
+        }
+    }
+
+    /// Toolkit packages to install or upgrade, and to downgrade, to reach this version
+    fn packages_to_change(
+        &self,
+        installed: &BTreeMap<String, String>,
+    ) -> (Vec<String>, Vec<String>) {
+        let mut upgrades = Vec::new();
+        let mut downgrades = Vec::new();
+        for package in TOOLKIT_PACKAGES {
+            let ordering = installed
+                .get(package)
+                .map(|installed| self.compare_with_installed(installed));
+            match ordering {
+                Some(Some(Ordering::Equal)) => {}
+                Some(Some(Ordering::Less)) => downgrades.push(package.to_string()),
+                _ => upgrades.push(package.to_string()),
+            }
+        }
+        (upgrades, downgrades)
     }
 }
 
-/// Script configuring the toolkit repository
-fn repository_setup_script(family: PackageFamily) -> String {
-    match family {
-        PackageFamily::Apt => format!(
-            "set -e; tmp=$(mktemp -d); trap 'rm -rf \"$tmp\"' EXIT; {}; gpg --batch --yes --dearmor -o {} \"$tmp/gpgkey\"; {}; sed {} \"$tmp/list\" > {}; apt-get update",
-            download_command(GPG_KEY_URL, "\"$tmp/gpgkey\""),
-            shell_quote(APT_KEYRING),
-            download_command(APT_LIST_URL, "\"$tmp/list\""),
-            shell_quote(&format!(
-                "s#deb https://#deb [signed-by={}] https://#g",
-                APT_KEYRING
-            )),
-            shell_quote(APT_LIST),
-        ),
-        PackageFamily::Dnf | PackageFamily::Zypper => {
-            family.add_repo_file_script(RPM_REPO_URL, "nvidia-container-toolkit.repo")
-        }
+async fn setup_repository<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    family: PackageFamily,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    if family != PackageFamily::Apt {
+        return add_repo_file(
+            host_handler,
+            family,
+            RPM_REPO_URL,
+            "nvidia-container-toolkit.repo",
+            privilege,
+        )
+        .await;
     }
+    let tmp = match make_temp_dir(host_handler, privilege).await? {
+        Ok(tmp) => tmp,
+        Err(failure) => return Ok(failure),
+    };
+    let key = format!("{}/gpgkey", tmp);
+    let list = format!("{}/list", tmp);
+    let mut outcome = download(host_handler, GPG_KEY_URL, &key, privilege).await;
+    if is_success(&outcome) {
+        outcome = download(host_handler, APT_LIST_URL, &list, privilege).await;
+    }
+    if is_success(&outcome) {
+        outcome = run_steps(
+            host_handler,
+            &apt_repository_commands(&key, &list),
+            privilege,
+        )
+        .await;
+    }
+    remove_temp_dir(host_handler, &tmp, privilege).await;
+    Ok(outcome)
+}
+
+/// Commands installing the downloaded key and list of the apt repository
+fn apt_repository_commands(key: &str, list: &str) -> Vec<String> {
+    vec![
+        quoted_command(&[
+            "gpg",
+            "--batch",
+            "--yes",
+            "--dearmor",
+            "-o",
+            APT_KEYRING,
+            key,
+        ]),
+        quoted_command(&[
+            "sed",
+            "-i",
+            &format!("s#deb https://#deb [signed-by={}] https://#g", APT_KEYRING),
+            list,
+        ]),
+        quoted_command(&["install", "-m", "0644", list, APT_LIST]),
+        quoted_command(&["apt-get", "update"]),
+    ]
 }
 
 /// Failure message when a CDI specification is requested without a loaded driver
@@ -580,14 +634,13 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaContainerToolkitE
         privilege: &Privilege,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<AttributeComplianceAssessment, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
-        let Some(family) = available_package_family(host_handler, privilege).await? else {
+        let Some(family) = host_package_family(host_handler, privilege).await? else {
             return Ok(AttributeComplianceAssessment::NonCompliantFatal(
-                "none of apt-get, dnf or zypper is available on this host: the NVIDIA Container Toolkit can't be installed".to_string(),
+                "the distribution (/etc/os-release) is not based on apt-get, dnf or zypper: the NVIDIA Container Toolkit can't be installed".to_string(),
             ));
         };
 
@@ -623,24 +676,20 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaContainerToolkitE
                 }
 
                 let installed_version = installed.get(TOOLKIT_PACKAGES[0]);
-                let installation = match (installed_version, &config.version) {
-                    (None, version) => Some((version.clone(), false)),
-                    (Some(_), None) => None,
-                    (Some(installed), Some(version)) => {
-                        match version.compare_with_installed(installed) {
-                            Some(Ordering::Equal) => None,
-                            ordering => {
-                                Some((Some(version.clone()), ordering == Some(Ordering::Less)))
-                            }
-                        }
+                let (upgrades, downgrades) = match &config.version {
+                    Some(version) => version.packages_to_change(&installed),
+                    None if installed_version.is_none() => {
+                        (vec![TOOLKIT_PACKAGES[0].to_string()], Vec::new())
                     }
+                    None => (Vec::new(), Vec::new()),
                 };
-                let is_installing = installation.is_some();
-                if let Some((version, downgrade)) = installation {
+                let is_installing = !upgrades.is_empty() || !downgrades.is_empty();
+                if is_installing {
                     push(NvidiaContainerToolkitInternalApiCall::Install {
                         family,
-                        version,
-                        downgrade,
+                        version: config.version.clone(),
+                        upgrades,
+                        downgrades,
                     });
                 }
 
@@ -670,7 +719,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaContainerToolkitE
 
                     match cdi {
                         CdiMode::Automatic => {
-                            if !is_installing && !refresh.exists {
+                            if !is_installing && !refresh.exists() {
                                 return Ok(AttributeComplianceAssessment::NonCompliantFatal(
                                     format!(
                                         "the installed NVIDIA Container Toolkit ({}) has no {} unit (toolkit 1.18.0 or later): use Cdi: Static or a newer Version",
@@ -679,7 +728,11 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaContainerToolkitE
                                     ),
                                 ));
                             }
-                            if !(refresh.enabled && refresh.active && is_spec_current) {
+                            let is_refresh_enabled = matches!(
+                                refresh.enablement,
+                                UnitEnablement::Enabled | UnitEnablement::Static
+                            );
+                            if !(is_refresh_enabled && refresh.active && is_spec_current) {
                                 push(NvidiaContainerToolkitInternalApiCall::RefreshCdiSpec);
                             }
                         }
@@ -690,7 +743,9 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaContainerToolkitE
                                 privilege,
                             )
                             .await?;
-                            if refresh.enabled || refresh.active || automatic_spec.return_code == 0
+                            if refresh.enablement == UnitEnablement::Enabled
+                                || refresh.active
+                                || automatic_spec.return_code == 0
                             {
                                 push(NvidiaContainerToolkitInternalApiCall::DisableCdiRefresh);
                             }
@@ -718,13 +773,14 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for NvidiaContainerToolkitE
 pub enum NvidiaContainerToolkitInternalApiCall {
     /// Configure the NVIDIA Container Toolkit repository
     AddRepository(PackageFamily),
-    /// Install the toolkit (pinned to a version, upgrading or downgrading it, or the latest one)
+    /// Install the toolkit: the latest one, or its packages pinned to `version` (upgraded or
+    /// installed, and downgraded)
     Install {
         family: PackageFamily,
         version: Option<ToolkitVersion>,
-        downgrade: bool,
+        upgrades: Vec<String>,
+        downgrades: Vec<String>,
     },
-    /// Remove the toolkit packages
     RemovePackages {
         family: PackageFamily,
         packages: Vec<String>,
@@ -753,12 +809,22 @@ impl NvidiaContainerToolkitApiCall {
             }
             NvidiaContainerToolkitInternalApiCall::Install {
                 version: Some(version),
-                downgrade,
+                upgrades,
+                downgrades,
                 ..
             } => format!(
-                "{} the NVIDIA Container Toolkit {}",
-                if *downgrade { "Downgrade" } else { "Install" },
-                version
+                "Install the NVIDIA Container Toolkit {}: {}",
+                version,
+                upgrades
+                    .iter()
+                    .map(|package| format!("install or upgrade {}", package))
+                    .chain(
+                        downgrades
+                            .iter()
+                            .map(|package| format!("downgrade {}", package))
+                    )
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             NvidiaContainerToolkitInternalApiCall::Install { version: None, .. } => {
                 "Install the NVIDIA Container Toolkit".to_string()
@@ -797,43 +863,41 @@ impl NvidiaContainerToolkitApiCall {
     /// Commands of the remediations which don't need to inspect the host
     fn commands(&self) -> Vec<String> {
         match &self.api_call {
-            NvidiaContainerToolkitInternalApiCall::AddRepository(family) => {
-                vec![sh_script(&repository_setup_script(*family))]
-            }
             NvidiaContainerToolkitInternalApiCall::Install {
                 family,
                 version,
-                downgrade,
+                upgrades,
+                downgrades,
             } => {
-                let packages = match version {
-                    Some(version) => version.packages(*family),
-                    None => vec![TOOLKIT_PACKAGES[0].to_string()],
+                let specs = |packages: &[String]| -> Vec<String> {
+                    packages
+                        .iter()
+                        .map(|package| match version {
+                            Some(version) => version.package_spec(package, *family),
+                            None => package.clone(),
+                        })
+                        .collect()
                 };
-                vec![family.install_command(&packages, *downgrade)]
+                let mut commands = Vec::new();
+                if *family == PackageFamily::Apt {
+                    commands.push(quoted_command(&["apt-get", "update"]));
+                }
+                if !upgrades.is_empty() {
+                    commands.push(family.install_command(&specs(upgrades), false));
+                }
+                if !downgrades.is_empty() {
+                    commands.push(family.install_command(&specs(downgrades), true));
+                }
+                commands
             }
             NvidiaContainerToolkitInternalApiCall::RemovePackages { family, packages } => {
                 vec![family.remove_command(packages)]
             }
-            NvidiaContainerToolkitInternalApiCall::ConfigureRuntime(runtime) => vec![
-                quoted_command(&[
-                    "nvidia-ctk",
-                    "runtime",
-                    "configure",
-                    &format!("--runtime={}", runtime.ctk_name()),
-                ]),
-                quoted_command(&["systemctl", "try-restart", runtime.service()]),
-            ],
             NvidiaContainerToolkitInternalApiCall::RefreshCdiSpec => vec![
                 quoted_command(&["systemctl", "enable", "--now", CDI_REFRESH_PATH_UNIT]),
                 quoted_command(&["systemctl", "enable", CDI_REFRESH_SERVICE_UNIT]),
                 quoted_command(&["systemctl", "restart", CDI_REFRESH_SERVICE_UNIT]),
             ],
-            NvidiaContainerToolkitInternalApiCall::DisableCdiRefresh => vec![sh_script(&format!(
-                "for unit in {} {}; do systemctl disable --now \"$unit\" 2>/dev/null || true; done; rm -f {}",
-                shell_quote(CDI_REFRESH_PATH_UNIT),
-                shell_quote(CDI_REFRESH_SERVICE_UNIT),
-                shell_quote(AUTOMATIC_CDI_SPEC)
-            ))],
             NvidiaContainerToolkitInternalApiCall::GenerateCdiSpec => vec![
                 quoted_command(&["mkdir", "-p", "/etc/cdi"]),
                 quoted_command(&[
@@ -843,6 +907,9 @@ impl NvidiaContainerToolkitApiCall {
                     &format!("--output={}", STATIC_CDI_SPEC),
                 ]),
             ],
+            NvidiaContainerToolkitInternalApiCall::AddRepository(_)
+            | NvidiaContainerToolkitInternalApiCall::ConfigureRuntime(_)
+            | NvidiaContainerToolkitInternalApiCall::DisableCdiRefresh => Vec::new(),
         }
     }
 }
@@ -877,12 +944,23 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for NvidiaContainerToolkitAp
         host_properties: &Option<HostProperties>,
         _optional_secret_provider: &Option<SecretProvidersPool>,
     ) -> Result<InternalApiCallOutcome, RegentError> {
-        // Early check: verify we're on a compatible host
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
 
         let privilege = &self.privilege;
+        match &self.api_call {
+            NvidiaContainerToolkitInternalApiCall::AddRepository(family) => {
+                return setup_repository(host_handler, *family, privilege).await;
+            }
+            NvidiaContainerToolkitInternalApiCall::ConfigureRuntime(runtime) => {
+                return configure_runtime(host_handler, *runtime, privilege).await;
+            }
+            NvidiaContainerToolkitInternalApiCall::DisableCdiRefresh => {
+                return disable_cdi_refresh(host_handler, privilege).await;
+            }
+            _ => {}
+        }
         let cdi_mode = match &self.api_call {
             NvidiaContainerToolkitInternalApiCall::RefreshCdiSpec => Some(CdiMode::Automatic),
             NvidiaContainerToolkitInternalApiCall::GenerateCdiSpec => Some(CdiMode::Static),
@@ -921,6 +999,60 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for NvidiaContainerToolkitAp
             )))
         }
     }
+}
+
+/// `nvidia-ctk runtime configure`, then restart the engine if it is running (a missing engine
+/// keeps the configuration for when it is installed)
+async fn configure_runtime<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    runtime: ContainerRuntime,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    let outcome = run_step(
+        host_handler,
+        &quoted_command(&[
+            "nvidia-ctk",
+            "runtime",
+            "configure",
+            &format!("--runtime={}", runtime.ctk_name()),
+        ]),
+        privilege,
+    )
+    .await;
+    if !is_success(&outcome) {
+        return Ok(outcome);
+    }
+    if !unit_state(host_handler, runtime.service(), privilege)
+        .await?
+        .active
+    {
+        return Ok(outcome);
+    }
+    Ok(run_step(
+        host_handler,
+        &quoted_command(&["systemctl", "restart", runtime.service()]),
+        privilege,
+    )
+    .await)
+}
+
+/// Disable and stop the nvidia-cdi-refresh units, then remove the specification they generated
+async fn disable_cdi_refresh<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    let mut commands = Vec::new();
+    for unit in [CDI_REFRESH_PATH_UNIT, CDI_REFRESH_SERVICE_UNIT] {
+        let state = unit_state(host_handler, unit, privilege).await?;
+        if state.enablement == UnitEnablement::Enabled {
+            commands.push(quoted_command(&["systemctl", "disable", unit]));
+        }
+        if state.active {
+            commands.push(quoted_command(&["systemctl", "stop", unit]));
+        }
+    }
+    commands.push(quoted_command(&["rm", "-f", AUTOMATIC_CDI_SPEC]));
+    Ok(run_steps(host_handler, &commands, privilege).await)
 }
 
 #[cfg(test)]
@@ -1111,12 +1243,31 @@ State: !Present
         );
         assert_eq!(version.compare_with_installed("garbage"), None);
         assert_eq!(
-            version.packages(PackageFamily::Apt)[0],
+            version.package_spec("nvidia-container-toolkit", PackageFamily::Apt),
             "nvidia-container-toolkit=1.20.1-1"
         );
         assert_eq!(
-            version.packages(PackageFamily::Dnf)[3],
+            version.package_spec("libnvidia-container1", PackageFamily::Dnf),
             "libnvidia-container1-1.20.1-1"
+        );
+
+        let installed: BTreeMap<String, String> = [
+            ("nvidia-container-toolkit", "1.20.1-1"),
+            ("nvidia-container-toolkit-base", "1.21.0-1"),
+            ("libnvidia-container1", "1.17.8-1"),
+        ]
+        .into_iter()
+        .map(|(name, version)| (name.to_string(), version.to_string()))
+        .collect();
+        assert_eq!(
+            version.packages_to_change(&installed),
+            (
+                vec![
+                    "libnvidia-container-tools".to_string(),
+                    "libnvidia-container1".to_string()
+                ],
+                vec!["nvidia-container-toolkit-base".to_string()]
+            )
         );
     }
 
@@ -1156,40 +1307,39 @@ State: !Present
         let api_call =
             |api_call| NvidiaContainerToolkitApiCall::from(api_call, Privilege::WithSudo);
         assert_eq!(
-            api_call(NvidiaContainerToolkitInternalApiCall::ConfigureRuntime(
-                ContainerRuntime::CriO
-            ))
+            api_call(NvidiaContainerToolkitInternalApiCall::Install {
+                family: PackageFamily::Zypper,
+                version: Some("1.20.1-1".parse().unwrap()),
+                upgrades: vec!["nvidia-container-toolkit".to_string()],
+                downgrades: vec!["libnvidia-container1".to_string()],
+            })
             .commands(),
             vec![
-                "'nvidia-ctk' 'runtime' 'configure' '--runtime=crio'",
-                "'systemctl' 'try-restart' 'crio'"
+                "'zypper' '--non-interactive' '--gpg-auto-import-keys' 'install' '--force-resolution' 'nvidia-container-toolkit-1.20.1-1'",
+                "'zypper' '--non-interactive' '--gpg-auto-import-keys' 'install' '--force-resolution' '--oldpackage' 'libnvidia-container1-1.20.1-1'"
             ]
         );
         assert_eq!(
             api_call(NvidiaContainerToolkitInternalApiCall::Install {
-                family: PackageFamily::Zypper,
-                version: Some("1.20.1-1".parse().unwrap()),
-                downgrade: true,
+                family: PackageFamily::Apt,
+                version: None,
+                upgrades: vec!["nvidia-container-toolkit".to_string()],
+                downgrades: Vec::new(),
             })
             .commands(),
             vec![
-                "'zypper' '--non-interactive' '--gpg-auto-import-keys' 'install' '--force-resolution' '--oldpackage' 'nvidia-container-toolkit-1.20.1-1' 'nvidia-container-toolkit-base-1.20.1-1' 'libnvidia-container-tools-1.20.1-1' 'libnvidia-container1-1.20.1-1'"
+                "'apt-get' 'update'",
+                "DEBIAN_FRONTEND=noninteractive 'apt-get' 'install' '-y' 'nvidia-container-toolkit'"
             ]
         );
-        let script = repository_setup_script(PackageFamily::Apt);
-        assert!(
-            script.contains("'https://nvidia.github.io/libnvidia-container/gpgkey'"),
-            "{}",
-            script
-        );
-        assert!(
-            script.contains("> '/etc/apt/sources.list.d/nvidia-container-toolkit.list'"),
-            "{}",
-            script
-        );
-        assert!(
-            repository_setup_script(PackageFamily::Dnf)
-                .contains("'/etc/yum.repos.d/nvidia-container-toolkit.repo'")
+        assert_eq!(
+            apt_repository_commands("/tmp/x/gpgkey", "/tmp/x/list"),
+            vec![
+                "'gpg' '--batch' '--yes' '--dearmor' '-o' '/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg' '/tmp/x/gpgkey'",
+                "'sed' '-i' 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' '/tmp/x/list'",
+                "'install' '-m' '0644' '/tmp/x/list' '/etc/apt/sources.list.d/nvidia-container-toolkit.list'",
+                "'apt-get' 'update'"
+            ]
         );
         assert!(
             api_call(NvidiaContainerToolkitInternalApiCall::RefreshCdiSpec)

@@ -1,16 +1,5 @@
-//! Host inspection helpers shared by the GPU attributes
-//!
-//! [`HostProperties`](crate::hosts::properties::HostProperties) is optional and coarse (Ubuntu is
-//! reported as a Debian flavor), so the GPU attributes detect what they need at assessment time:
-//! `/etc/os-release`, `uname -m`, `uname -r`, installed packages, systemd units and the loaded
-//! NVIDIA kernel module. The parsing is done by pure functions, tested without any host.
-//!
-//! Every value placed in a command is quoted with [`shell_quote`]. Multi-step scripts are run with
-//! `sh -c` so they behave the same whatever the login shell of the connected user.
-
 use crate::error::RegentError;
 use crate::hosts::command::CommandResult;
-use crate::hosts::handlers::shell_quote;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::properties::{HostProperties, LinuxFlavor, OsKind};
 use crate::state::attribute::HostHandler;
@@ -20,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt;
 
-/// Package manager used to install the NVIDIA packages
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum PackageFamily {
@@ -76,7 +64,21 @@ impl PackageFamily {
         quoted_command(&args)
     }
 
-    /// Command installing packages non interactively
+    /// Commands installing packages non interactively, after refreshing the apt package lists
+    /// (dnf and zypper refresh expired metadata themselves)
+    pub(crate) fn install_commands(
+        &self,
+        packages: &[String],
+        allow_downgrade: bool,
+    ) -> Vec<String> {
+        let mut commands = Vec::new();
+        if *self == PackageFamily::Apt {
+            commands.push(quoted_command(&["apt-get", "update"]));
+        }
+        commands.push(self.install_command(packages, allow_downgrade));
+        commands
+    }
+
     pub(crate) fn install_command(&self, packages: &[String], allow_downgrade: bool) -> String {
         let mut args: Vec<&str> = match self {
             PackageFamily::Apt => vec!["apt-get", "install", "-y"],
@@ -119,48 +121,6 @@ impl PackageFamily {
             _ => command,
         }
     }
-
-    /// Script adding a repository from an URL (a `.repo` file for dnf and zypper)
-    pub(crate) fn add_repo_file_script(&self, repo_file_url: &str, repo_file_name: &str) -> String {
-        match self {
-            PackageFamily::Apt => {
-                // apt repositories are not described by a single file: see each attribute
-                String::new()
-            }
-            PackageFamily::Dnf => format!(
-                "set -e; {}; dnf clean expire-cache",
-                download_command(
-                    repo_file_url,
-                    &shell_quote(&format!("/etc/yum.repos.d/{}", repo_file_name))
-                )
-            ),
-            PackageFamily::Zypper => format!(
-                "set -e; {}; {}",
-                quoted_command(&["zypper", "--non-interactive", "addrepo", repo_file_url]),
-                quoted_command(&[
-                    "zypper",
-                    "--non-interactive",
-                    "--gpg-auto-import-keys",
-                    "refresh"
-                ])
-            ),
-        }
-    }
-}
-
-/// Shell snippet downloading `url` to `quoted_destination` (a shell word, already quoted)
-/// with curl, or wget if curl is missing
-pub(crate) fn download_command(url: &str, quoted_destination: &str) -> String {
-    format!(
-        "if command -v curl >/dev/null 2>&1; then curl -fsSL -o {dest} {url}; else wget -qO {dest} {url}; fi",
-        dest = quoted_destination,
-        url = shell_quote(url)
-    )
-}
-
-/// Wrap a multi-step script so it runs with `sh` whatever the login shell
-pub(crate) fn sh_script(script: &str) -> String {
-    format!("sh -c {}", shell_quote(script))
 }
 
 /// Content of `/etc/os-release` (only the fields used to pick the NVIDIA repository)
@@ -215,11 +175,26 @@ pub fn parse_os_release(content: &str) -> OsRelease {
     os_release
 }
 
+/// Package manager of a Linux distribution, from the `ID` and `ID_LIKE` of `/etc/os-release`
+pub fn package_family(os_release: &OsRelease) -> Option<PackageFamily> {
+    std::iter::once(&os_release.id)
+        .chain(&os_release.id_like)
+        .find_map(|id| match id.as_str() {
+            "debian" | "ubuntu" => Some(PackageFamily::Apt),
+            "rhel" | "fedora" | "centos" | "rocky" | "almalinux" | "ol" | "amzn" => {
+                Some(PackageFamily::Dnf)
+            }
+            "suse" | "sles" | "sled" | "opensuse" | "opensuse-leap" | "opensuse-tumbleweed" => {
+                Some(PackageFamily::Zypper)
+            }
+            _ => None,
+        })
+}
+
 /// CPU architecture as named in the NVIDIA CUDA repositories
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum CudaArch {
-    /// `x86_64`
     X86_64,
     /// `sbsa`: 64-bit ARM servers (Arm SBSA, e.g. Grace). Jetson boards use JetPack instead.
     Sbsa,
@@ -251,9 +226,11 @@ pub fn parse_machine_arch(uname_m: &str) -> Result<CudaArch, String> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum DriverDistro {
-    /// Ubuntu 22.04 / 24.04 / 26.04: branch selected with `nvidia-driver-pinning-<branch>`
+    /// Ubuntu 22.04 / 24.04 / 26.04: branch pinned by installing its meta package
+    /// `nvidia-driver-<branch>[-open]`
     Ubuntu,
-    /// Debian 12 / 13: branch selected with `nvidia-driver-pinning-<branch>`
+    /// Debian 12 / 13: branch pinned by installing its meta package
+    /// `nvidia-driver-<branch>[-open]`
     Debian,
     /// RHEL-compatible 8 and 9 (RHEL, Rocky, AlmaLinux, Oracle Linux, CentOS Stream):
     /// branch selected with the `nvidia-driver` DNF module stream
@@ -345,23 +322,48 @@ impl CudaRepository {
         )
     }
 
-    /// Script configuring the repository (cuda-keyring for apt, `.repo` file for dnf and zypper)
-    pub fn setup_script(&self) -> String {
+    /// Configure the repository (cuda-keyring for apt, `.repo` file for dnf and zypper)
+    pub(crate) async fn setup<Handler: HostHandler>(
+        &self,
+        host_handler: &mut Handler,
+        privilege: &Privilege,
+    ) -> Result<InternalApiCallOutcome, RegentError> {
         let family = self.distro.package_family();
-        match family {
-            PackageFamily::Apt => format!(
-                "set -e; tmp=$(mktemp -d); trap 'rm -rf \"$tmp\"' EXIT; {}; dpkg -i \"$tmp/cuda-keyring.deb\"; apt-get update",
-                download_command(
-                    &format!("{}cuda-keyring_1.1-1_all.deb", self.base_url()),
-                    // a shell variable: let the shell expand it
-                    "\"$tmp/cuda-keyring.deb\""
-                )
-            ),
-            PackageFamily::Dnf | PackageFamily::Zypper => family.add_repo_file_script(
+        if family != PackageFamily::Apt {
+            return add_repo_file(
+                host_handler,
+                family,
                 &format!("{}cuda-{}.repo", self.base_url(), self.distro_name),
                 &format!("cuda-{}.repo", self.distro_name),
-            ),
+                privilege,
+            )
+            .await;
         }
+        let tmp = match make_temp_dir(host_handler, privilege).await? {
+            Ok(tmp) => tmp,
+            Err(failure) => return Ok(failure),
+        };
+        let keyring = format!("{}/cuda-keyring.deb", tmp);
+        let mut outcome = download(
+            host_handler,
+            &format!("{}cuda-keyring_1.1-1_all.deb", self.base_url()),
+            &keyring,
+            privilege,
+        )
+        .await;
+        if is_success(&outcome) {
+            outcome = run_steps(
+                host_handler,
+                &[
+                    quoted_command(&["dpkg", "-i", &keyring]),
+                    quoted_command(&["apt-get", "update"]),
+                ],
+                privilege,
+            )
+            .await;
+        }
+        remove_temp_dir(host_handler, &tmp, privilege).await;
+        Ok(outcome)
     }
 }
 
@@ -458,47 +460,55 @@ pub fn upstream_version(version: &str) -> &str {
         .map_or(without_epoch, |(upstream, _)| upstream)
 }
 
-/// State of a systemd unit
+/// `systemctl is-enabled` of a unit
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UnitEnablement {
+    #[default]
+    NotFound,
+    Enabled,
+    Disabled,
+    /// `static`, `indirect`, `generated` or `transient`: started by other units, `systemctl
+    /// enable` and `systemctl disable` have no effect
+    Static,
+    Masked,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UnitState {
-    pub exists: bool,
-    /// Enabled (or `static`/`indirect`/`generated`: started by something else)
-    pub enabled: bool,
+    pub enablement: UnitEnablement,
     pub active: bool,
 }
 
-/// Command printing `systemctl is-enabled` then `systemctl is-active` of a unit, one per line
-pub(crate) fn unit_state_command(unit: &str) -> String {
-    let unit = shell_quote(unit);
-    sh_script(&format!(
-        "systemctl is-enabled {unit} 2>&1 | tail -n 1; systemctl is-active {unit} 2>&1 | tail -n 1"
-    ))
-}
-
-/// Parse the output of [`unit_state_command`]
-pub fn parse_unit_state(output: &str) -> UnitState {
-    let mut lines = output
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty());
-    let enabled_state = lines.next().unwrap_or_default();
-    let active_state = lines.next().unwrap_or_default();
-    let exists = !(enabled_state.contains("No such file")
-        || enabled_state.contains("not-found")
-        || enabled_state.contains("not found")
-        || enabled_state.is_empty());
-    UnitState {
-        exists,
-        enabled: exists
-            && matches!(
-                enabled_state,
-                "enabled" | "enabled-runtime" | "static" | "indirect" | "generated" | "alias"
-            ),
-        active: active_state == "active" || active_state == "reloading",
+impl UnitState {
+    pub fn exists(&self) -> bool {
+        self.enablement != UnitEnablement::NotFound
     }
 }
 
-/// Flavor of the NVIDIA kernel module
+/// Parse the outputs of `systemctl is-enabled <unit>` and `systemctl is-active <unit>`. A missing
+/// unit prints an error (possibly folded into the output by the handler) instead of a state.
+pub fn parse_unit_state(is_enabled_output: &str, is_active_output: &str) -> UnitState {
+    let last_line = |output: &str| {
+        output
+            .lines()
+            .map(str::trim)
+            .rfind(|line| !line.is_empty())
+            .unwrap_or_default()
+            .to_string()
+    };
+    let enablement = match last_line(is_enabled_output).as_str() {
+        "enabled" | "enabled-runtime" | "alias" | "linked" | "linked-runtime" => {
+            UnitEnablement::Enabled
+        }
+        "disabled" => UnitEnablement::Disabled,
+        "static" | "indirect" | "generated" | "transient" => UnitEnablement::Static,
+        "masked" | "masked-runtime" => UnitEnablement::Masked,
+        _ => UnitEnablement::NotFound,
+    };
+    let active = matches!(last_line(is_active_output).as_str(), "active" | "reloading");
+    UnitState { enablement, active }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum KernelModuleFlavor {
@@ -640,7 +650,6 @@ pub(crate) async fn installed_packages<Handler: HostHandler>(
     Ok(parse_installed_packages(&result.stdout))
 }
 
-/// Whether a repository mentioning `url_fragment` is defined
 pub(crate) async fn is_repository_configured<Handler: HostHandler>(
     host_handler: &mut Handler,
     family: PackageFamily,
@@ -661,29 +670,157 @@ pub(crate) async fn unit_state<Handler: HostHandler>(
     unit: &str,
     privilege: &Privilege,
 ) -> Result<UnitState, RegentError> {
-    let result = query(host_handler, &unit_state_command(unit), privilege).await?;
-    Ok(parse_unit_state(&result.stdout))
+    // Both commands return non-zero for disabled or inactive units: the output is what matters
+    let is_enabled = query(
+        host_handler,
+        &quoted_command(&["systemctl", "is-enabled", unit]),
+        privilege,
+    )
+    .await?;
+    let is_active = query(
+        host_handler,
+        &quoted_command(&["systemctl", "is-active", unit]),
+        privilege,
+    )
+    .await?;
+    Ok(parse_unit_state(&is_enabled.stdout, &is_active.stdout))
 }
 
-/// Package manager available on the host (apt-get, then dnf, then zypper)
-pub(crate) async fn available_package_family<Handler: HostHandler>(
+/// Names of the loaded kernel modules, from `/proc/modules`
+pub(crate) async fn loaded_kernel_modules<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+) -> Result<Vec<String>, RegentError> {
+    let modules = query_output(
+        host_handler,
+        &quoted_command(&["cat", "/proc/modules"]),
+        privilege,
+    )
+    .await?;
+    Ok(parse_proc_modules(&modules))
+}
+
+pub fn parse_proc_modules(content: &str) -> Vec<String> {
+    content
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Package family of the host, from `/etc/os-release`
+pub(crate) async fn host_package_family<Handler: HostHandler>(
     host_handler: &mut Handler,
     privilege: &Privilege,
 ) -> Result<Option<PackageFamily>, RegentError> {
-    for (command, family) in [
-        ("apt-get", PackageFamily::Apt),
-        ("dnf", PackageFamily::Dnf),
-        ("zypper", PackageFamily::Zypper),
-    ] {
-        if host_handler
-            .is_this_command_available(command, privilege)
-            .await
-            .unwrap_or(false)
-        {
-            return Ok(Some(family));
-        }
+    let os_release = parse_os_release(
+        &query_output(
+            host_handler,
+            &quoted_command(&["cat", "/etc/os-release"]),
+            privilege,
+        )
+        .await?,
+    );
+    Ok(package_family(&os_release))
+}
+
+/// Download `url` to `destination` with curl, or wget if curl is missing
+pub(crate) async fn download<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    url: &str,
+    destination: &str,
+    privilege: &Privilege,
+) -> InternalApiCallOutcome {
+    let has_curl = host_handler
+        .is_this_command_available("curl", privilege)
+        .await
+        .unwrap_or(false);
+    let command = if has_curl {
+        quoted_command(&["curl", "-fsSL", "-o", destination, url])
+    } else {
+        quoted_command(&["wget", "-q", "-O", destination, url])
+    };
+    run_step(host_handler, &command, privilege).await
+}
+
+/// Create a private temporary directory: its path, or the failure outcome
+pub(crate) async fn make_temp_dir<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+) -> Result<Result<String, InternalApiCallOutcome>, RegentError> {
+    let result = query(host_handler, &quoted_command(&["mktemp", "-d"]), privilege).await?;
+    let path = result.stdout.trim();
+    if result.return_code != 0 || !path.starts_with('/') || path.contains(char::is_whitespace) {
+        return Ok(Err(InternalApiCallOutcome::Failure(format!(
+            "mktemp -d failed (RC {}): {}{}",
+            result.return_code, result.stdout, result.stderr
+        ))));
     }
-    Ok(None)
+    Ok(Ok(path.to_string()))
+}
+
+/// Best effort: a leftover temporary directory doesn't change the outcome
+pub(crate) async fn remove_temp_dir<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    path: &str,
+    privilege: &Privilege,
+) {
+    let _ = host_handler
+        .run_command(&quoted_command(&["rm", "-rf", path]), privilege)
+        .await;
+}
+
+/// Add a repository described by a `.repo` file (dnf and zypper)
+pub(crate) async fn add_repo_file<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    family: PackageFamily,
+    repo_file_url: &str,
+    repo_file_name: &str,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    Ok(match family {
+        PackageFamily::Apt => InternalApiCallOutcome::Failure(
+            "apt repositories are not described by a .repo file".to_string(),
+        ),
+        PackageFamily::Dnf => {
+            let outcome = download(
+                host_handler,
+                repo_file_url,
+                &format!("/etc/yum.repos.d/{}", repo_file_name),
+                privilege,
+            )
+            .await;
+            if !is_success(&outcome) {
+                return Ok(outcome);
+            }
+            run_step(
+                host_handler,
+                &quoted_command(&["dnf", "clean", "expire-cache"]),
+                privilege,
+            )
+            .await
+        }
+        PackageFamily::Zypper => {
+            run_steps(
+                host_handler,
+                &[
+                    quoted_command(&["zypper", "--non-interactive", "addrepo", repo_file_url]),
+                    quoted_command(&[
+                        "zypper",
+                        "--non-interactive",
+                        "--gpg-auto-import-keys",
+                        "refresh",
+                    ]),
+                ],
+                privilege,
+            )
+            .await
+        }
+    })
+}
+
+pub(crate) fn is_success(outcome: &InternalApiCallOutcome) -> bool {
+    !matches!(outcome, InternalApiCallOutcome::Failure(_))
 }
 
 /// Run a remediation command: a non-zero return code is a failure carrying the output
@@ -720,231 +857,4 @@ pub(crate) async fn run_steps<Handler: HostHandler>(
 /// Packages of the NVIDIA Container Toolkit, never removed with the driver
 pub(crate) fn is_container_toolkit_package(name: &str) -> bool {
     name.starts_with("nvidia-container") || name.starts_with("libnvidia-container")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn os(content: &str) -> OsRelease {
-        parse_os_release(content)
-    }
-
-    #[test]
-    fn os_release_is_parsed_with_or_without_quotes() {
-        let os_release = os(
-            "NAME=\"Rocky Linux\"\nID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"9.4\"\nPRETTY_NAME=\"Rocky Linux 9.4 (Blue Onyx)\"\n",
-        );
-        assert_eq!(os_release.id, "rocky");
-        assert_eq!(os_release.id_like, vec!["rhel", "centos", "fedora"]);
-        assert_eq!(os_release.major_version(), "9");
-        assert_eq!(os("ID=debian\nVERSION_ID=12\n").version_id, "12");
-    }
-
-    #[test]
-    fn cuda_repository_is_picked_from_os_release_and_architecture() {
-        let cases = [
-            (
-                "ID=ubuntu\nVERSION_ID=\"24.04\"",
-                "x86_64",
-                "ubuntu2404",
-                DriverDistro::Ubuntu,
-            ),
-            (
-                "ID=ubuntu\nVERSION_ID=\"22.04\"",
-                "aarch64",
-                "ubuntu2204",
-                DriverDistro::Ubuntu,
-            ),
-            (
-                "ID=debian\nVERSION_ID=\"13\"",
-                "x86_64",
-                "debian13",
-                DriverDistro::Debian,
-            ),
-            (
-                "ID=\"rhel\"\nVERSION_ID=\"8.10\"",
-                "x86_64",
-                "rhel8",
-                DriverDistro::RhelModular,
-            ),
-            (
-                "ID=\"almalinux\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"9.5\"",
-                "x86_64",
-                "rhel9",
-                DriverDistro::RhelModular,
-            ),
-            (
-                "ID=\"rocky\"\nVERSION_ID=\"10.0\"",
-                "aarch64",
-                "rhel10",
-                DriverDistro::Rhel10,
-            ),
-            (
-                "ID=\"ol\"\nID_LIKE=\"fedora\"\nVERSION_ID=\"9.4\"",
-                "x86_64",
-                "rhel9",
-                DriverDistro::RhelModular,
-            ),
-            (
-                "ID=fedora\nVERSION_ID=43",
-                "x86_64",
-                "fedora43",
-                DriverDistro::Fedora,
-            ),
-            (
-                "ID=\"amzn\"\nID_LIKE=\"fedora\"\nVERSION_ID=\"2023\"",
-                "aarch64",
-                "amzn2023",
-                DriverDistro::AmazonLinux,
-            ),
-            (
-                "ID=\"sles\"\nVERSION_ID=\"15.6\"",
-                "x86_64",
-                "sles15",
-                DriverDistro::Suse,
-            ),
-            (
-                "ID=\"opensuse-leap\"\nVERSION_ID=\"15.6\"",
-                "x86_64",
-                "opensuse15",
-                DriverDistro::Suse,
-            ),
-        ];
-        for (content, machine, distro_name, distro) in cases {
-            let repository = cuda_repository(&os(content), machine).unwrap();
-            assert_eq!(repository.distro_name, distro_name, "{}", content);
-            assert_eq!(repository.distro, distro, "{}", content);
-        }
-
-        let repository =
-            cuda_repository(&os("ID=ubuntu\nVERSION_ID=\"24.04\""), "aarch64").unwrap();
-        assert_eq!(
-            repository.base_url(),
-            "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa/"
-        );
-    }
-
-    #[test]
-    fn unsupported_hosts_are_reported_clearly() {
-        let error = cuda_repository(
-            &os("ID=ubuntu\nVERSION_ID=\"20.04\"\nPRETTY_NAME=\"Ubuntu 20.04.6 LTS\""),
-            "x86_64",
-        )
-        .unwrap_err();
-        assert!(
-            error.contains("Ubuntu 20.04.6 LTS is not supported"),
-            "{}",
-            error
-        );
-        let error = cuda_repository(&os("ID=arch"), "x86_64").unwrap_err();
-        assert!(error.contains("not supported"), "{}", error);
-        let error = cuda_repository(&os("ID=ubuntu\nVERSION_ID=\"24.04\""), "ppc64le").unwrap_err();
-        assert!(error.contains("\"ppc64le\""), "{}", error);
-        // RHEL 7 has no supported driver
-        assert!(cuda_repository(&os("ID=\"centos\"\nVERSION_ID=\"7\""), "x86_64").is_err());
-    }
-
-    #[test]
-    fn installed_packages_are_parsed_leniently() {
-        let dpkg = "dpkg-query: no packages found matching cuda-drivers*\nnvidia-open 580.105.08-1ubuntu1 ii \nnvidia-driver-pinning-570 570-1ubuntu1 rc \nnvidia-dkms-open 580.105.08-1ubuntu1 hi \n";
-        let installed = parse_installed_packages(dpkg);
-        assert_eq!(installed.len(), 2, "{:?}", installed);
-        assert_eq!(installed["nvidia-open"], "580.105.08-1ubuntu1");
-
-        let rpm = "nvidia-open 580.105.08-1.el9 ii\nkmod-nvidia-open-dkms 580.105.08-1.el9 ii\n";
-        assert_eq!(parse_installed_packages(rpm).len(), 2);
-        assert!(parse_installed_packages("package nvidia-open is not installed").is_empty());
-    }
-
-    #[test]
-    fn upstream_versions_drop_epoch_and_revision() {
-        assert_eq!(upstream_version("580.105.08-1ubuntu1"), "580.105.08");
-        assert_eq!(upstream_version("3:580.105.08-1.el9"), "580.105.08");
-        assert_eq!(upstream_version("580.105.08"), "580.105.08");
-    }
-
-    #[test]
-    fn loaded_driver_is_parsed_from_proc() {
-        let open = "NVRM version: NVIDIA UNIX Open Kernel Module for x86_64  580.105.08  Release Build  (dvs-builder@U16-I3-B03-4-3)  Thu Oct 30 2025\nGCC version:  gcc version 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04)\n";
-        assert_eq!(
-            parse_loaded_driver(open),
-            Some(LoadedDriver {
-                version: "580.105.08".to_string(),
-                flavor: KernelModuleFlavor::Open
-            })
-        );
-        let proprietary = "NVRM version: NVIDIA UNIX aarch64 Kernel Module  550.54.14  Thu Feb 22 01:44:30 UTC 2024\n";
-        assert_eq!(
-            parse_loaded_driver(proprietary),
-            Some(LoadedDriver {
-                version: "550.54.14".to_string(),
-                flavor: KernelModuleFlavor::Proprietary
-            })
-        );
-        assert_eq!(
-            parse_loaded_driver("cat: /proc/driver/nvidia/version: No such file or directory"),
-            None
-        );
-    }
-
-    #[test]
-    fn unit_states_are_parsed() {
-        assert_eq!(
-            parse_unit_state("enabled\nactive\n"),
-            UnitState {
-                exists: true,
-                enabled: true,
-                active: true
-            }
-        );
-        assert_eq!(
-            parse_unit_state("disabled\ninactive\n"),
-            UnitState {
-                exists: true,
-                enabled: false,
-                active: false
-            }
-        );
-        assert!(!parse_unit_state("Failed to get unit file state for nvidia-persistenced.service: No such file or directory\ninactive\n").exists);
-        assert!(parse_unit_state("static\nactive").enabled);
-    }
-
-    #[test]
-    fn suse_kernel_headers_follow_the_kernel_variant() {
-        assert_eq!(
-            DriverDistro::Suse.kernel_headers_packages("6.4.0-150600.23.25-default"),
-            vec!["kernel-default-devel=6.4.0-150600.23.25"]
-        );
-        assert_eq!(
-            DriverDistro::Ubuntu.kernel_headers_packages("6.8.0-45-generic"),
-            vec!["linux-headers-6.8.0-45-generic"]
-        );
-    }
-
-    #[test]
-    fn commands_quote_every_value() {
-        assert_eq!(
-            PackageFamily::Apt.installed_packages_command(&["nvidia-open*"]),
-            "'dpkg-query' '-W' '-f=${Package} ${Version} ${db:Status-Abbrev}\\n' 'nvidia-open*'"
-        );
-        assert_eq!(
-            PackageFamily::Dnf.install_command(&["nvidia-open".to_string()], false),
-            "'dnf' '-y' 'install' 'nvidia-open'"
-        );
-        let repository = cuda_repository(&os("ID=ubuntu\nVERSION_ID=\"24.04\""), "x86_64").unwrap();
-        let script = repository.setup_script();
-        assert!(script.contains("'https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb'"), "{}", script);
-        assert!(
-            script.contains("-o \"$tmp/cuda-keyring.deb\""),
-            "{}",
-            script
-        );
-        let repository = cuda_repository(&os("ID=rhel\nVERSION_ID=\"9.4\""), "x86_64").unwrap();
-        assert!(
-            repository
-                .setup_script()
-                .contains("'/etc/yum.repos.d/cuda-rhel9.repo'")
-        );
-    }
 }

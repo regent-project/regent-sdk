@@ -3,6 +3,7 @@ pub mod container;
 pub mod gpu;
 pub mod network;
 pub mod package;
+pub mod shared;
 pub mod shell;
 pub mod system;
 pub mod utilities;

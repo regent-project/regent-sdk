@@ -18,10 +18,7 @@
 //!
 //! // Install Ollama, expose the API on all interfaces, and pull a model
 //! let ollama = OllamaExpectedState::present_with_default_config()
-//!     .with_api_config(OllamaApiConfig {
-//!         host: Some("0.0.0.0:11434".to_string()),
-//!         ..Default::default()
-//!     })
+//!     .with_api_config(OllamaApiConfig::new().with_listening_endpoint("0.0.0.0:11434"))
 //!     .with_models(vec![OllamaModel::present("llama3")]);
 //!
 //! let expected_state = ExpectedState::new()
@@ -63,8 +60,24 @@
 //! running service: writing it restarts the service when it is active, and a
 //! running daemon that does not listen on the expected address yet is
 //! reported as non-compliant until it is restarted.
+//!
+//! Ollama is installed when `command -v ollama` finds it. A missing Ollama is
+//! installed, configured and gets its `Present` models pulled in a single run.
+//!
+//! Models are listed and managed through the API (`ollama list`, `ollama pull`,
+//! `ollama rm`, run with `OLLAMA_HOST` set to the configured `Host`): the
+//! ollama service must be running and reachable, otherwise the assessment is
+//! `NonCompliantFatal`.
+//!
+//! `Absent` follows Ollama's Linux uninstall instructions: the `ollama` unit is
+//! stopped and disabled, then the binary, `/usr/local/lib/ollama`,
+//! `/usr/lib/ollama`, `/usr/share/ollama` (home of the `ollama` user, holding
+//! the downloaded models), the unit file and its override directory are
+//! removed, and the `ollama` user and group are deleted. Models stored in a
+//! custom `ModelsPath` are kept.
 
 use crate::error::RegentError;
+use crate::hosts::handlers::shell_quote;
 use crate::hosts::managed_host::InternalApiCallOutcome;
 use crate::hosts::managed_host::{AssessCompliance, ReachCompliance, Timeout};
 use crate::hosts::properties::{HostProperties, OsKind};
@@ -74,11 +87,14 @@ use crate::state::attribute::HostHandler;
 use crate::state::attribute::Privilege;
 use crate::state::attribute::Remediation;
 use crate::state::attribute::RemediationsList;
+use crate::state::attribute::container::container_spec::quoted_command;
+use crate::state::attribute::shared::{
+    UnitEnablement, download, is_success, make_temp_dir, query, remove_temp_dir, run_step,
+    run_steps, unit_state,
+};
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-
-// ── Enums ─────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
@@ -86,8 +102,6 @@ pub enum OllamaModelState {
     Present,
     Absent,
 }
-
-// ── Sub-structs ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -99,7 +113,6 @@ pub struct OllamaModel {
 }
 
 impl OllamaModel {
-    /// Model which must be pulled
     pub fn present(name: &str) -> OllamaModel {
         OllamaModel {
             name: name.to_string(),
@@ -107,7 +120,6 @@ impl OllamaModel {
         }
     }
 
-    /// Model which must be removed
     pub fn absent(name: &str) -> OllamaModel {
         OllamaModel {
             name: name.to_string(),
@@ -140,32 +152,70 @@ pub struct OllamaApiConfig {
     pub gpu_layers: Option<i32>,
 }
 
-// ── BlockExpectedState ────────────────────────────────────────────────────────
+impl OllamaApiConfig {
+    pub fn new() -> OllamaApiConfig {
+        OllamaApiConfig::default()
+    }
 
-/// Whether Ollama must be installed on the host
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum OllamaState {
-    /// Ollama must be installed (and configured, when `ApiConfig` / `Models` are set)
-    Present,
-    /// Ollama must be removed
-    Absent,
+    /// Address the API listens on, e.g. "0.0.0.0:11434"
+    pub fn with_listening_endpoint(mut self, host: &str) -> Self {
+        self.host = Some(host.to_string());
+        self
+    }
+
+    pub fn with_cors_origins(mut self, origins: &[&str]) -> Self {
+        self.origins = Some(origins.iter().map(|origin| origin.to_string()).collect());
+        self
+    }
+
+    pub fn with_models_path(mut self, models_path: &str) -> Self {
+        self.models_path = Some(models_path.to_string());
+        self
+    }
+
+    /// How long an idle model stays loaded in memory
+    pub fn with_keep_alive(mut self, keep_alive: Duration) -> Self {
+        self.keep_alive = Some(format!("{}ms", keep_alive.as_millis()));
+        self
+    }
+
+    pub fn with_models_kept_loaded_forever(mut self) -> Self {
+        self.keep_alive = Some("-1".to_string());
+        self
+    }
+
+    /// Number of requests each model processes in parallel
+    pub fn with_num_parallel(mut self, num_parallel: u32) -> Self {
+        self.num_parallel = Some(num_parallel);
+        self
+    }
+
+    pub fn with_max_loaded_models(mut self, max_loaded_models: u32) -> Self {
+        self.max_loaded_models = Some(max_loaded_models);
+        self
+    }
+
+    pub fn with_gpu_layers(mut self, gpu_layers: u16) -> Self {
+        self.gpu_layers = Some(gpu_layers.into());
+        self
+    }
+
+    pub fn with_all_gpu_layers(mut self) -> Self {
+        self.gpu_layers = Some(-1);
+        self
+    }
 }
 
-/// Configuration for the Ollama AI inference engine
-///
-/// `ApiConfig` and `Models` are only managed in the `Present` state: an
-/// `Absent` state carrying them is rejected by [`Check::check`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[serde(rename_all = "PascalCase")]
-pub struct OllamaExpectedState {
-    /// Install or remove Ollama
-    state: OllamaState,
-    /// REST API / environment configuration (written to the systemd override file)
-    api_config: Option<OllamaApiConfig>,
-    /// LLM models to manage (pull or remove)
-    models: Option<Vec<OllamaModel>>,
+pub enum OllamaExpectedState {
+    #[serde(rename_all = "PascalCase")]
+    Present {
+        /// Written to the systemd override file
+        api_config: OllamaApiConfig,
+        models: Vec<OllamaModel>,
+    },
+    Absent,
 }
 
 impl Timeout for OllamaExpectedState {
@@ -176,55 +226,163 @@ impl Timeout for OllamaExpectedState {
 
 impl OllamaExpectedState {
     pub fn absent() -> OllamaExpectedState {
-        OllamaExpectedState {
-            state: OllamaState::Absent,
-            api_config: None,
-            models: None,
-        }
+        OllamaExpectedState::Absent
     }
 
     pub fn present_with_default_config() -> OllamaExpectedState {
-        OllamaExpectedState {
-            state: OllamaState::Present,
-            api_config: None,
-            models: None,
+        OllamaExpectedState::Present {
+            api_config: OllamaApiConfig::new(),
+            models: Vec::new(),
         }
     }
 
     pub fn present_with_config(api_config: OllamaApiConfig) -> OllamaExpectedState {
-        OllamaExpectedState::present_with_default_config().with_api_config(api_config)
+        OllamaExpectedState::Present {
+            api_config,
+            models: Vec::new(),
+        }
     }
 
     pub fn present_with_models(models: Vec<OllamaModel>) -> OllamaExpectedState {
-        OllamaExpectedState::present_with_default_config().with_models(models)
+        OllamaExpectedState::Present {
+            api_config: OllamaApiConfig::new(),
+            models,
+        }
     }
 
     pub fn present_with_config_and_models(
         api_config: OllamaApiConfig,
         models: Vec<OllamaModel>,
     ) -> OllamaExpectedState {
-        OllamaExpectedState::present_with_config(api_config).with_models(models)
+        OllamaExpectedState::Present { api_config, models }
     }
 
-    pub fn with_api_config(mut self, api_config: OllamaApiConfig) -> Self {
-        self.api_config = Some(api_config);
-        self
+    fn api_host(&self) -> Option<String> {
+        match self {
+            Self::Absent => None,
+            Self::Present {
+                api_config,
+                models: _models,
+            } => api_config.host.clone(),
+        }
     }
 
-    pub fn with_models(mut self, models: Vec<OllamaModel>) -> Self {
-        self.models = Some(models);
-        self
+    /// Ollama is missing: install it, configure it and pull the `Present`
+    /// models in the same run (`Absent` models can't exist yet)
+    fn installation_api_calls(&self) -> Vec<OllamaModuleInternalApiCall> {
+        let mut api_calls = vec![OllamaModuleInternalApiCall::Install];
+
+        if let OllamaExpectedState::Present { api_config, models } = self {
+            api_calls.push(OllamaModuleInternalApiCall::WriteApiConfig {
+                content: build_api_config_content(api_config),
+            });
+
+            api_calls.extend(
+                models
+                    .iter()
+                    .filter(|model| model.state == OllamaModelState::Present)
+                    .map(|model| OllamaModuleInternalApiCall::PullModel {
+                        name: normalize_model_name(&model.name),
+                        host: self.api_host(),
+                    }),
+            );
+        }
+        api_calls
+    }
+
+    /// Ollama is installed: the API calls bringing its configuration and
+    /// models to the expected state, or why models can't be managed
+    async fn configuration_api_calls<Handler: HostHandler>(
+        &self,
+        host_handler: &mut Handler,
+    ) -> Result<Result<Vec<OllamaModuleInternalApiCall>, String>, RegentError> {
+        let mut api_calls = Vec::new();
+        // Models are listed before the remediations run: through the address
+        // the daemon listens on now, which differs from the configured one
+        // while the new configuration is not applied.
+        let mut current_host = self.api_host();
+
+        if let OllamaExpectedState::Present { api_config, models } = self {
+            let expected_content = build_api_config_content(api_config);
+            let current = query(
+                host_handler,
+                &quoted_command(&["cat", OVERRIDE_FILE]),
+                &Privilege::None,
+            )
+            .await?;
+            let current_content = if current.return_code == 0 {
+                current.stdout
+            } else {
+                String::new()
+            };
+
+            if current_content != expected_content {
+                current_host = host_in_override(&current_content);
+                api_calls.push(OllamaModuleInternalApiCall::WriteApiConfig {
+                    content: expected_content,
+                });
+            } else if let Some((address, port)) =
+                api_config.host.as_deref().and_then(api_listen_address)
+            {
+                // The override file matches, but the running daemon may
+                // predate it: it must listen on the expected address.
+                // A stopped service is left alone: the Service
+                // attribute starts it with the override in place.
+                if unit_state(host_handler, OLLAMA_UNIT, &Privilege::None)
+                    .await?
+                    .active
+                {
+                    let sockets = query(
+                        host_handler,
+                        &quoted_command(&["ss", "-tln"]),
+                        &Privilege::None,
+                    )
+                    .await?;
+                    if sockets.return_code == 0 && !listens_on(&sockets.stdout, &address, port) {
+                        // Started without the override: on Ollama's default address
+                        current_host = None;
+                        api_calls.push(OllamaModuleInternalApiCall::RestartService);
+                    }
+                }
+            }
+
+            let list_command = ollama_command(current_host.as_deref(), &["list"]);
+            let listing = query(host_handler, &list_command, &Privilege::None).await?;
+            if listing.return_code != 0 {
+                return Ok(Err(format!(
+                    "Unable to list the Ollama models, {} failed (RC {}): {}{}. The ollama service must be running and reachable to manage models.",
+                    list_command, listing.return_code, listing.stdout, listing.stderr
+                )));
+            }
+            let installed_models = parse_ollama_list(&listing.stdout);
+
+            for model in models {
+                let name = normalize_model_name(&model.name);
+                let is_installed = installed_models.contains(&name);
+                match model.state {
+                    OllamaModelState::Present if !is_installed => {
+                        api_calls.push(OllamaModuleInternalApiCall::PullModel {
+                            name,
+                            host: self.api_host(),
+                        });
+                    }
+                    OllamaModelState::Absent if is_installed => {
+                        api_calls.push(OllamaModuleInternalApiCall::RemoveModel {
+                            name,
+                            host: self.api_host(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(Ok(api_calls))
     }
 }
 
 impl Check for OllamaExpectedState {
     fn check(&self) -> Result<(), RegentError> {
-        if self.state == OllamaState::Absent && (self.api_config.is_some() || self.models.is_some())
-        {
-            return Err(RegentError::IncoherentExpectedState(
-                "Ollama Absent state cannot carry an ApiConfig or Models".to_string(),
-            ));
-        }
         Ok(())
     }
 
@@ -232,17 +390,19 @@ impl Check for OllamaExpectedState {
         &self,
         host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
-        match host_properties.os_kind() {
-            OsKind::Linux(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but Ollama Attribute is only supported for Linux",
-                incompatible_os_kind
-            ))),
-        }
+        check_linux_host(host_properties)
     }
 }
 
-// ── assess_compliance ─────────────────────────────────────────────────────────
+fn check_linux_host(host_properties: &HostProperties) -> Result<(), RegentError> {
+    match host_properties.os_kind() {
+        OsKind::Linux(_) => Ok(()),
+        incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
+            "Host is {:?} but Ollama Attribute is only supported for Linux",
+            incompatible_os_kind
+        ))),
+    }
+}
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
     async fn assess_compliance(
@@ -256,140 +416,61 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
             self.check_host_compatibility(props)?;
         }
 
-        let mut remediations: Vec<Remediation> = Vec::new();
-
-        // ── Step 1: check whether ollama is installed ─────────────────────────
-        let ollama_is_installed = host_handler
-            .run_command(
-                "test -f /usr/local/bin/ollama || which ollama 2>/dev/null",
-                &Privilege::None,
-            )
-            .await
-            .unwrap()
-            .return_code
-            == 0;
-
-        match &self.state {
-            OllamaState::Absent => {
-                if ollama_is_installed {
-                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                        OllamaModuleInternalApiCall::Uninstall,
-                        privilege.clone(),
-                    )));
-                }
+        let binary_path = locate_ollama(host_handler).await?;
+        let api_calls = match (&self, binary_path) {
+            (OllamaExpectedState::Absent, None) => Vec::new(),
+            (OllamaExpectedState::Absent, Some(binary_path)) => {
+                vec![OllamaModuleInternalApiCall::Uninstall { binary_path }]
             }
-            OllamaState::Present => {
-                if !ollama_is_installed {
-                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                        OllamaModuleInternalApiCall::Install,
-                        privilege.clone(),
-                    )));
-                } else {
-                    // ***** Configuration *****
-                    if let Some(api_config) = &self.api_config {
-                        let expected_content = build_api_config_content(api_config);
-
-                        let current_result = host_handler
-                            .run_command(
-                                "cat /etc/systemd/system/ollama.service.d/override.conf 2>/dev/null",
-                                &Privilege::None,
-                            )
-                            .await
-                            .unwrap();
-
-                        let current_content = if current_result.return_code == 0 {
-                            current_result.stdout.clone()
-                        } else {
-                            String::new()
-                        };
-
-                        if current_content != expected_content {
-                            remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                                OllamaModuleInternalApiCall::WriteApiConfig {
-                                    content: expected_content,
-                                },
-                                privilege.clone(),
-                            )));
-                        } else if let Some((address, port)) =
-                            api_config.host.as_deref().and_then(api_listen_address)
-                        {
-                            // The override file matches, but the running daemon may
-                            // predate it: it must listen on the expected address.
-                            // A stopped service is left alone: the Service
-                            // attribute starts it with the override in place.
-                            let service_is_active = host_handler
-                                .run_command("systemctl is-active --quiet ollama", &Privilege::None)
-                                .await
-                                .unwrap()
-                                .return_code
-                                == 0;
-                            if service_is_active {
-                                let sockets = host_handler
-                                    .run_command("ss -tln", &Privilege::None)
-                                    .await
-                                    .unwrap();
-                                if sockets.return_code == 0
-                                    && !listens_on(&sockets.stdout, &address, port)
-                                {
-                                    remediations.push(Remediation::Ollama(OllamaApiCall::from(
-                                        OllamaModuleInternalApiCall::RestartService,
-                                        privilege.clone(),
-                                    )));
-                                }
-                            }
-                        }
-                    }
-
-                    // ***** Models *****
-                    if let Some(models) = &self.models {
-                        let installed_models = installed_models(host_handler).await;
-
-                        for model in models {
-                            let normalized_name = normalize_model_name(&model.name);
-
-                            match model.state {
-                                OllamaModelState::Present => {
-                                    if !installed_models.contains(&normalized_name) {
-                                        remediations.push(Remediation::Ollama(
-                                            OllamaApiCall::from(
-                                                OllamaModuleInternalApiCall::PullModel {
-                                                    name: normalized_name,
-                                                },
-                                                privilege.clone(),
-                                            ),
-                                        ));
-                                    }
-                                }
-                                OllamaModelState::Absent => {
-                                    if installed_models.contains(&normalized_name) {
-                                        remediations.push(Remediation::Ollama(
-                                            OllamaApiCall::from(
-                                                OllamaModuleInternalApiCall::RemoveModel {
-                                                    name: normalized_name,
-                                                },
-                                                privilege.clone(),
-                                            ),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
+            (
+                OllamaExpectedState::Present {
+                    api_config: _api_config,
+                    models: _models,
+                },
+                None,
+            ) => self.installation_api_calls(),
+            (
+                OllamaExpectedState::Present {
+                    api_config: _api_config,
+                    models: _models,
+                },
+                Some(_),
+            ) => match self.configuration_api_calls(host_handler).await? {
+                Ok(api_calls) => api_calls,
+                Err(reason) => {
+                    return Ok(AttributeComplianceAssessment::NonCompliantFatal(reason));
                 }
-            }
-        }
+            },
+        };
 
-        if remediations.is_empty() {
-            Ok(AttributeComplianceAssessment::Compliant)
-        } else {
-            Ok(AttributeComplianceAssessment::NonCompliant(
-                RemediationsList::from(remediations)?,
-            ))
+        if api_calls.is_empty() {
+            return Ok(AttributeComplianceAssessment::Compliant);
         }
+        let remediations = api_calls
+            .into_iter()
+            .map(|api_call| Remediation::Ollama(OllamaApiCall::from(api_call, privilege.clone())))
+            .collect();
+        Ok(AttributeComplianceAssessment::NonCompliant(
+            RemediationsList::from(remediations)?,
+        ))
     }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+const OLLAMA_UNIT: &str = "ollama";
+const UNIT_FILE: &str = "/etc/systemd/system/ollama.service";
+const OVERRIDE_DIR: &str = "/etc/systemd/system/ollama.service.d";
+const OVERRIDE_FILE: &str = "/etc/systemd/system/ollama.service.d/override.conf";
+const INSTALL_SCRIPT_URL: &str = "https://ollama.com/install.sh";
+/// Where the install script puts the binary, whatever `command -v` finds first
+const WELL_KNOWN_BINARIES: [&str; 2] = ["/usr/local/bin/ollama", "/usr/bin/ollama"];
+const INSTALLATION_DIRECTORIES: [&str; 4] = [
+    "/usr/local/lib/ollama",
+    "/usr/lib/ollama",
+    "/usr/share/ollama",
+    OVERRIDE_DIR,
+];
 
 /// Appends `:latest` if the model name contains no `:`.
 fn normalize_model_name(name: &str) -> String {
@@ -400,25 +481,60 @@ fn normalize_model_name(name: &str) -> String {
     }
 }
 
-/// Model names currently present on the host, first column of `ollama list`
-/// (header skipped); empty when ollama is not usable.
-async fn installed_models<Handler: HostHandler>(host_handler: &mut Handler) -> Vec<String> {
-    let Ok(result) = host_handler
-        .run_command("ollama list 2>/dev/null", &Privilege::None)
-        .await
-    else {
-        return Vec::new();
-    };
-    if result.return_code != 0 {
-        return Vec::new();
+/// `ollama <args>` talking to the API at `host` (Ollama's default address when `None`)
+fn ollama_command(host: Option<&str>, args: &[&str]) -> String {
+    let mut words = vec!["ollama"];
+    words.extend(args);
+    let command = quoted_command(&words);
+    match host {
+        Some(host) => format!("OLLAMA_HOST={} {}", shell_quote(host), command),
+        None => command,
     }
-    result
-        .stdout
+}
+
+fn locate_command() -> String {
+    quoted_command(&["command", "-v", "ollama"])
+}
+
+/// Path printed by `command -v ollama`. With sudo, stderr is folded into
+/// stdout: only the last line holding an absolute path counts.
+fn parse_command_v(return_code: i64, stdout: &str) -> Option<String> {
+    if return_code != 0 {
+        return None;
+    }
+    stdout
+        .lines()
+        .map(str::trim)
+        .rfind(|line| line.starts_with('/'))
+        .map(str::to_string)
+}
+
+/// Path of the `ollama` binary, `None` when Ollama is not installed
+async fn locate_ollama<Handler: HostHandler>(
+    host_handler: &mut Handler,
+) -> Result<Option<String>, RegentError> {
+    let result = query(host_handler, &locate_command(), &Privilege::None).await?;
+    Ok(parse_command_v(result.return_code, &result.stdout))
+}
+
+/// Model names, first column of `ollama list` (header skipped)
+fn parse_ollama_list(output: &str) -> Vec<String> {
+    output
         .lines()
         .skip(1)
         .filter_map(|line| line.split_whitespace().next())
         .map(str::to_string)
         .collect()
+}
+
+/// `OLLAMA_HOST` set by an override file written by [`build_api_config_content`]
+fn host_in_override(content: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("Environment=\"OLLAMA_HOST=")
+            .and_then(|rest| rest.strip_suffix('"'))
+            .map(str::to_string)
+    })
 }
 
 /// Builds the content of `/etc/systemd/system/ollama.service.d/override.conf`
@@ -458,8 +574,8 @@ pub fn build_api_config_content(api: &OllamaApiConfig) -> String {
         lines.push(format!("Environment=\"OLLAMA_GPU_LAYERS={}\"", gpu_layers));
     }
 
-    // Terminate with a trailing newline, matching the file format produced by
-    // the WriteApiConfig command.
+    // The trailing newline is part of the file written by WriteApiConfig: the
+    // assessment compares the whole file content.
     format!("{}\n", lines.join("\n"))
 }
 
@@ -493,7 +609,6 @@ fn listens_on(ss_output: &str, address: &str, port: u16) -> bool {
     })
 }
 
-/// Whether an `ss` local address column is a wildcard bind on `port`.
 fn is_wildcard_bind(local: &str, port: u16) -> bool {
     match local.strip_suffix(&format!(":{}", port)) {
         Some(address) => matches!(address, "0.0.0.0" | "*" | "::" | "[::]"),
@@ -501,12 +616,167 @@ fn is_wildcard_bind(local: &str, port: u16) -> bool {
     }
 }
 
-/// Escapes a string for use as the argument to `printf`: replaces `\` with `\\`,
-/// `%` with `%%`, and newlines with `\n`.
-fn escape_for_printf(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('%', "%%")
-        .replace('\n', "\\n")
+fn systemctl(args: &[&str]) -> String {
+    let mut words = vec!["systemctl"];
+    words.extend(args);
+    quoted_command(&words)
+}
+
+/// Write the override file and make systemd read it
+fn write_override_commands(content: &str) -> Vec<String> {
+    vec![
+        quoted_command(&["mkdir", "-p", OVERRIDE_DIR]),
+        format!(
+            "printf '%s' {} > {}",
+            shell_quote(content),
+            shell_quote(OVERRIDE_FILE)
+        ),
+        systemctl(&["daemon-reload"]),
+    ]
+}
+
+/// Remove the files of an installation whose binary was found at `binary_path`
+fn removal_commands(binary_path: &str) -> Vec<String> {
+    let mut binaries = vec![binary_path];
+    binaries.extend(
+        WELL_KNOWN_BINARIES
+            .iter()
+            .filter(|path| **path != binary_path),
+    );
+    let mut remove_binaries = vec!["rm", "-f"];
+    remove_binaries.extend(binaries);
+    let mut remove_directories = vec!["rm", "-rf"];
+    remove_directories.extend(INSTALLATION_DIRECTORIES);
+    vec![
+        quoted_command(&remove_binaries),
+        quoted_command(&remove_directories),
+        quoted_command(&["rm", "-f", UNIT_FILE]),
+        systemctl(&["daemon-reload"]),
+    ]
+}
+
+/// The platform helpers report a command that could not be run as an
+/// assessment error: during a remediation, it is a failure to run it.
+fn as_remediation_error(error: RegentError) -> RegentError {
+    match error {
+        RegentError::FailedDryRunEvaluation(details) => RegentError::FailureToRunCommand(details),
+        other => other,
+    }
+}
+
+async fn install<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    let tmp = match make_temp_dir(host_handler, privilege)
+        .await
+        .map_err(as_remediation_error)?
+    {
+        Ok(tmp) => tmp,
+        Err(failure) => return Ok(failure),
+    };
+    let script = format!("{}/install.sh", tmp);
+    let mut outcome = download(host_handler, INSTALL_SCRIPT_URL, &script, privilege).await;
+    if is_success(&outcome) {
+        outcome = run_step(host_handler, &quoted_command(&["sh", &script]), privilege).await;
+    }
+    remove_temp_dir(host_handler, &tmp, privilege).await;
+    if !is_success(&outcome) {
+        return Ok(outcome);
+    }
+
+    match locate_ollama(host_handler)
+        .await
+        .map_err(as_remediation_error)?
+    {
+        Some(_) => Ok(outcome),
+        None => Ok(InternalApiCallOutcome::Failure(format!(
+            "The Ollama install script succeeded but {} does not find ollama",
+            locate_command()
+        ))),
+    }
+}
+
+async fn write_api_config<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    content: &str,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    let outcome = run_steps(host_handler, &write_override_commands(content), privilege).await;
+    if !is_success(&outcome) {
+        return Ok(outcome);
+    }
+    // A stopped service is started later (Service attribute) with the
+    // override in place.
+    let unit = unit_state(host_handler, OLLAMA_UNIT, privilege)
+        .await
+        .map_err(as_remediation_error)?;
+    if unit.active {
+        return Ok(run_step(
+            host_handler,
+            &systemctl(&["restart", OLLAMA_UNIT]),
+            privilege,
+        )
+        .await);
+    }
+    Ok(outcome)
+}
+
+/// Following https://docs.ollama.com/linux#uninstall
+async fn uninstall<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    binary_path: &str,
+    privilege: &Privilege,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    let unit = unit_state(host_handler, OLLAMA_UNIT, privilege)
+        .await
+        .map_err(as_remediation_error)?;
+    let mut steps = Vec::new();
+    if unit.active {
+        steps.push(systemctl(&["stop", OLLAMA_UNIT]));
+    }
+    if unit.enablement == UnitEnablement::Enabled {
+        steps.push(systemctl(&["disable", OLLAMA_UNIT]));
+    }
+    steps.extend(removal_commands(binary_path));
+    let outcome = run_steps(host_handler, &steps, privilege).await;
+    if !is_success(&outcome) {
+        return Ok(outcome);
+    }
+
+    // userdel may remove the group too: the group is looked up afterwards
+    let account_removals: [(&[&str], &[&str]); 2] = [
+        (&["id", "ollama"], &["userdel", "ollama"]),
+        (&["getent", "group", "ollama"], &["groupdel", "ollama"]),
+    ];
+    for (lookup, removal) in account_removals {
+        let lookup = quoted_command(lookup);
+        let exists = host_handler
+            .run_command(&lookup, privilege)
+            .await
+            .map_err(|e| {
+                RegentError::FailureToRunCommand(format!("Unable to run {:?}: {:?}", lookup, e))
+            })?
+            .return_code
+            == 0;
+        if exists {
+            let outcome = run_step(host_handler, &quoted_command(removal), privilege).await;
+            if !is_success(&outcome) {
+                return Ok(outcome);
+            }
+        }
+    }
+
+    match locate_ollama(host_handler)
+        .await
+        .map_err(as_remediation_error)?
+    {
+        Some(path) => Ok(InternalApiCallOutcome::Failure(format!(
+            "ollama is still found at {} after the uninstallation",
+            path
+        ))),
+        None => Ok(outcome),
+    }
 }
 
 // ── ApiCall variants ──────────────────────────────────────────────────────────
@@ -517,15 +787,22 @@ pub enum OllamaModuleInternalApiCall {
     /// Install Ollama using the official install script
     Install,
     /// Uninstall Ollama and clean up all files
-    Uninstall,
-    /// Pull a model from the Ollama registry
+    Uninstall {
+        /// Found by `command -v ollama` during the assessment
+        binary_path: String,
+    },
     PullModel {
         name: String,
+        /// Address of the API (`OLLAMA_HOST`), Ollama's default when `None`
+        #[serde(default)]
+        host: Option<String>,
     },
     RemoveModel {
         name: String,
+        /// Address of the API (`OLLAMA_HOST`), Ollama's default when `None`
+        #[serde(default)]
+        host: Option<String>,
     },
-    /// Write API configuration to systemd override file
     WriteApiConfig {
         content: String,
     },
@@ -537,11 +814,11 @@ impl std::fmt::Display for OllamaModuleInternalApiCall {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OllamaModuleInternalApiCall::Install => write!(f, "install ollama"),
-            OllamaModuleInternalApiCall::Uninstall => write!(f, "uninstall ollama"),
-            OllamaModuleInternalApiCall::PullModel { name } => {
+            OllamaModuleInternalApiCall::Uninstall { .. } => write!(f, "uninstall ollama"),
+            OllamaModuleInternalApiCall::PullModel { name, .. } => {
                 write!(f, "pull model {}", name)
             }
-            OllamaModuleInternalApiCall::RemoveModel { name } => {
+            OllamaModuleInternalApiCall::RemoveModel { name, .. } => {
                 write!(f, "remove model {}", name)
             }
             OllamaModuleInternalApiCall::WriteApiConfig { .. } => {
@@ -564,11 +841,13 @@ impl OllamaApiCall {
     pub fn display(&self) -> String {
         match &self.api_call {
             OllamaModuleInternalApiCall::Install => "Install ollama".to_string(),
-            OllamaModuleInternalApiCall::Uninstall => "Uninstall ollama".to_string(),
-            OllamaModuleInternalApiCall::PullModel { name } => {
+            OllamaModuleInternalApiCall::Uninstall { binary_path } => {
+                format!("Uninstall ollama ({})", binary_path)
+            }
+            OllamaModuleInternalApiCall::PullModel { name, .. } => {
                 format!("Pull model {}", name)
             }
-            OllamaModuleInternalApiCall::RemoveModel { name } => {
+            OllamaModuleInternalApiCall::RemoveModel { name, .. } => {
                 format!("Remove model {}", name)
             }
             OllamaModuleInternalApiCall::WriteApiConfig { .. } => {
@@ -597,54 +876,7 @@ impl Check for OllamaApiCall {
         &self,
         host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
-        match host_properties.os_kind() {
-            OsKind::Linux(_) | OsKind::MacOs(_) => Ok(()),
-            incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but Ollama is only supported on Linux and macOS",
-                incompatible_os_kind
-            ))),
-        }
-    }
-}
-
-/// Builds the shell command executed for an [`OllamaModuleInternalApiCall`].
-fn ollama_api_call_command(api_call: &OllamaModuleInternalApiCall) -> String {
-    match api_call {
-        OllamaModuleInternalApiCall::Install => concat!(
-            "curl -fsSL -o /tmp/regent-ollama-install.sh https://ollama.com/install.sh && ",
-            "sh /tmp/regent-ollama-install.sh"
-        )
-        .to_string(),
-        OllamaModuleInternalApiCall::Uninstall => concat!(
-            "systemctl stop ollama 2>/dev/null; ",
-            "systemctl disable ollama 2>/dev/null; ",
-            "rm -f /usr/local/bin/ollama /usr/bin/ollama; ",
-            "rm -f /etc/systemd/system/ollama.service; ",
-            "systemctl daemon-reload 2>/dev/null; ",
-            "rm -rf /usr/share/ollama"
-        )
-        .to_string(),
-        OllamaModuleInternalApiCall::PullModel { name } => {
-            format!("ollama pull {}", name)
-        }
-        OllamaModuleInternalApiCall::RemoveModel { name } => {
-            format!("ollama rm {}", name)
-        }
-        OllamaModuleInternalApiCall::WriteApiConfig { content } => {
-            let escaped = escape_for_printf(content);
-            // Restart only when the service is active: a stopped service is
-            // started later (Service attribute) with the override in place.
-            format!(
-                concat!(
-                    "mkdir -p /etc/systemd/system/ollama.service.d && ",
-                    "printf '{}' > /etc/systemd/system/ollama.service.d/override.conf; ",
-                    "systemctl daemon-reload; ",
-                    "if systemctl is-active --quiet ollama; then systemctl restart ollama; fi"
-                ),
-                escaped
-            )
-        }
-        OllamaModuleInternalApiCall::RestartService => "systemctl restart ollama".to_string(),
+        check_linux_host(host_properties)
     }
 }
 
@@ -659,26 +891,36 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
             self.check_host_compatibility(props)?;
         }
 
-        let cmd = ollama_api_call_command(&self.api_call);
-
-        let result = host_handler
-            .run_command(&cmd, &self.privilege)
-            .await
-            .unwrap();
-
-        if result.return_code == 0 {
-            Ok(InternalApiCallOutcome::Success(None))
-        } else {
-            Ok(InternalApiCallOutcome::Failure(format!(
-                "RC: {}, STDOUT: {}, STDERR: {}",
-                result.return_code, result.stdout, result.stderr
-            )))
+        let privilege = &self.privilege;
+        match &self.api_call {
+            OllamaModuleInternalApiCall::Install => install(host_handler, privilege).await,
+            OllamaModuleInternalApiCall::Uninstall { binary_path } => {
+                uninstall(host_handler, binary_path, privilege).await
+            }
+            OllamaModuleInternalApiCall::WriteApiConfig { content } => {
+                write_api_config(host_handler, content, privilege).await
+            }
+            OllamaModuleInternalApiCall::PullModel { name, host } => Ok(run_step(
+                host_handler,
+                &ollama_command(host.as_deref(), &["pull", name]),
+                privilege,
+            )
+            .await),
+            OllamaModuleInternalApiCall::RemoveModel { name, host } => Ok(run_step(
+                host_handler,
+                &ollama_command(host.as_deref(), &["rm", name]),
+                privilege,
+            )
+            .await),
+            OllamaModuleInternalApiCall::RestartService => Ok(run_step(
+                host_handler,
+                &systemctl(&["restart", OLLAMA_UNIT]),
+                privilege,
+            )
+            .await),
         }
     }
 }
-
-// ── Tests ─────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -703,6 +945,82 @@ mod tests {
     }
 
     #[test]
+    fn scratch_probe_yaml_format() {
+        let present = OllamaExpectedState::present_with_config_and_models(
+            OllamaApiConfig::new().with_listening_endpoint("0.0.0.0:11434"),
+            vec![OllamaModel::present("llama3")],
+        );
+        println!(
+            "=== serialized present ===\n{}",
+            yaml_serde::to_string(&present).unwrap()
+        );
+        println!(
+            "=== serialized absent ===\n{}",
+            yaml_serde::to_string(&OllamaExpectedState::absent()).unwrap()
+        );
+
+        let candidates = [
+            (
+                "externally_tagged_map",
+                "---\nPresent:\n  ApiConfig:\n    Host: '0.0.0.0:11434'\n  Models:\n    - Name: llama3\n      State: Present\n",
+            ),
+            ("plain_absent", "---\nAbsent\n"),
+            (
+                "old_struct_format",
+                "---\nState: Present\nApiConfig:\n  Host: '0.0.0.0:11434'\nModels:\n  - Name: llama3\n    State: Present\n",
+            ),
+        ];
+        for (label, raw) in candidates {
+            match yaml_serde::from_str::<OllamaExpectedState>(raw) {
+                Ok(value) => println!("{label}: OK -> {value:?}"),
+                Err(error) => println!("{label}: ERR -> {error}"),
+            }
+        }
+
+        let envelope_candidates = [
+            (
+                "nested_externally_tagged",
+                "---\nName: test\nPrivilege: !WithSudo\nDetail: !Ollama\n  Present:\n    ApiConfig:\n      Host: '0.0.0.0:11434'\n    Models:\n      - Name: llama3\n        State: Present\n",
+            ),
+            (
+                "nested_absent_scalar",
+                "---\nName: test\nPrivilege: !WithSudo\nDetail: !Ollama Absent\n",
+            ),
+            (
+                "nested_absent_block",
+                "---\nName: test\nPrivilege: !WithSudo\nDetail: !Ollama\n  Absent\n",
+            ),
+        ];
+        for (label, raw) in envelope_candidates {
+            match yaml_serde::from_str::<Attribute>(raw) {
+                Ok(value) => println!("{label}: OK -> {value:?}"),
+                Err(error) => println!("{label}: ERR -> {error}"),
+            }
+        }
+
+        let full = "\
+Attributes:
+  - Name: Ollama must be installed with qwen2.5:1.5b
+    Privilege: !WithSudo
+    Timeout: 30m
+    Detail: !Ollama
+      Present:
+        ApiConfig:
+          Host: '0.0.0.0:11434'
+        Models:
+          - Name: qwen2.5:1.5b
+            State: Present
+";
+        match crate::state::ExpectedState::from_raw_yaml(full) {
+            Ok(value) => println!(
+                "full_expected_state: OK -> {} attributes",
+                value.attributes.len()
+            ),
+            Err(error) => println!("full_expected_state: ERR -> {error}"),
+        }
+    }
+
+    #[test]
     fn parsing_ollama_module_block_from_yaml_str() {
         let raw = "---
 State: Present
@@ -721,7 +1039,7 @@ Models:
     State: Absent
 ";
         let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert_eq!(block.state, OllamaState::Present);
+        assert_eq!(block.state, OllamaExpectedState::Present);
         assert!(block.check().is_ok());
 
         let api_config = block.api_config.as_ref().unwrap();
@@ -805,25 +1123,86 @@ Attributes:
 
     #[test]
     fn model_name_normalization() {
-        // Name without tag → :latest appended.
         assert_eq!(normalize_model_name("llama3"), "llama3:latest");
-        // Name with tag → unchanged.
         assert_eq!(normalize_model_name("mistral:7b"), "mistral:7b");
         assert_eq!(normalize_model_name("codellama:13b"), "codellama:13b");
     }
 
     #[test]
-    fn escape_for_printf_handles_special_chars() {
-        let input = "[Service]\nEnvironment=\"OLLAMA_HOST=0.0.0.0:11434\"\n";
-        let escaped = escape_for_printf(input);
-        assert!(!escaped.contains('\n'));
-        assert!(escaped.contains("\\n"));
-        // No bare % in the input, but test % escaping.
-        let with_percent = "foo%bar";
-        assert_eq!(escape_for_printf(with_percent), "foo%%bar");
-        // Backslash escaping.
-        let with_backslash = "foo\\bar";
-        assert_eq!(escape_for_printf(with_backslash), "foo\\\\bar");
+    fn command_v_output_is_parsed() {
+        assert_eq!(
+            parse_command_v(0, "/usr/local/bin/ollama\n"),
+            Some("/usr/local/bin/ollama".to_string())
+        );
+        assert_eq!(
+            parse_command_v(0, "sudo: some warning\n/usr/bin/ollama\n"),
+            Some("/usr/bin/ollama".to_string())
+        );
+        assert_eq!(parse_command_v(1, ""), None);
+        assert_eq!(parse_command_v(1, "/usr/bin/ollama\n"), None);
+        // An alias or a function is not an installed binary
+        assert_eq!(parse_command_v(0, "ollama\n"), None);
+        assert_eq!(locate_command(), "'command' '-v' 'ollama'");
+    }
+
+    #[test]
+    fn ollama_list_output_is_parsed() {
+        let output = "\
+NAME            ID              SIZE      MODIFIED
+llama3:latest   365c0bd3c000    4.7 GB    2 days ago
+qwen2.5:1.5b    65ec06548149    986 MB    3 weeks ago
+";
+        assert_eq!(
+            parse_ollama_list(output),
+            vec!["llama3:latest", "qwen2.5:1.5b"]
+        );
+        assert!(parse_ollama_list("NAME ID SIZE MODIFIED\n").is_empty());
+    }
+
+    #[test]
+    fn host_is_read_from_the_override_file() {
+        let content = build_api_config_content(
+            &OllamaApiConfig::new()
+                .with_listening_endpoint("0.0.0.0:11500")
+                .with_cors_origins(&["*"]),
+        );
+        assert_eq!(
+            host_in_override(&content),
+            Some("0.0.0.0:11500".to_string())
+        );
+        assert_eq!(
+            host_in_override(&build_api_config_content(&OllamaApiConfig::new())),
+            None
+        );
+        assert_eq!(host_in_override(""), None);
+    }
+
+    #[test]
+    fn missing_ollama_is_installed_configured_and_gets_its_models_in_one_run() {
+        let expected_state = OllamaExpectedState::present_with_config_and_models(
+            OllamaApiConfig::new().with_listening_endpoint("0.0.0.0:11500"),
+            vec![
+                OllamaModel::present("llama3"),
+                OllamaModel::absent("mistral"),
+            ],
+        );
+        assert_eq!(
+            expected_state.installation_api_calls(),
+            vec![
+                OllamaModuleInternalApiCall::Install,
+                OllamaModuleInternalApiCall::WriteApiConfig {
+                    content: "[Service]\nEnvironment=\"OLLAMA_HOST=0.0.0.0:11500\"\n".to_string()
+                },
+                OllamaModuleInternalApiCall::PullModel {
+                    name: "llama3:latest".to_string(),
+                    host: Some("0.0.0.0:11500".to_string()),
+                },
+            ]
+        );
+        assert_eq!(
+            OllamaExpectedState::present_with_default_config().installation_api_calls(),
+            vec![OllamaModuleInternalApiCall::Install]
+        );
     }
 
     #[test]
@@ -842,7 +1221,6 @@ Attributes:
         );
         // Hostnames are not checked live.
         assert_eq!(api_listen_address("localhost:11434"), None);
-        // Missing or invalid port.
         assert_eq!(api_listen_address("0.0.0.0"), None);
         assert_eq!(api_listen_address("0.0.0.0:notaport"), None);
         assert_eq!(api_listen_address("0.0.0.0:99999"), None);
@@ -856,14 +1234,12 @@ LISTEN 0      4096   127.0.0.1:11434    0.0.0.0:*
 LISTEN 0      128    0.0.0.0:22         0.0.0.0:*
 LISTEN 0      128    [::]:22            [::]:*
 ";
-        // Exact match.
         assert!(listens_on(ss, "127.0.0.1", 11434));
         // No match: bound to loopback only.
         assert!(!listens_on(ss, "0.0.0.0", 11434));
         // Wildcard expectation satisfied by the other wildcard forms.
         assert!(listens_on(ss, "0.0.0.0", 22));
         assert!(listens_on(ss, "::", 22));
-        // Port not bound at all.
         assert!(!listens_on(ss, "0.0.0.0", 8080));
         // Header line is never a match.
         assert!(!listens_on("State Recv-Q Send-Q Local Peer\n", "State", 0));
@@ -875,47 +1251,53 @@ LISTEN 0      128    [::]:22            [::]:*
     }
 
     #[test]
-    fn api_call_commands_are_built_as_expected() {
-        // WriteApiConfig writes the override, reloads systemd, and restarts the
-        // service only when it is active.
-        let cmd = ollama_api_call_command(&OllamaModuleInternalApiCall::WriteApiConfig {
-            content: build_api_config_content(&OllamaApiConfig {
-                host: Some("0.0.0.0:11434".to_string()),
-                ..Default::default()
-            }),
-        });
-        assert!(cmd.contains("printf '[Service]"));
-        assert!(cmd.contains("> /etc/systemd/system/ollama.service.d/override.conf"));
-        assert!(cmd.contains("systemctl daemon-reload"));
-        assert!(
-            cmd.contains(
-                "if systemctl is-active --quiet ollama; then systemctl restart ollama; fi"
-            )
+    fn commands_quote_every_value() {
+        assert_eq!(ollama_command(None, &["list"]), "'ollama' 'list'");
+        assert_eq!(
+            ollama_command(Some("0.0.0.0:11500"), &["list"]),
+            "OLLAMA_HOST='0.0.0.0:11500' 'ollama' 'list'"
         );
+        assert_eq!(
+            ollama_command(Some("0.0.0.0:11500"), &["pull", "qwen2.5:1.5b"]),
+            "OLLAMA_HOST='0.0.0.0:11500' 'ollama' 'pull' 'qwen2.5:1.5b'"
+        );
+        assert_eq!(
+            ollama_command(None, &["rm", "x'; rm -rf /; '"]),
+            "'ollama' 'rm' 'x'\\''; rm -rf /; '\\'''"
+        );
+        assert_eq!(
+            systemctl(&["restart", OLLAMA_UNIT]),
+            "'systemctl' 'restart' 'ollama'"
+        );
+    }
 
+    #[test]
+    fn override_file_is_written_in_separate_steps() {
+        let content = "[Service]\nEnvironment=\"OLLAMA_ORIGINS=it's\"\n";
         assert_eq!(
-            ollama_api_call_command(&OllamaModuleInternalApiCall::RestartService),
-            "systemctl restart ollama"
+            write_override_commands(content),
+            vec![
+                "'mkdir' '-p' '/etc/systemd/system/ollama.service.d'".to_string(),
+                "printf '%s' '[Service]\nEnvironment=\"OLLAMA_ORIGINS=it'\\''s\"\n' > '/etc/systemd/system/ollama.service.d/override.conf'".to_string(),
+                "'systemctl' 'daemon-reload'".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn uninstallation_removes_every_installed_file() {
+        assert_eq!(
+            removal_commands("/usr/local/bin/ollama"),
+            vec![
+                "'rm' '-f' '/usr/local/bin/ollama' '/usr/bin/ollama'".to_string(),
+                "'rm' '-rf' '/usr/local/lib/ollama' '/usr/lib/ollama' '/usr/share/ollama' '/etc/systemd/system/ollama.service.d'".to_string(),
+                "'rm' '-f' '/etc/systemd/system/ollama.service'".to_string(),
+                "'systemctl' 'daemon-reload'".to_string(),
+            ]
         );
         assert_eq!(
-            ollama_api_call_command(&OllamaModuleInternalApiCall::PullModel {
-                name: "qwen2.5:1.5b".to_string()
-            }),
-            "ollama pull qwen2.5:1.5b"
-        );
-        assert_eq!(
-            ollama_api_call_command(&OllamaModuleInternalApiCall::RemoveModel {
-                name: "qwen2.5:1.5b".to_string()
-            }),
-            "ollama rm qwen2.5:1.5b"
-        );
-        assert!(
-            ollama_api_call_command(&OllamaModuleInternalApiCall::Install)
-                .contains("ollama.com/install.sh")
-        );
-        assert!(
-            ollama_api_call_command(&OllamaModuleInternalApiCall::Uninstall)
-                .contains("rm -f /usr/local/bin/ollama")
+            removal_commands("/opt/bin/ollama")[0],
+            "'rm' '-f' '/opt/bin/ollama' '/usr/local/bin/ollama' '/usr/bin/ollama'"
         );
     }
 
@@ -933,5 +1315,46 @@ LISTEN 0      128    [::]:22            [::]:*
             api_call.display(),
             "Restart the ollama service (to apply the API configuration)"
         );
+        let api_call = OllamaApiCall::from(
+            OllamaModuleInternalApiCall::Uninstall {
+                binary_path: "/usr/local/bin/ollama".to_string(),
+            },
+            Privilege::WithSudo,
+        );
+        assert_eq!(api_call.api_call.to_string(), "uninstall ollama");
+        assert_eq!(
+            api_call.display(),
+            "Uninstall ollama (/usr/local/bin/ollama)"
+        );
+    }
+
+    #[test]
+    fn api_config_builder_methods() {
+        let api_config = OllamaApiConfig::new()
+            .with_listening_endpoint("0.0.0.0:11434")
+            .with_cors_origins(&["*"])
+            .with_models_path("/data/ollama")
+            .with_keep_alive(Duration::from_secs(300))
+            .with_num_parallel(4)
+            .with_max_loaded_models(2)
+            .with_all_gpu_layers();
+        assert_eq!(
+            build_api_config_content(&api_config),
+            "[Service]
+Environment=\"OLLAMA_HOST=0.0.0.0:11434\"
+Environment=\"OLLAMA_ORIGINS=*\"
+Environment=\"OLLAMA_MODELS=/data/ollama\"
+Environment=\"OLLAMA_KEEP_ALIVE=300000ms\"
+Environment=\"OLLAMA_NUM_PARALLEL=4\"
+Environment=\"OLLAMA_MAX_LOADED_MODELS=2\"
+Environment=\"OLLAMA_GPU_LAYERS=-1\"
+"
+        );
+
+        let api_config = OllamaApiConfig::new()
+            .with_models_kept_loaded_forever()
+            .with_gpu_layers(33);
+        assert_eq!(api_config.keep_alive, Some("-1".to_string()));
+        assert_eq!(api_config.gpu_layers, Some(33));
     }
 }
