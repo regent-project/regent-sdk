@@ -92,6 +92,8 @@ use crate::state::attribute::utilities::lineinfile::LineInFileApiCall;
 use crate::state::attribute::utilities::lineinfile::LineInFileExpectedState;
 use crate::state::attribute::utilities::ping::PingApiCall;
 use crate::state::attribute::utilities::ping::PingExpectedState;
+use crate::state::attribute::utilities::storage::StorageApiCall;
+use crate::state::attribute::utilities::storage::StorageExpectedState;
 use crate::state::attribute::utilities::template::TemplateApiCall;
 use crate::state::attribute::utilities::template::TemplateExpectedState;
 use crate::state::compliance::AttributeComplianceAssessment;
@@ -164,6 +166,7 @@ impl Attribute {
                 AttributeDetail::NvidiaDriver(_) => "NvidiaDriver".to_string(),
                 AttributeDetail::NvidiaContainerToolkit(_) => "NvidiaContainerToolkit".to_string(),
                 AttributeDetail::AppleMps(_) => "AppleMps".to_string(),
+                AttributeDetail::Storage(_) => "Storage".to_string(),
             },
         }
     }
@@ -476,6 +479,14 @@ impl Attribute {
     ) -> Attribute {
         Attribute::from(AttributeDetail::AppleMps(details), privilege, name, None)
     }
+
+    pub fn storage(
+        details: StorageExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Storage(details), privilege, name, None)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -508,6 +519,7 @@ pub enum AttributeDetail {
     NvidiaDriver(NvidiaDriverExpectedState),
     NvidiaContainerToolkit(NvidiaContainerToolkitExpectedState),
     AppleMps(AppleMpsExpectedState),
+    Storage(StorageExpectedState),
 }
 
 impl AttributeDetail {
@@ -540,6 +552,7 @@ impl AttributeDetail {
             AttributeDetail::NvidiaDriver(details) => details.default_timeout(),
             AttributeDetail::NvidiaContainerToolkit(details) => details.default_timeout(),
             AttributeDetail::AppleMps(details) => details.default_timeout(),
+            AttributeDetail::Storage(details) => details.default_timeout(),
         }
     }
 
@@ -842,6 +855,16 @@ impl AttributeDetail {
                     .await
             }
             AttributeDetail::AppleMps(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Storage(expected_state_criteria) => {
                 expected_state_criteria
                     .assess_compliance(
                         host_handler,
@@ -1269,6 +1292,19 @@ impl AttributeDetail {
                                 }
                             }
                         }
+                        Remediation::Storage(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
                     };
 
                     actions_taken.push((remediation, internal_api_call_outcome.clone()));
@@ -1326,6 +1362,7 @@ impl AttributeDetail {
                 expected_state_block.check()
             }
             AttributeDetail::AppleMps(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Storage(expected_state_block) => expected_state_block.check(),
         }
     }
 }
@@ -1359,6 +1396,7 @@ pub enum Remediation {
     NvidiaDriver(NvidiaDriverApiCall),
     NvidiaContainerToolkit(NvidiaContainerToolkitApiCall),
     AppleMps(AppleMpsApiCall),
+    Storage(StorageApiCall),
 }
 
 impl std::fmt::Debug for Remediation {
@@ -1391,6 +1429,7 @@ impl std::fmt::Debug for Remediation {
             Remediation::NvidiaDriver(api_call) => write!(f, "{}", api_call.display()),
             Remediation::NvidiaContainerToolkit(api_call) => write!(f, "{}", api_call.display()),
             Remediation::AppleMps(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Storage(api_call) => write!(f, "{}", api_call.display()),
         }
     }
 }
@@ -1563,6 +1602,11 @@ impl Remediation {
                     .call(host_handler, host_properties, optional_secret_provider)
                     .await
             }
+            Remediation::Storage(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
         }
     }
 
@@ -1595,6 +1639,7 @@ impl Remediation {
             Remediation::NvidiaDriver(api_call) => api_call.display(),
             Remediation::NvidiaContainerToolkit(api_call) => api_call.display(),
             Remediation::AppleMps(api_call) => api_call.display(),
+            Remediation::Storage(api_call) => api_call.display(),
         }
     }
 }

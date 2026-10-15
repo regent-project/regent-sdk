@@ -71,6 +71,15 @@ Attributes:
               DestPort: 11434
         Target: Accept
     Timeout: 5m
+  - Name: Docker storage has at least 5% free on /var/lib/docker
+    Privilege: !WithSudo
+    Detail: !Storage
+      Target: !MountPoint /var/lib/docker
+      Threshold: !Percent 95
+      Cleanup:
+        - docker system prune -af
+        - journalctl --vacuum-time=3d
+    Timeout: 5m
 "#;
 
     let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
