@@ -186,13 +186,13 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for StorageExpectedState {
         let path = self.target.path();
 
         // Run df to get usage percentage, used (1K blocks), and available (1K blocks)
-        let cmd = format!("df -P --output=pcent,used,avail {}", path);
+        let cmd = format!("df --output=pcent,used,avail {}", path);
         let result = host_handler.run_command(&cmd, privilege).await?;
 
         if result.return_code != 0 {
             return Err(RegentError::FailedTaskDryRun(format!(
-                "Unable to check storage usage for {}: RC: {}, STDERR: {}",
-                path, result.return_code, result.stderr
+                "Unable to check storage usage for {}: RC: {}, STDOUT: {}, STDERR: {}",
+                path, result.return_code, result.stdout, result.stderr
             )));
         }
 
