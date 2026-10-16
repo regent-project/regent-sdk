@@ -27,7 +27,7 @@
 //! // Watch a mount point: trigger cleanup when less than 10GB remain
 //! let mut storage_mnt = StorageExpectedState::watch_mountpoint(
 //!     "/var/lib/docker",
-//!     Threshold::AbsoluteRemaining(10_485_760), // 10 GB in 1K blocks
+//!     Threshold::AbsoluteAvailable(10_485_760), // 10 GB in 1K blocks
 //! );
 //! storage_mnt.with_cleanup(vec!["docker system prune -af".to_string()]);
 //!
@@ -63,6 +63,7 @@ use crate::state::attribute::RemediationsList;
 use crate::state::compliance::AttributeComplianceAssessment;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
+use tracing::info;
 
 /// Threshold that triggers the storage watch when breached.
 ///
@@ -70,14 +71,14 @@ use std::time::Duration;
 /// `used` and `avail` are expressed in 1K blocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Threshold {
-    /// Trigger when the used percentage (from `df --output=pcent`) is greater than or equal to this value.
-    /// For example, `Percent(95)` triggers when 95% or more of the storage is used
-    /// (i.e. less than 5% available).
-    Percent(u8),
+    /// `PercentUsed(95)` triggers when 95% or more of the storage is used
+    PercentUsed(u8),
     /// Trigger when the used space (in 1K blocks, from `df --output=used`) is greater than or equal to this value.
     AbsoluteUsed(u64),
+    /// Trigger when the percentage of the remaining available space is less than or equal to this value.
+    PercentAvailable(u8),
     /// Trigger when the remaining available space (in 1K blocks, from `df --output=avail`) is less than or equal to this value.
-    AbsoluteRemaining(u64),
+    AbsoluteAvailable(u64),
 }
 
 /// Target of the storage watch: either a filesystem path or a mount point.
@@ -107,6 +108,7 @@ impl StorageTarget {
 pub struct StorageExpectedState {
     target: StorageTarget,
     threshold: Threshold,
+    /// List of shell commands, executed sequentially, to clean up storage
     cleanup: Option<Vec<String>>,
 }
 
@@ -243,9 +245,10 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for StorageExpectedState {
 
         // Check if the threshold is breached
         let breached = match &self.threshold {
-            Threshold::Percent(limit) => pcent >= *limit,
+            Threshold::PercentUsed(limit) => pcent >= *limit,
             Threshold::AbsoluteUsed(limit) => used >= *limit,
-            Threshold::AbsoluteRemaining(limit) => avail <= *limit,
+            Threshold::PercentAvailable(limit) => (100 - pcent) <= *limit,
+            Threshold::AbsoluteAvailable(limit) => avail <= *limit,
         };
 
         if breached {
@@ -253,6 +256,8 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for StorageExpectedState {
                 if !cleanup_cmds.is_empty() {
                     let remediation = Remediation::Storage(StorageApiCall::from(
                         StorageModuleInternalApiCall::from(cleanup_cmds.clone()),
+                        self.target.clone(),
+                        self.threshold.clone(),
                         privilege.clone(),
                     ));
                     return Ok(AttributeComplianceAssessment::NonCompliant(
@@ -314,6 +319,8 @@ impl Check for StorageModuleInternalApiCall {
 /// API call for the storage module: executes cleanup commands one by one.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StorageApiCall {
+    target: StorageTarget,
+    threshold: Threshold,
     pub api_call: StorageModuleInternalApiCall,
     privilege: Privilege,
 }
@@ -323,8 +330,15 @@ impl StorageApiCall {
         format!("Run storage cleanup commands: {:?}", self.api_call.cleanup)
     }
 
-    fn from(api_call: StorageModuleInternalApiCall, privilege: Privilege) -> StorageApiCall {
+    fn from(
+        api_call: StorageModuleInternalApiCall,
+        target: StorageTarget,
+        threshold: Threshold,
+        privilege: Privilege,
+    ) -> StorageApiCall {
         StorageApiCall {
+            target,
+            threshold,
             api_call,
             privilege,
         }
@@ -382,7 +396,99 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for StorageApiCall {
             }
         }
 
-        Ok(InternalApiCallOutcome::Success(None))
+        // Check that the clean up commands did their job and compliance is actually reached
+        // Run df to get usage percentage, used (1K blocks), and available (1K blocks)
+        let cmd = format!("df --output=pcent,used,avail {}", self.target.path());
+        let result = host_handler.run_command(&cmd, &self.privilege).await?;
+
+        if result.return_code != 0 {
+            return Err(RegentError::FailedTaskDryRun(format!(
+                "Unable to check storage usage for {}: RC: {}, STDOUT: {}, STDERR: {}",
+                self.target.path(),
+                result.return_code,
+                result.stdout,
+                result.stderr
+            )));
+        }
+
+        // Parse output the same way the assesment step does
+        let lines: Vec<&str> = result.stdout.lines().collect();
+        if lines.len() < 2 {
+            return Err(RegentError::FailedTaskDryRun(format!(
+                "Unexpected df output for {}: {}",
+                self.target.path(),
+                result.stdout
+            )));
+        }
+
+        let data_line = lines[1].trim();
+        let fields: Vec<&str> = data_line.split_whitespace().collect();
+        if fields.len() < 3 {
+            return Err(RegentError::FailedTaskDryRun(format!(
+                "Unable to parse df output for {}: {}",
+                self.target.path(),
+                result.stdout
+            )));
+        }
+
+        // Parse percentage (strip trailing '%')
+        let pcent_str = fields[0].trim_end_matches('%');
+        let pcent: u8 = pcent_str.parse().map_err(|_| {
+            RegentError::FailedTaskDryRun(format!(
+                "Unable to parse usage percentage from df output: {}",
+                fields[0]
+            ))
+        })?;
+
+        // Parse used and available (in 1K blocks)
+        let used: u64 = fields[1].parse().map_err(|_| {
+            RegentError::FailedTaskDryRun(format!(
+                "Unable to parse used blocks from df output: {}",
+                fields[1]
+            ))
+        })?;
+
+        let avail: u64 = fields[2].parse().map_err(|_| {
+            RegentError::FailedTaskDryRun(format!(
+                "Unable to parse available blocks from df output: {}",
+                fields[2]
+            ))
+        })?;
+
+        // Check if the threshold is breached
+        let fixed = match &self.threshold {
+            Threshold::PercentUsed(limit) => pcent <= *limit,
+            Threshold::AbsoluteUsed(limit) => used <= *limit,
+            Threshold::PercentAvailable(limit) => (100 - pcent) >= *limit,
+            Threshold::AbsoluteAvailable(limit) => avail >= *limit,
+        };
+
+        info!(pcent, used, avail, fixed);
+
+        if fixed {
+            Ok(InternalApiCallOutcome::Success(None))
+        } else {
+            let details: String = match &self.threshold {
+                Threshold::PercentUsed(limit) => format!(
+                    "Current PercentUsed ({}%) still above threshold ({}%)",
+                    pcent, limit
+                ),
+                Threshold::AbsoluteUsed(limit) => format!(
+                    "Current AbsoluteUsed ({}%) still above threshold ({}%)",
+                    used, limit
+                ),
+                Threshold::PercentAvailable(limit) => format!(
+                    "Current PercentAvailable ({}%) still below threshold ({}%)",
+                    (100 - pcent),
+                    limit
+                ),
+                Threshold::AbsoluteAvailable(limit) => format!(
+                    "Current AbsoluteAvailable ({}%) still below threshold ({}%)",
+                    avail, limit
+                ),
+            };
+            Ok(InternalApiCallOutcome::Failure(details))
+        }
     }
 }
 
@@ -401,7 +507,7 @@ Cleanup:
 ";
         let storage: StorageExpectedState = yaml_serde::from_str(raw).unwrap();
         assert_eq!(storage.target, StorageTarget::FileSystem("/".to_string()));
-        assert_eq!(storage.threshold, Threshold::Percent(95));
+        assert_eq!(storage.threshold, Threshold::PercentUsed(95));
         assert_eq!(
             storage.cleanup,
             Some(vec![
@@ -415,14 +521,14 @@ Cleanup:
     fn parsing_storage_mountpoint_with_absolute_remaining() {
         let raw = "---
 Target: !MountPoint /var/lib/docker
-Threshold: !AbsoluteRemaining 10485760
+Threshold: !AbsoluteAvailable 10485760
 ";
         let storage: StorageExpectedState = yaml_serde::from_str(raw).unwrap();
         assert_eq!(
             storage.target,
             StorageTarget::MountPoint("/var/lib/docker".to_string())
         );
-        assert_eq!(storage.threshold, Threshold::AbsoluteRemaining(10485760));
+        assert_eq!(storage.threshold, Threshold::AbsoluteAvailable(10485760));
         assert_eq!(storage.cleanup, None);
     }
 
@@ -442,16 +548,16 @@ Threshold: !AbsoluteUsed 51200000
 
     #[test]
     fn builder_watch_filesystem() {
-        let storage = StorageExpectedState::watch_filesystem("/", Threshold::Percent(90));
+        let storage = StorageExpectedState::watch_filesystem("/", Threshold::PercentUsed(90));
         assert_eq!(storage.target, StorageTarget::FileSystem("/".to_string()));
-        assert_eq!(storage.threshold, Threshold::Percent(90));
+        assert_eq!(storage.threshold, Threshold::PercentUsed(90));
         assert!(storage.cleanup.is_none());
     }
 
     #[test]
     fn builder_watch_mountpoint_with_cleanup() {
         let mut storage =
-            StorageExpectedState::watch_mountpoint("/mnt/data", Threshold::AbsoluteRemaining(1024));
+            StorageExpectedState::watch_mountpoint("/mnt/data", Threshold::AbsoluteAvailable(1024));
         storage.with_cleanup(vec!["rm -rf /mnt/data/tmp/*".to_string()]);
         assert_eq!(
             storage.target,
