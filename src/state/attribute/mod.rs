@@ -111,8 +111,9 @@ pub struct Attribute {
     pub name: Option<String>,
     pub privilege: Privilege,
     detail: AttributeDetail,
+    #[serde(default)]
     #[serde(with = "humantime_serde")]
-    timeout: Duration,
+    timeout: Option<Duration>,
 }
 
 impl Attribute {
@@ -122,11 +123,6 @@ impl Attribute {
         name: Option<String>,
         timeout: Option<Duration>,
     ) -> Attribute {
-        let timeout = match timeout {
-            Some(duration) => duration,
-            None => detail.default_timeout(),
-        };
-
         Attribute {
             privilege,
             detail,
@@ -198,7 +194,7 @@ impl Attribute {
                 }
             };
         match serde_json::from_str::<Attribute>(&context_wise_serialized_self) {
-            Ok(mut context_aware_attribute) => {
+            Ok(context_aware_attribute) => {
                 // Validate the configuration after template rendering to ensure
                 // that template variables produced valid configuration
                 context_aware_attribute.check().map_err(|e| {
@@ -253,14 +249,17 @@ impl Attribute {
     }
 
     pub fn timeout(&self) -> Duration {
-        self.timeout
+        match self.timeout {
+            Some(duration) => duration,
+            None => self.detail.default_timeout(),
+        }
     }
 
     // Convenience methods for attributes building
 
     /// Set a timeout using a Duration
     pub fn with_timeout(mut self, user_defined_timeout: Duration) -> Self {
-        self.timeout = user_defined_timeout;
+        self.timeout = Some(user_defined_timeout);
         self
     }
 
