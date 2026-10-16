@@ -393,7 +393,7 @@ impl LivingInventory {
             );
             Ok(results_map)
         } else {
-            Err(RegentError::ProblemWithHostConnection(format!(
+            Err(RegentError::FailedDryRunEvaluation(format!(
                 "Following hosts encountered problems while trying to assess compliance: {}",
                 failures.join(", ")
             )))
