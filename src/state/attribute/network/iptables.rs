@@ -731,9 +731,12 @@ impl std::fmt::Display for PortSpec {
 /// Serializes to YAML with a `State` tag (`Present` or `Absent`) and uses PascalCase for all
 /// fields. The `IpVersion` defaults to V4 and is omitted when V4.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "State", rename_all = "PascalCase")]
+#[serde(
+    tag = "State",
+    rename_all = "PascalCase",
+    rename_all_fields = "PascalCase"
+)]
 pub enum IptablesExpectedState {
-    #[serde(rename_all = "PascalCase")]
     Present {
         #[serde(default = "default_ip_family", skip_serializing_if = "is_v4_default")]
         ip_version: IpVersion,
@@ -741,7 +744,6 @@ pub enum IptablesExpectedState {
         #[serde(flatten)]
         rule: IptablesRule,
     },
-    #[serde(rename_all = "PascalCase")]
     Absent {
         #[serde(default = "default_ip_family")]
         ip_version: IpVersion,

@@ -207,9 +207,12 @@ impl OllamaApiConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(
+    tag = "State",
+    rename_all = "PascalCase",
+    rename_all_fields = "PascalCase"
+)]
 pub enum OllamaExpectedState {
-    #[serde(rename_all = "PascalCase")]
     Present {
         /// Written to the systemd override file
         api_config: OllamaApiConfig,
