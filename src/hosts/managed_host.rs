@@ -824,15 +824,21 @@ impl ManagedHost {
                                         let mut local_actions = Vec::new();
 
                                         for remediation in remediations.iter() {
-                                            match remediation
+                                            let remediation_span = span!(Level::INFO, "remediation", action = ?remediation);
+
+                                            let remediation_result = remediation
                                                 .reach_compliance(
                                                     &mut self.handler,
                                                     &self.host_properties,
                                                     &self.secret_providers,
                                                     timeout_duration,
                                                 )
-                                                .await
-                                            {
+                                                .instrument(remediation_span.clone())
+                                                .await;
+
+                                            let _remediation_span_guard = remediation_span.enter();
+
+                                            match remediation_result {
                                                 Ok(internal_api_call_outcome) => {
                                                     local_actions.push(Action::from(
                                                         remediation.clone(),
@@ -841,14 +847,14 @@ impl ManagedHost {
 
                                                     match &internal_api_call_outcome {
                                                         InternalApiCallOutcome::Success(details) => {
-                                                            info!(target: "run", remediation_outcome = "Success", "{:?} : {}", remediation, details.clone().unwrap_or("no details".to_string()));
+                                                            info!(target: "run", remediation_outcome = "Success", details = details.clone().unwrap_or("none".to_string()));
                                                         }
                                                         InternalApiCallOutcome::AllowedFailure(details) => {
-                                                            info!(target: "run", remediation_outcome = "AllowedFailure", "Allowed failure occured : {}", details);
+                                                            info!(target: "run", remediation_outcome = "AllowedFailure", details);
                                                         }
                                                         InternalApiCallOutcome::Failure(details) => {
                                                             local_failed = true;
-                                                            warn!(remediation_outcome = "Failure", "Attribute not met : {}", details);
+                                                            warn!(remediation_outcome = "Failure", details);
                                                             // Break the local remediation sub-loop
                                                             break;
                                                         }
