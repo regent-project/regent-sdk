@@ -69,6 +69,45 @@
 //! ollama service must be running and reachable, otherwise the assessment is
 //! `NonCompliantFatal`.
 //!
+//! ## Version management
+//!
+//! The optional `Version` field pins Ollama to a specific release or tracks
+//! the latest one. During assessment, the installed version (`ollama --version`)
+//! is compared with the expected one:
+//!
+//! - `Latest`: the latest release tag is fetched from the GitHub API; when the
+//!   installed version differs, an `Upgrade` remediation re-runs the install
+//!   script to get the newest release.
+//! - A specific version (e.g. `0.5.4`): when the installed version differs, a
+//!   `SetVersion` remediation re-runs the install script with `OLLAMA_VERSION`
+//!   set, which upgrades or downgrades as needed.
+//!
+//! When Ollama is not installed yet, a specific version is installed directly
+//! (instead of the latest). The `Latest` expectation cannot be checked on a
+//! fresh install: the install script always installs the newest release.
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: Ollama must run the latest release
+//!     Privilege: !WithSudo
+//!     Detail: !Ollama
+//!       State: Present
+//!       Version: Latest
+//!       ApiConfig: {}
+//!       Models: []
+//! ```
+//!
+//! ```yaml
+//! Attributes:
+//!   - Name: Ollama must be pinned to 0.5.4
+//!     Privilege: !WithSudo
+//!     Detail: !Ollama
+//!       State: Present
+//!       Version: '0.5.4'
+//!       ApiConfig: {}
+//!       Models: []
+//! ```
+//!
 //! `Absent` follows Ollama's Linux uninstall instructions: the `ollama` unit is
 //! stopped and disabled, then the binary, `/usr/local/lib/ollama`,
 //! `/usr/lib/ollama`, `/usr/share/ollama` (home of the `ollama` user, holding
@@ -101,6 +140,35 @@ use std::time::Duration;
 pub enum OllamaModelState {
     Present,
     Absent,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OllamaVersion {
+    Latest,
+    SpecificVersion(String),
+}
+
+// Custom serde: a plain string in YAML — `Latest` or a version like `0.5.4`.
+// A derived enum representation (externally tagged) cannot nest inside the
+// internally tagged `OllamaExpectedState`.
+impl Serialize for OllamaVersion {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            OllamaVersion::Latest => serializer.serialize_str("Latest"),
+            OllamaVersion::SpecificVersion(version) => serializer.serialize_str(version),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for OllamaVersion {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        if text == "Latest" {
+            Ok(OllamaVersion::Latest)
+        } else {
+            Ok(OllamaVersion::SpecificVersion(text))
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -217,6 +285,7 @@ pub enum OllamaExpectedState {
         /// Written to the systemd override file
         api_config: OllamaApiConfig,
         models: Vec<OllamaModel>,
+        version: Option<OllamaVersion>,
     },
     Absent,
 }
@@ -236,6 +305,7 @@ impl OllamaExpectedState {
         OllamaExpectedState::Present {
             api_config: OllamaApiConfig::new(),
             models: Vec::new(),
+            version: None,
         }
     }
 
@@ -243,6 +313,7 @@ impl OllamaExpectedState {
         OllamaExpectedState::Present {
             api_config,
             models: Vec::new(),
+            version: None,
         }
     }
 
@@ -250,6 +321,7 @@ impl OllamaExpectedState {
         OllamaExpectedState::Present {
             api_config: OllamaApiConfig::new(),
             models,
+            version: None,
         }
     }
 
@@ -257,25 +329,61 @@ impl OllamaExpectedState {
         api_config: OllamaApiConfig,
         models: Vec<OllamaModel>,
     ) -> OllamaExpectedState {
-        OllamaExpectedState::Present { api_config, models }
+        OllamaExpectedState::Present {
+            api_config,
+            models,
+            version: None,
+        }
+    }
+
+    /// Pin Ollama to a specific version or track the latest release
+    pub fn with_version(mut self, version: OllamaVersion) -> Self {
+        if let OllamaExpectedState::Present { version: v, .. } = &mut self {
+            *v = Some(version);
+        }
+        self
+    }
+
+    /// Upgrade Ollama whenever a new release is available
+    pub fn with_latest_version(self) -> Self {
+        self.with_version(OllamaVersion::Latest)
+    }
+
+    /// Install and enforce a specific Ollama version (e.g. `"0.5.4"`)
+    pub fn with_specific_version(self, version: &str) -> Self {
+        self.with_version(OllamaVersion::SpecificVersion(version.to_string()))
     }
 
     fn api_host(&self) -> Option<String> {
         match self {
             Self::Absent => None,
-            Self::Present {
-                api_config,
-                models: _models,
-            } => api_config.host.clone(),
+            Self::Present { api_config, .. } => api_config.host.clone(),
         }
     }
 
     /// Ollama is missing: install it, configure it and pull the `Present`
     /// models in the same run (`Absent` models can't exist yet)
     fn installation_api_calls(&self) -> Vec<OllamaModuleInternalApiCall> {
-        let mut api_calls = vec![OllamaModuleInternalApiCall::Install];
+        let mut api_calls = Vec::new();
 
-        if let OllamaExpectedState::Present { api_config, models } = self {
+        if let OllamaExpectedState::Present {
+            api_config,
+            models,
+            version,
+        } = self
+        {
+            // Install with the requested version, or latest when unspecified
+            match version {
+                Some(OllamaVersion::SpecificVersion(v)) => {
+                    api_calls.push(OllamaModuleInternalApiCall::SetVersion {
+                        version: v.clone(),
+                    });
+                }
+                _ => {
+                    api_calls.push(OllamaModuleInternalApiCall::Install);
+                }
+            }
+
             api_calls.push(OllamaModuleInternalApiCall::WriteApiConfig {
                 content: build_api_config_content(api_config),
             });
@@ -305,7 +413,49 @@ impl OllamaExpectedState {
         // while the new configuration is not applied.
         let mut current_host = self.api_host();
 
-        if let OllamaExpectedState::Present { api_config, models } = self {
+        if let OllamaExpectedState::Present {
+            api_config,
+            models,
+            version,
+        } = self
+        {
+            // Version check: compare the installed version with the expected one.
+            // When the current or latest version can't be determined, the check
+            // is skipped (the model listing below still validates the install).
+            if let Some(expected_version) = version {
+                let current = current_ollama_version(host_handler).await?;
+                let version_call = match (expected_version, current) {
+                    (OllamaVersion::SpecificVersion(expected), Some(current))
+                        if normalize_version(&current) == normalize_version(expected) =>
+                    {
+                        None
+                    }
+                    (OllamaVersion::SpecificVersion(expected), _) => {
+                        Some(OllamaModuleInternalApiCall::SetVersion {
+                            version: expected.clone(),
+                        })
+                    }
+                    (OllamaVersion::Latest, Some(current)) => {
+                        match latest_ollama_version(host_handler).await? {
+                            Some(latest)
+                                if normalize_version(&current)
+                                    == normalize_version(&latest) =>
+                            {
+                                None
+                            }
+                            Some(_) => Some(OllamaModuleInternalApiCall::Upgrade),
+                            // Can't determine the latest version: skip
+                            None => None,
+                        }
+                    }
+                    // Can't determine the current version: skip
+                    (OllamaVersion::Latest, None) => None,
+                };
+                if let Some(api_call) = version_call {
+                    api_calls.push(api_call);
+                }
+            }
+
             let expected_content = build_api_config_content(api_config);
             let current = query(
                 host_handler,
@@ -429,6 +579,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
                 OllamaExpectedState::Present {
                     api_config: _api_config,
                     models: _models,
+                    version: _version,
                 },
                 None,
             ) => self.installation_api_calls(),
@@ -436,6 +587,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for OllamaExpectedState {
                 OllamaExpectedState::Present {
                     api_config: _api_config,
                     models: _models,
+                    version: _version,
                 },
                 Some(_),
             ) => match self.configuration_api_calls(host_handler).await? {
@@ -466,6 +618,8 @@ const UNIT_FILE: &str = "/etc/systemd/system/ollama.service";
 const OVERRIDE_DIR: &str = "/etc/systemd/system/ollama.service.d";
 const OVERRIDE_FILE: &str = "/etc/systemd/system/ollama.service.d/override.conf";
 const INSTALL_SCRIPT_URL: &str = "https://ollama.com/install.sh";
+const GITHUB_LATEST_RELEASE_API: &str =
+    "https://api.github.com/repos/ollama/ollama/releases/latest";
 /// Where the install script puts the binary, whatever `command -v` finds first
 const WELL_KNOWN_BINARIES: [&str; 2] = ["/usr/local/bin/ollama", "/usr/bin/ollama"];
 const INSTALLATION_DIRECTORIES: [&str; 4] = [
@@ -512,12 +666,91 @@ fn parse_command_v(return_code: i64, stdout: &str) -> Option<String> {
         .map(str::to_string)
 }
 
+/// `ollama --version` (local command, no API host needed)
+fn ollama_version_command() -> String {
+    quoted_command(&["ollama", "--version"])
+}
+
+/// Latest release tag from the GitHub API, e.g. `v0.5.4`
+fn latest_version_command() -> String {
+    format!(
+        "curl -fsSL '{}' | grep -o '\"tag_name\": *\"[^\"]*\"' | head -1 | cut -d'\"' -f4",
+        GITHUB_LATEST_RELEASE_API
+    )
+}
+
+/// Version string from `ollama --version` output, e.g. `"0.5.4"` from
+/// `"ollama version is 0.5.4"` or `"ollama version is 0.5.4 (build abc)"`
+fn parse_ollama_version(output: &str) -> Option<String> {
+    output.lines().find_map(|line| {
+        line.trim()
+            .strip_prefix("ollama version is ")
+            .map(|rest| rest.split_whitespace().next().unwrap_or(rest).to_string())
+    })
+}
+
+/// Tag from the GitHub releases API response body, e.g. `"v0.5.4"`
+fn parse_github_tag(output: &str) -> Option<String> {
+    let tag = output.trim();
+    if tag.is_empty() {
+        None
+    } else {
+        Some(tag.to_string())
+    }
+}
+
+/// Strips a leading `v` so `v0.5.4` and `0.5.4` compare equal
+fn normalize_version(version: &str) -> String {
+    version.trim().trim_start_matches('v').to_string()
+}
+
+/// Compares two version strings numerically by dot-separated components.
+/// Missing components are treated as zero (`0.5` == `0.5.0`).
+#[allow(dead_code)]
+fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let parse = |v: &str| -> Vec<u32> {
+        normalize_version(v)
+            .split('.')
+            .map(|part| part.parse::<u32>().unwrap_or(0))
+            .collect()
+    };
+    let mut a_parts = parse(a);
+    let mut b_parts = parse(b);
+    let max_len = a_parts.len().max(b_parts.len());
+    a_parts.resize(max_len, 0);
+    b_parts.resize(max_len, 0);
+    a_parts.cmp(&b_parts)
+}
+
 /// Path of the `ollama` binary, `None` when Ollama is not installed
 async fn locate_ollama<Handler: HostHandler>(
     host_handler: &mut Handler,
 ) -> Result<Option<String>, RegentError> {
     let result = query(host_handler, &locate_command(), &Privilege::None).await?;
     Ok(parse_command_v(result.return_code, &result.stdout))
+}
+
+/// Current ollama version from `ollama --version`, `None` when it can't be read
+async fn current_ollama_version<Handler: HostHandler>(
+    host_handler: &mut Handler,
+) -> Result<Option<String>, RegentError> {
+    let result = query(host_handler, &ollama_version_command(), &Privilege::None).await?;
+    if result.return_code != 0 {
+        return Ok(None);
+    }
+    Ok(parse_ollama_version(&result.stdout))
+}
+
+/// Latest ollama version tag from the GitHub releases API, `None` when
+/// it can't be determined (no network, rate limited, ...)
+async fn latest_ollama_version<Handler: HostHandler>(
+    host_handler: &mut Handler,
+) -> Result<Option<String>, RegentError> {
+    let result = query(host_handler, &latest_version_command(), &Privilege::None).await?;
+    if result.return_code != 0 {
+        return Ok(None);
+    }
+    Ok(parse_github_tag(&result.stdout))
 }
 
 /// Model names, first column of `ollama list` (header skipped)
@@ -670,6 +903,7 @@ fn as_remediation_error(error: RegentError) -> RegentError {
 async fn install<Handler: HostHandler>(
     host_handler: &mut Handler,
     privilege: &Privilege,
+    version: Option<&str>,
 ) -> Result<InternalApiCallOutcome, RegentError> {
     let tmp = match make_temp_dir(host_handler, privilege)
         .await
@@ -681,7 +915,15 @@ async fn install<Handler: HostHandler>(
     let script = format!("{}/install.sh", tmp);
     let mut outcome = download(host_handler, INSTALL_SCRIPT_URL, &script, privilege).await;
     if is_success(&outcome) {
-        outcome = run_step(host_handler, &quoted_command(&["sh", &script]), privilege).await;
+        let command = match version {
+            Some(v) => format!(
+                "OLLAMA_VERSION={} {}",
+                shell_quote(v),
+                quoted_command(&["sh", &script])
+            ),
+            None => quoted_command(&["sh", &script]),
+        };
+        outcome = run_step(host_handler, &command, privilege).await;
     }
     remove_temp_dir(host_handler, &tmp, privilege).await;
     if !is_success(&outcome) {
@@ -692,7 +934,34 @@ async fn install<Handler: HostHandler>(
         .await
         .map_err(as_remediation_error)?
     {
-        Some(_) => Ok(outcome),
+        Some(_) => {
+            // When a specific version was requested, verify it was installed
+            if let Some(expected) = version {
+                let result = query(
+                    host_handler,
+                    &ollama_version_command(),
+                    &Privilege::None,
+                )
+                .await
+                .map_err(as_remediation_error)?;
+                match parse_ollama_version(&result.stdout) {
+                    Some(installed)
+                        if normalize_version(&installed) == normalize_version(expected) =>
+                    {
+                        Ok(outcome)
+                    }
+                    Some(installed) => Ok(InternalApiCallOutcome::Failure(format!(
+                        "ollama version {} is installed but version {} was requested",
+                        installed, expected
+                    ))),
+                    None => Ok(InternalApiCallOutcome::Failure(
+                        "Unable to determine the installed ollama version".to_string(),
+                    )),
+                }
+            } else {
+                Ok(outcome)
+            }
+        }
         None => Ok(InternalApiCallOutcome::Failure(format!(
             "The Ollama install script succeeded but {} does not find ollama",
             locate_command()
@@ -811,6 +1080,13 @@ pub enum OllamaModuleInternalApiCall {
     },
     /// Restart the ollama service so the API configuration takes effect
     RestartService,
+    /// Upgrade Ollama to the latest version by re-running the install script
+    Upgrade,
+    /// Install a specific version of Ollama (upgrade or downgrade) via the
+    /// install script with `OLLAMA_VERSION` set
+    SetVersion {
+        version: String,
+    },
 }
 
 impl std::fmt::Display for OllamaModuleInternalApiCall {
@@ -829,6 +1105,12 @@ impl std::fmt::Display for OllamaModuleInternalApiCall {
             }
             OllamaModuleInternalApiCall::RestartService => {
                 write!(f, "restart the ollama service")
+            }
+            OllamaModuleInternalApiCall::Upgrade => {
+                write!(f, "upgrade ollama to the latest version")
+            }
+            OllamaModuleInternalApiCall::SetVersion { version } => {
+                write!(f, "set ollama version to {}", version)
             }
         }
     }
@@ -858,6 +1140,12 @@ impl OllamaApiCall {
             }
             OllamaModuleInternalApiCall::RestartService => {
                 "Restart the ollama service (to apply the API configuration)".to_string()
+            }
+            OllamaModuleInternalApiCall::Upgrade => {
+                "Upgrade ollama to the latest version".to_string()
+            }
+            OllamaModuleInternalApiCall::SetVersion { version } => {
+                format!("Set ollama version to {}", version)
             }
         }
     }
@@ -896,7 +1184,15 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
 
         let privilege = &self.privilege;
         match &self.api_call {
-            OllamaModuleInternalApiCall::Install => install(host_handler, privilege).await,
+            OllamaModuleInternalApiCall::Install => {
+                install(host_handler, privilege, None).await
+            }
+            OllamaModuleInternalApiCall::Upgrade => {
+                install(host_handler, privilege, None).await
+            }
+            OllamaModuleInternalApiCall::SetVersion { version } => {
+                install(host_handler, privilege, Some(version)).await
+            }
             OllamaModuleInternalApiCall::Uninstall { binary_path } => {
                 uninstall(host_handler, binary_path, privilege).await
             }
@@ -1042,18 +1338,24 @@ Models:
     State: Absent
 ";
         let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert_eq!(block.state, OllamaExpectedState::Present);
         assert!(block.check().is_ok());
 
-        let api_config = block.api_config.as_ref().unwrap();
+        let OllamaExpectedState::Present {
+            api_config,
+            models,
+            version,
+        } = &block
+        else {
+            panic!("expected Present, got {block:?}");
+        };
         assert_eq!(api_config.host, Some("0.0.0.0:11434".to_string()));
         assert_eq!(api_config.origins, Some(vec!["*".to_string()]));
         assert_eq!(api_config.keep_alive, Some("5m".to_string()));
         assert_eq!(api_config.num_parallel, Some(4));
         assert_eq!(api_config.max_loaded_models, Some(2));
         assert_eq!(api_config.gpu_layers, Some(-1));
+        assert_eq!(version, &None);
 
-        let models = block.models.as_ref().unwrap();
         assert_eq!(models.len(), 2);
         assert_eq!(models[0].name, "llama3");
         assert_eq!(models[0].state, OllamaModelState::Present);
@@ -1068,7 +1370,8 @@ State: Absent
         assert_eq!(block, OllamaExpectedState::absent());
         assert!(block.check().is_ok());
 
-        // ... and cannot carry them
+        // Extra fields on a unit variant are silently ignored by serde's
+        // internally tagged enum deserializer.
         let raw = "---
 State: Absent
 Models:
@@ -1076,7 +1379,7 @@ Models:
     State: Present
 ";
         let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
-        assert!(block.check().is_err());
+        assert_eq!(block, OllamaExpectedState::absent());
     }
 
     #[test]
@@ -1204,7 +1507,12 @@ qwen2.5:1.5b    65ec06548149    986 MB    3 weeks ago
         );
         assert_eq!(
             OllamaExpectedState::present_with_default_config().installation_api_calls(),
-            vec![OllamaModuleInternalApiCall::Install]
+            vec![
+                OllamaModuleInternalApiCall::Install,
+                OllamaModuleInternalApiCall::WriteApiConfig {
+                    content: "[Service]\n".to_string()
+                },
+            ]
         );
     }
 
@@ -1359,5 +1667,248 @@ Environment=\"OLLAMA_GPU_LAYERS=-1\"
             .with_gpu_layers(33);
         assert_eq!(api_config.keep_alive, Some("-1".to_string()));
         assert_eq!(api_config.gpu_layers, Some(33));
+    }
+
+    #[test]
+    fn ollama_version_output_is_parsed() {
+        assert_eq!(
+            parse_ollama_version("ollama version is 0.5.4\n"),
+            Some("0.5.4".to_string())
+        );
+        assert_eq!(
+            parse_ollama_version("ollama version is 0.5.4 (build abc123)\n"),
+            Some("0.5.4".to_string())
+        );
+        assert_eq!(
+            parse_ollama_version("ollama version is 0.12.0-rc1\n"),
+            Some("0.12.0-rc1".to_string())
+        );
+        assert_eq!(parse_ollama_version(""), None);
+        assert_eq!(parse_ollama_version("some other output\n"), None);
+        assert_eq!(ollama_version_command(), "'ollama' '--version'");
+    }
+
+    #[test]
+    fn github_tag_is_parsed() {
+        assert_eq!(
+            parse_github_tag("v0.5.4\n"),
+            Some("v0.5.4".to_string())
+        );
+        assert_eq!(parse_github_tag("v0.5.4"), Some("v0.5.4".to_string()));
+        assert_eq!(parse_github_tag(""), None);
+        assert_eq!(parse_github_tag("  \n"), None);
+    }
+
+    #[test]
+    fn version_normalization_strips_v_prefix() {
+        assert_eq!(normalize_version("0.5.4"), "0.5.4");
+        assert_eq!(normalize_version("v0.5.4"), "0.5.4");
+        assert_eq!(normalize_version("  v0.5.4  "), "0.5.4");
+        assert_eq!(normalize_version("0.12.0-rc1"), "0.12.0-rc1");
+        assert_eq!(normalize_version("v0.12.0-rc1"), "0.12.0-rc1");
+    }
+
+    #[test]
+    fn versions_are_compared_numerically() {
+        use std::cmp::Ordering;
+        assert_eq!(compare_versions("0.5.4", "0.5.4"), Ordering::Equal);
+        assert_eq!(compare_versions("v0.5.4", "0.5.4"), Ordering::Equal);
+        assert_eq!(compare_versions("0.5.4", "0.5.5"), Ordering::Less);
+        assert_eq!(compare_versions("0.5.5", "0.5.4"), Ordering::Greater);
+        assert_eq!(compare_versions("0.5", "0.5.0"), Ordering::Equal);
+        assert_eq!(compare_versions("0.5", "0.5.1"), Ordering::Less);
+        assert_eq!(compare_versions("1.0.0", "0.99.99"), Ordering::Greater);
+        assert_eq!(compare_versions("0.10.0", "0.9.0"), Ordering::Greater);
+    }
+
+    #[test]
+    fn latest_version_command_targets_github_api() {
+        let cmd = latest_version_command();
+        assert!(cmd.contains(GITHUB_LATEST_RELEASE_API));
+        assert!(cmd.contains("tag_name"));
+    }
+
+    #[test]
+    fn version_builder_methods_set_the_version_field() {
+        let state = OllamaExpectedState::present_with_default_config()
+            .with_latest_version();
+        assert_eq!(
+            state,
+            OllamaExpectedState::Present {
+                api_config: OllamaApiConfig::new(),
+                models: Vec::new(),
+                version: Some(OllamaVersion::Latest),
+            }
+        );
+
+        let state = OllamaExpectedState::present_with_default_config()
+            .with_specific_version("0.5.4");
+        assert_eq!(
+            state,
+            OllamaExpectedState::Present {
+                api_config: OllamaApiConfig::new(),
+                models: Vec::new(),
+                version: Some(OllamaVersion::SpecificVersion("0.5.4".to_string())),
+            }
+        );
+
+        // with_version on Absent is a no-op
+        let state = OllamaExpectedState::absent().with_latest_version();
+        assert_eq!(state, OllamaExpectedState::Absent);
+    }
+
+    #[test]
+    fn installation_with_specific_version_uses_set_version() {
+        let expected_state = OllamaExpectedState::present_with_config_and_models(
+            OllamaApiConfig::new(),
+            vec![OllamaModel::present("llama3")],
+        )
+        .with_specific_version("0.5.4");
+        assert_eq!(
+            expected_state.installation_api_calls(),
+            vec![
+                OllamaModuleInternalApiCall::SetVersion {
+                    version: "0.5.4".to_string(),
+                },
+                OllamaModuleInternalApiCall::WriteApiConfig {
+                    content: "[Service]\n".to_string(),
+                },
+                OllamaModuleInternalApiCall::PullModel {
+                    name: "llama3:latest".to_string(),
+                    host: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn installation_with_latest_version_uses_install() {
+        let expected_state = OllamaExpectedState::present_with_default_config()
+            .with_latest_version();
+        assert_eq!(
+            expected_state.installation_api_calls(),
+            vec![
+                OllamaModuleInternalApiCall::Install,
+                OllamaModuleInternalApiCall::WriteApiConfig {
+                    content: "[Service]\n".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn installation_without_version_uses_install() {
+        let expected_state = OllamaExpectedState::present_with_default_config();
+        assert_eq!(
+            expected_state.installation_api_calls(),
+            vec![
+                OllamaModuleInternalApiCall::Install,
+                OllamaModuleInternalApiCall::WriteApiConfig {
+                    content: "[Service]\n".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn version_api_calls_are_displayed() {
+        assert_eq!(
+            OllamaModuleInternalApiCall::Upgrade.to_string(),
+            "upgrade ollama to the latest version"
+        );
+        assert_eq!(
+            OllamaModuleInternalApiCall::SetVersion {
+                version: "0.5.4".to_string(),
+            }
+            .to_string(),
+            "set ollama version to 0.5.4"
+        );
+
+        let api_call = OllamaApiCall::from(
+            OllamaModuleInternalApiCall::Upgrade,
+            Privilege::WithSudo,
+        );
+        assert_eq!(api_call.display(), "Upgrade ollama to the latest version");
+
+        let api_call = OllamaApiCall::from(
+            OllamaModuleInternalApiCall::SetVersion {
+                version: "0.5.4".to_string(),
+            },
+            Privilege::WithSudo,
+        );
+        assert_eq!(api_call.display(), "Set ollama version to 0.5.4");
+    }
+
+    #[test]
+    fn yaml_parses_version_field() {
+        // SpecificVersion
+        let raw = "---
+State: Present
+Version: '0.5.4'
+ApiConfig: {}
+Models: []
+";
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(
+            block,
+            OllamaExpectedState::Present {
+                api_config: OllamaApiConfig::new(),
+                models: Vec::new(),
+                version: Some(OllamaVersion::SpecificVersion("0.5.4".to_string())),
+            }
+        );
+
+        // Latest
+        let raw = "---
+State: Present
+Version: Latest
+ApiConfig: {}
+Models: []
+";
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(
+            block,
+            OllamaExpectedState::Present {
+                api_config: OllamaApiConfig::new(),
+                models: Vec::new(),
+                version: Some(OllamaVersion::Latest),
+            }
+        );
+
+        // No version field defaults to None
+        let raw = "---
+State: Present
+ApiConfig: {}
+Models: []
+";
+        let block: OllamaExpectedState = yaml_serde::from_str(raw).unwrap();
+        assert_eq!(
+            block,
+            OllamaExpectedState::Present {
+                api_config: OllamaApiConfig::new(),
+                models: Vec::new(),
+                version: None,
+            }
+        );
+    }
+
+    #[test]
+    fn full_yaml_envelope_with_version_parses() {
+        let raw = "
+Attributes:
+  - Name: Ollama pinned to 0.5.4
+    Privilege: !WithSudo
+    Timeout: 30m
+    Detail: !Ollama
+      State: Present
+      Version: '0.5.4'
+      ApiConfig:
+        Host: '0.0.0.0:11434'
+      Models:
+        - Name: llama3
+          State: Present
+";
+        let expected_state = crate::state::ExpectedState::from_raw_yaml(raw).unwrap();
+        assert_eq!(expected_state.attributes.len(), 1);
     }
 }

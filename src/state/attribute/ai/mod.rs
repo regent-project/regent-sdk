@@ -7,5 +7,5 @@
 pub mod ollama;
 pub mod onnx;
 
-pub use ollama::{OllamaApiCall, OllamaExpectedState};
+pub use ollama::{OllamaApiCall, OllamaExpectedState, OllamaVersion};
 pub use onnx::{OnnxApiCall, OnnxExpectedState};
