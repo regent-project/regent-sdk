@@ -101,6 +101,7 @@ pub mod task;
 pub use error::RegentError;
 pub use hosts::handlers::localhost::{LocalHostHandler, WhichUser};
 pub use hosts::handlers::ssh2::{Ssh2AuthMethod, Ssh2HostHandler};
+pub use hosts::handlers::sshoq::{SshoqAuthMethod, SshoqHostHandler, SshoqTlsConfig};
 pub use hosts::handlers::{ConnectionMethod, TargetUser};
 pub use hosts::inventory::Inventory;
 pub use hosts::managed_host::{ManagedHost, ManagedHostBuilder};

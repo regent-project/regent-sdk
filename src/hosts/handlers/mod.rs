@@ -6,6 +6,7 @@
 
 pub mod localhost;
 pub mod ssh2;
+pub mod sshoq;
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -14,11 +15,12 @@ use crate::error::RegentError;
 use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::ssh2::Ssh2Auth;
+use crate::hosts::handlers::sshoq::SshoqAuth;
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
 use crate::secrets::SecretReference;
-use crate::{LocalHostHandler, Ssh2HostHandler};
+use crate::{LocalHostHandler, Ssh2HostHandler, SshoqHostHandler};
 
 // Intermediary representation of a WhichUser
 // WhichUser holds secrets, TargetUser holds references to secrets
@@ -132,6 +134,8 @@ pub enum ConnectionMethod {
     Localhost(TargetUser),
     /// Connect via SSH protocol.
     Ssh2(Ssh2Auth),
+    /// Connect via SSHOQ protocol.
+    Sshoq(SshoqAuth),
 }
 
 /// Trait defining the interface for host connection handlers.
@@ -217,6 +221,8 @@ pub enum Handler {
     LocalHost(LocalHostHandler),
     /// Handler for SSH connections.
     Ssh2(Ssh2HostHandler),
+    /// Handler for SSHOQ (SSH over QUIC) connections.
+    Sshoq(SshoqHostHandler),
 }
 
 impl Clone for Handler {
@@ -224,6 +230,7 @@ impl Clone for Handler {
         match self {
             Handler::LocalHost(h) => Handler::LocalHost(h.clone()),
             Handler::Ssh2(h) => Handler::Ssh2(h.clone()),
+            Handler::Sshoq(h) => Handler::Sshoq(h.clone()),
         }
     }
 }
@@ -256,6 +263,26 @@ impl Handler {
     pub fn ss2(ss2_handler: Ssh2HostHandler) -> Self {
         Handler::Ssh2(ss2_handler)
     }
+
+    /// Create a [`Handler`] from a [`SshoqHostHandler`].
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use regent_sdk::{Handler, SshoqHostHandler};
+    /// use regent_sdk::hosts::handlers::sshoq::SshoqConnectionParams;
+    /// use regent_sdk::hosts::privilege::Credentials;
+    ///
+    /// let creds = Credentials::from("alice", "secret");
+    /// let params = SshoqConnectionParams::username_password(
+    ///     creds,
+    ///     shhoq::ClientTlsConfig::with_system_roots(),
+    /// );
+    /// let handler = Handler::sshoq(SshoqHostHandler::NotConnected(params));
+    /// ```
+    pub fn sshoq(sshoq_handler: SshoqHostHandler) -> Self {
+        Handler::Sshoq(sshoq_handler)
+    }
 }
 
 impl HostHandler for Handler {
@@ -267,6 +294,7 @@ impl HostHandler for Handler {
         match self {
             Handler::LocalHost(handler) => handler.connect(endpoint).await,
             Handler::Ssh2(handler) => handler.connect(endpoint).await,
+            Handler::Sshoq(handler) => handler.connect(endpoint).await,
         }
     }
 
@@ -274,6 +302,7 @@ impl HostHandler for Handler {
         match self {
             Handler::LocalHost(handler) => handler.is_connected().await,
             Handler::Ssh2(handler) => handler.is_connected().await,
+            Handler::Sshoq(handler) => handler.is_connected().await,
         }
     }
 
@@ -281,6 +310,7 @@ impl HostHandler for Handler {
         match self {
             Handler::LocalHost(handler) => handler.disconnect().await,
             Handler::Ssh2(handler) => handler.disconnect().await,
+            Handler::Sshoq(handler) => handler.disconnect().await,
         }
     }
 
@@ -294,6 +324,7 @@ impl HostHandler for Handler {
                 handler.is_this_command_available(command, privilege).await
             }
             Handler::Ssh2(handler) => handler.is_this_command_available(command, privilege).await,
+            Handler::Sshoq(handler) => handler.is_this_command_available(command, privilege).await,
         }
     }
 
@@ -305,6 +336,7 @@ impl HostHandler for Handler {
         match self {
             Handler::LocalHost(handler) => handler.run_command(command, privilege).await,
             Handler::Ssh2(handler) => handler.run_command(command, privilege).await,
+            Handler::Sshoq(handler) => handler.run_command(command, privilege).await,
         }
     }
 
@@ -313,6 +345,7 @@ impl HostHandler for Handler {
         match self {
             Handler::LocalHost(handler) => handler.run_windows_command(command).await,
             Handler::Ssh2(handler) => handler.run_windows_command(command).await,
+            Handler::Sshoq(handler) => handler.run_windows_command(command).await,
         }
     }
 
@@ -320,6 +353,7 @@ impl HostHandler for Handler {
         match self {
             Handler::LocalHost(handler) => handler.get_file(path).await,
             Handler::Ssh2(handler) => handler.get_file(path).await,
+            Handler::Sshoq(handler) => handler.get_file(path).await,
         }
     }
 }

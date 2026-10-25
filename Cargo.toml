@@ -1,6 +1,6 @@
 [package]
 name        = "regent-sdk"
-version     = "0.16.3"
+version     = "0.17.0"
 edition     = "2024"
 authors     = ["Romain SUZANNE <romzorus591@gmail.com>"]
 repository  = "https://github.com/regent-project/regent-sdk"
@@ -14,17 +14,19 @@ bytes                           = "1.12.1"
 chrono                          = "0.4.45"
 nanoid                          = "0.5.0"
 russh                           = "0.63.3"
+rustls-pki-types                = "1"
 serde                           = { version = "1.0.229", features= ["derive"] }
 serde_json                      = "1.0.154"
+shhoq                           = "0.1.2"
 tera                            = "2.4.0"
 thiserror                       = "2.0.21"
-tokio                           = { version = "1.53.3", features = ["rt-multi-thread", "time", "macros", "process"] }
+tokio                           = { version = "1.54.1", features = ["rt-multi-thread", "time", "macros", "process"] }
 tracing                         = "0.1.44"
 yaml_serde                      = "0.10"
 humantime-serde                 = "1.1.1"
 
-aws-sdk-secretsmanager          = { version = "1.120.0", optional = true }
-aws-config                      = { version = "1.12.0", features = ["behavior-version-latest"], optional = true }
+aws-sdk-secretsmanager          = { version = "1.123.0", optional = true }
+aws-config                      = { version = "1.13.0", features = ["behavior-version-latest"], optional = true }
 google-cloud-secretmanager-v1   = { version = "1.14.0", optional = true }
 google-cloud-gax                = { version = "1.15.0", optional = true }
 
@@ -127,3 +129,31 @@ required-features = ["aws-secretsmanager", "gcp-secretmanager"]
 name = "multi_secrets_providers_yaml_api"
 path = "examples/secrets/multi_secrets_providers_yaml_api.rs"
 required-features = ["aws-secretsmanager", "gcp-secretmanager"]
+
+[[example]]
+name = "sshoq_basic_check_rust_api"
+path = "examples/connection/sshoq_basic_check_rust_api.rs"
+
+[[example]]
+name = "sshoq_basic_check_yaml_api"
+path = "examples/connection/sshoq_basic_check_yaml_api.rs"
+
+[[example]]
+name = "sshoq_bearer_token_rust_api"
+path = "examples/connection/sshoq_bearer_token_rust_api.rs"
+
+[[example]]
+name = "sshoq_key_auth_yaml_api"
+path = "examples/connection/sshoq_key_auth_yaml_api.rs"
+
+[[example]]
+name = "sshoq_tls_config_rust_api"
+path = "examples/connection/sshoq_tls_config_rust_api.rs"
+
+[[example]]
+name = "sshoq_tls_config_yaml_api"
+path = "examples/connection/sshoq_tls_config_yaml_api.rs"
+
+[[example]]
+name = "sshoq_low_level_handler_rust_api"
+path = "examples/connection/sshoq_low_level_handler_rust_api.rs"

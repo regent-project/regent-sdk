@@ -15,6 +15,7 @@ use tracing::{debug, error, info, trace, warn};
 use crate::LocalHostHandler;
 use crate::Ssh2AuthMethod;
 use crate::Ssh2HostHandler;
+use crate::SshoqHostHandler;
 use crate::WhichUser;
 use crate::error::RegentError;
 use crate::hosts::handlers::ConnectionMethod;
@@ -22,6 +23,7 @@ use crate::hosts::handlers::Handler;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::TargetUserKind;
 use crate::hosts::handlers::ssh2::Ssh2AuthReference;
+use crate::hosts::handlers::sshoq::{SshoqAuthReference, SshoqConnectionParams, SshoqTlsConfig};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::Privilege;
@@ -343,6 +345,120 @@ impl ManagedHostBuilder {
                                                 self.host_properties,
                                                 optional_secret_provider,
                                             )),
+                                            Err(details) => Err(details),
+                                        }
+                                    }
+                                    None => Err(RegentError::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
+                                }
+                            }
+                        }
+                    }
+                    ConnectionMethod::Sshoq(sshoq_auth_reference) => {
+                        let sshoq_tls = sshoq_auth_reference
+                            .tls_config
+                            .clone()
+                            .unwrap_or_default()
+                            .to_client_tls_config()?;
+                        match sshoq_auth_reference.auth_method {
+                            SshoqAuthReference::UsernamePassword(secret_reference) => {
+                                match &optional_secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret_typed::<Credentials>(&secret_reference)
+                                            .await
+                                        {
+                                            Ok(secret) => {
+                                                let mut params = SshoqConnectionParams::username_password(
+                                                    secret.inner(),
+                                                    sshoq_tls,
+                                                );
+                                                if let Some(p) = sshoq_auth_reference.path.clone() {
+                                                    params = params.with_path(&p);
+                                                }
+                                                Ok(ManagedHost::new(
+                                                    self.id,
+                                                    &self.endpoint,
+                                                    Handler::sshoq(SshoqHostHandler::NotConnected(
+                                                        params,
+                                                    )),
+                                                    self.host_vars,
+                                                    self.host_properties,
+                                                    optional_secret_provider,
+                                                ))
+                                            }
+                                            Err(details) => Err(details),
+                                        }
+                                    }
+                                    None => Err(RegentError::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
+                                }
+                            }
+                            SshoqAuthReference::Key(login_key_ref) => {
+                                match &optional_secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret_raw(login_key_ref.key_ref())
+                                            .await
+                                        {
+                                            Ok(secret) => {
+                                                let mut params = SshoqConnectionParams::key(
+                                                    LoginKey::from(
+                                                        login_key_ref.username().to_string(),
+                                                        secret.inner(),
+                                                    ),
+                                                    sshoq_tls,
+                                                );
+                                                if let Some(p) = sshoq_auth_reference.path.clone() {
+                                                    params = params.with_path(&p);
+                                                }
+                                                Ok(ManagedHost::new(
+                                                    self.id,
+                                                    &self.endpoint,
+                                                    Handler::sshoq(SshoqHostHandler::NotConnected(
+                                                        params,
+                                                    )),
+                                                    self.host_vars,
+                                                    self.host_properties,
+                                                    optional_secret_provider,
+                                                ))
+                                            }
+                                            Err(details) => Err(details),
+                                        }
+                                    }
+                                    None => Err(RegentError::WrongInitialization(format!(
+                                        "secret required to connect to host but secret_provider unset"
+                                    ))),
+                                }
+                            }
+                            SshoqAuthReference::BearerToken(secret_reference) => {
+                                match &optional_secret_provider {
+                                    Some(secret_provider) => {
+                                        match secret_provider
+                                            .get_secret_raw(&secret_reference)
+                                            .await
+                                        {
+                                            Ok(secret) => {
+                                                let mut params = SshoqConnectionParams::bearer_token(
+                                                    secret.inner(),
+                                                    sshoq_tls,
+                                                );
+                                                if let Some(p) = sshoq_auth_reference.path.clone() {
+                                                    params = params.with_path(&p);
+                                                }
+                                                Ok(ManagedHost::new(
+                                                    self.id,
+                                                    &self.endpoint,
+                                                    Handler::sshoq(SshoqHostHandler::NotConnected(
+                                                        params,
+                                                    )),
+                                                    self.host_vars,
+                                                    self.host_properties,
+                                                    optional_secret_provider,
+                                                ))
+                                            }
                                             Err(details) => Err(details),
                                         }
                                     }
