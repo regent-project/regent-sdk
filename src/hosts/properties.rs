@@ -53,8 +53,6 @@ impl HostProperties {
                             LinuxFlavor::Debian
                         } else if os_name.contains("Ubuntu") {
                             LinuxFlavor::Debian
-                        } else if os_name.contains("Arch") {
-                            LinuxFlavor::Arch
                         } else if os_name.contains("openSUSE") {
                             LinuxFlavor::Suse
                         } else {
