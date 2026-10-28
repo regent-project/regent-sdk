@@ -90,6 +90,7 @@
 //! - **[`attribute::shell`]**: Shell commands
 //! - **[`attribute::utilities`]**: Utilities (line in file, debug, ping)
 //! - **[`attribute::ai`]**: AI integration (Ollama)
+//! - **[`attribute::observability`]**: Telemetry agents (Fluent Bit, Prometheus Node Exporter, OpenTelemetry Collector, Grafana Alloy)
 //!
 
 pub mod error;

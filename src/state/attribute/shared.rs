@@ -134,6 +134,10 @@ pub struct OsRelease {
     pub version_id: String,
     /// `PRETTY_NAME`, for messages
     pub pretty_name: String,
+    /// `VERSION_CODENAME` (e.g. `noble`, `bookworm`), empty when absent
+    pub version_codename: String,
+    /// `UBUNTU_CODENAME`: the Ubuntu release an Ubuntu derivative (e.g. Linux Mint) is built on
+    pub ubuntu_codename: String,
 }
 
 impl OsRelease {
@@ -169,6 +173,8 @@ pub fn parse_os_release(content: &str) -> OsRelease {
             }
             "VERSION_ID" => os_release.version_id = value.to_string(),
             "PRETTY_NAME" => os_release.pretty_name = value.to_string(),
+            "VERSION_CODENAME" => os_release.version_codename = value.to_lowercase(),
+            "UBUNTU_CODENAME" => os_release.ubuntu_codename = value.to_lowercase(),
             _ => {}
         }
     }
@@ -708,20 +714,28 @@ pub fn parse_proc_modules(content: &str) -> Vec<String> {
         .collect()
 }
 
-/// Package family of the host, from `/etc/os-release`
-pub(crate) async fn host_package_family<Handler: HostHandler>(
+pub(crate) async fn host_os_release<Handler: HostHandler>(
     host_handler: &mut Handler,
     privilege: &Privilege,
-) -> Result<Option<PackageFamily>, RegentError> {
-    let os_release = parse_os_release(
+) -> Result<OsRelease, RegentError> {
+    Ok(parse_os_release(
         &query_output(
             host_handler,
             &quoted_command(&["cat", "/etc/os-release"]),
             privilege,
         )
         .await?,
-    );
-    Ok(package_family(&os_release))
+    ))
+}
+
+/// Package family of the host, from `/etc/os-release`
+pub(crate) async fn host_package_family<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    privilege: &Privilege,
+) -> Result<Option<PackageFamily>, RegentError> {
+    Ok(package_family(
+        &host_os_release(host_handler, privilege).await?,
+    ))
 }
 
 /// Download `url` to `destination` with curl, or wget if curl is missing

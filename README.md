@@ -159,6 +159,7 @@ Available attribute modules for defining expected state:
 - **[`shell`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/shell/index.html)**: Shell commands
 - **[`utilities`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/utilities/index.html)**: Utilities (line in file, debug, ping)
 - **[`ai`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/ai/index.html)**: AI integration (Ollama)
+- **[`observability`](https://docs.rs/regent-sdk/latest/regent_sdk/state/attribute/observability/index.html)**: Telemetry agents (Fluent Bit, Prometheus Node Exporter, OpenTelemetry Collector, Grafana Alloy)
 
 
 ## Use Cases

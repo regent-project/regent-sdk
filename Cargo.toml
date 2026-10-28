@@ -101,6 +101,22 @@ name = "host_health_observability_yaml_api"
 path = "examples/observability/host_health_observability_yaml_api.rs"
 
 [[example]]
+name = "inference_host_telemetry_rust_api"
+path = "examples/observability/inference_host_telemetry_rust_api.rs"
+
+[[example]]
+name = "inference_host_telemetry_yaml_api"
+path = "examples/observability/inference_host_telemetry_yaml_api.rs"
+
+[[example]]
+name = "grafana_alloy_agent_rust_api"
+path = "examples/observability/grafana_alloy_agent_rust_api.rs"
+
+[[example]]
+name = "grafana_alloy_agent_yaml_api"
+path = "examples/observability/grafana_alloy_agent_yaml_api.rs"
+
+[[example]]
 name = "aws_secrets_manager_rust_api"
 path = "examples/secrets/aws_secrets_manager_rust_api.rs"
 required-features = ["aws-secretsmanager"]

@@ -2,6 +2,7 @@ pub mod ai;
 pub mod container;
 pub mod gpu;
 pub mod network;
+pub mod observability;
 pub mod package;
 pub mod shared;
 pub mod shell;
@@ -66,6 +67,11 @@ use crate::state::attribute::network::dns::DnsApiCall;
 use crate::state::attribute::network::dns::DnsExpectedState;
 use crate::state::attribute::network::iptables::IptablesApiCall;
 use crate::state::attribute::network::iptables::IptablesExpectedState;
+use crate::state::attribute::observability::{
+    AlloyApiCall, AlloyExpectedState, FluentBitApiCall, FluentBitExpectedState,
+    NodeExporterApiCall, NodeExporterExpectedState, OtelCollectorApiCall,
+    OtelCollectorExpectedState,
+};
 use crate::state::attribute::package::apt::AptApiCall;
 use crate::state::attribute::package::apt::AptExpectedState;
 use crate::state::attribute::package::apt_repo::AptRepoApiCall;
@@ -163,6 +169,10 @@ impl Attribute {
                 AttributeDetail::NvidiaContainerToolkit(_) => "NvidiaContainerToolkit".to_string(),
                 AttributeDetail::AppleMps(_) => "AppleMps".to_string(),
                 AttributeDetail::Storage(_) => "Storage".to_string(),
+                AttributeDetail::FluentBit(_) => "FluentBit".to_string(),
+                AttributeDetail::NodeExporter(_) => "NodeExporter".to_string(),
+                AttributeDetail::OtelCollector(_) => "OtelCollector".to_string(),
+                AttributeDetail::Alloy(_) => "Alloy".to_string(),
             },
         }
     }
@@ -486,6 +496,44 @@ impl Attribute {
     ) -> Attribute {
         Attribute::from(AttributeDetail::Storage(details), privilege, name, None)
     }
+    pub fn fluentbit(
+        details: FluentBitExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::FluentBit(details), privilege, name, None)
+    }
+    pub fn node_exporter(
+        details: NodeExporterExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(
+            AttributeDetail::NodeExporter(details),
+            privilege,
+            name,
+            None,
+        )
+    }
+    pub fn otel_collector(
+        details: OtelCollectorExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(
+            AttributeDetail::OtelCollector(details),
+            privilege,
+            name,
+            None,
+        )
+    }
+    pub fn alloy(
+        details: AlloyExpectedState,
+        privilege: Privilege,
+        name: Option<String>,
+    ) -> Attribute {
+        Attribute::from(AttributeDetail::Alloy(details), privilege, name, None)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -519,6 +567,10 @@ pub enum AttributeDetail {
     NvidiaContainerToolkit(NvidiaContainerToolkitExpectedState),
     AppleMps(AppleMpsExpectedState),
     Storage(StorageExpectedState),
+    FluentBit(FluentBitExpectedState),
+    NodeExporter(NodeExporterExpectedState),
+    OtelCollector(OtelCollectorExpectedState),
+    Alloy(AlloyExpectedState),
 }
 
 impl AttributeDetail {
@@ -552,6 +604,10 @@ impl AttributeDetail {
             AttributeDetail::NvidiaContainerToolkit(details) => details.default_timeout(),
             AttributeDetail::AppleMps(details) => details.default_timeout(),
             AttributeDetail::Storage(details) => details.default_timeout(),
+            AttributeDetail::FluentBit(details) => details.default_timeout(),
+            AttributeDetail::NodeExporter(details) => details.default_timeout(),
+            AttributeDetail::OtelCollector(details) => details.default_timeout(),
+            AttributeDetail::Alloy(details) => details.default_timeout(),
         }
     }
 
@@ -864,6 +920,46 @@ impl AttributeDetail {
                     .await
             }
             AttributeDetail::Storage(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::FluentBit(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::NodeExporter(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::OtelCollector(expected_state_criteria) => {
+                expected_state_criteria
+                    .assess_compliance(
+                        host_handler,
+                        host_properties,
+                        privilege,
+                        optional_secret_provider,
+                    )
+                    .await
+            }
+            AttributeDetail::Alloy(expected_state_criteria) => {
                 expected_state_criteria
                     .assess_compliance(
                         host_handler,
@@ -1304,6 +1400,58 @@ impl AttributeDetail {
                                 }
                             }
                         }
+                        Remediation::FluentBit(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::NodeExporter(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::OtelCollector(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
+                        Remediation::Alloy(attribute_api_call) => {
+                            match attribute_api_call
+                                .call(host_handler, host_properties, optional_secret_provider)
+                                .await
+                            {
+                                Ok(internal_api_call_outcome) => {
+                                    (remediation_ref.clone(), internal_api_call_outcome)
+                                }
+                                Err(details) => {
+                                    return Err(details);
+                                }
+                            }
+                        }
                     };
 
                     actions_taken.push((remediation, internal_api_call_outcome.clone()));
@@ -1362,6 +1510,10 @@ impl AttributeDetail {
             }
             AttributeDetail::AppleMps(expected_state_block) => expected_state_block.check(),
             AttributeDetail::Storage(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::FluentBit(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::NodeExporter(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::OtelCollector(expected_state_block) => expected_state_block.check(),
+            AttributeDetail::Alloy(expected_state_block) => expected_state_block.check(),
         }
     }
 }
@@ -1396,6 +1548,10 @@ pub enum Remediation {
     NvidiaContainerToolkit(NvidiaContainerToolkitApiCall),
     AppleMps(AppleMpsApiCall),
     Storage(StorageApiCall),
+    FluentBit(FluentBitApiCall),
+    NodeExporter(NodeExporterApiCall),
+    OtelCollector(OtelCollectorApiCall),
+    Alloy(AlloyApiCall),
 }
 
 impl std::fmt::Debug for Remediation {
@@ -1429,6 +1585,10 @@ impl std::fmt::Debug for Remediation {
             Remediation::NvidiaContainerToolkit(api_call) => write!(f, "{}", api_call.display()),
             Remediation::AppleMps(api_call) => write!(f, "{}", api_call.display()),
             Remediation::Storage(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::FluentBit(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::NodeExporter(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::OtelCollector(api_call) => write!(f, "{}", api_call.display()),
+            Remediation::Alloy(api_call) => write!(f, "{}", api_call.display()),
         }
     }
 }
@@ -1606,6 +1766,26 @@ impl Remediation {
                     .call(host_handler, host_properties, optional_secret_provider)
                     .await
             }
+            Remediation::FluentBit(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::NodeExporter(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::OtelCollector(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
+            Remediation::Alloy(api_call) => {
+                api_call
+                    .call(host_handler, host_properties, optional_secret_provider)
+                    .await
+            }
         }
     }
 
@@ -1639,6 +1819,10 @@ impl Remediation {
             Remediation::NvidiaContainerToolkit(api_call) => api_call.display(),
             Remediation::AppleMps(api_call) => api_call.display(),
             Remediation::Storage(api_call) => api_call.display(),
+            Remediation::FluentBit(api_call) => api_call.display(),
+            Remediation::NodeExporter(api_call) => api_call.display(),
+            Remediation::OtelCollector(api_call) => api_call.display(),
+            Remediation::Alloy(api_call) => api_call.display(),
         }
     }
 }
