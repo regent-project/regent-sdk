@@ -41,12 +41,12 @@ Attributes:
   - Name: Ollama is installed with the Qwen2.5 1.5B model
     Privilege: !WithSudo
     Detail: !Ollama
-      State: !Present
-        ApiConfig:
-          Host: 0.0.0.0:11434
-        Models:
-          - Name: qwen2.5:1.5b
-            State: Present
+      State: Present
+      ApiConfig:
+        Host: 0.0.0.0:11434
+      Models:
+        - Name: qwen2.5:1.5b
+          State: Present
     Timeout: 30m
   - Name: Ollama service is running and enabled at boot
     Privilege: !WithSudo
@@ -75,7 +75,7 @@ Attributes:
     Privilege: !WithSudo
     Detail: !Storage
       Target: !MountPoint /var/lib/docker
-      Threshold: !Percent 95
+      Threshold: !PercentUsed 95
       Cleanup:
         - docker system prune -af
         - journalctl --vacuum-time=3d

@@ -12,13 +12,13 @@
 //! ## Rust API
 //!
 //! ```no_run
-//! use regent_sdk::state::attribute::utilities::storage::{
+//! use regent_sdk::state::attribute::system::storage::{
 //!     StorageExpectedState, Threshold,
 //! };
 //! use regent_sdk::{Attribute, ExpectedState, Privilege};
 //!
 //! // Watch root filesystem: trigger cleanup when usage exceeds 95%
-//! let mut storage = StorageExpectedState::watch_filesystem("/", Threshold::Percent(95));
+//! let mut storage = StorageExpectedState::watch_filesystem("/", Threshold::PercentUsed(95));
 //! storage.with_cleanup(vec![
 //!     "docker system prune -af".to_string(),
 //!     "journalctl --vacuum-time=3d".to_string(),
@@ -44,7 +44,7 @@
 //!     Privilege: !WithSudo
 //!     Detail: !Storage
 //!       Target: !FileSystem /
-//!       Threshold: !Percent 95
+//!       Threshold: !PercentUsed 95
 //!       Cleanup:
 //!         - docker system prune -af
 //!         - journalctl --vacuum-time=3d
@@ -500,7 +500,7 @@ mod tests {
     fn parsing_storage_module_block_from_yaml_str() {
         let raw = "---
 Target: !FileSystem /
-Threshold: !Percent 95
+Threshold: !PercentUsed 95
 Cleanup:
   - docker system prune -af
   - journalctl --vacuum-time=3d

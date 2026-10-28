@@ -3,7 +3,7 @@ use regent_sdk::attribute::ai::ollama::{OllamaApiConfig, OllamaExpectedState, Ol
 use regent_sdk::attribute::gpu::nvidia_driver::{NvidiaDriverConfig, NvidiaDriverExpectedState};
 use regent_sdk::attribute::network::iptables::IptablesExpectedState;
 use regent_sdk::attribute::system::service::ServiceExpectedState;
-use regent_sdk::attribute::utilities::storage::{StorageExpectedState, Threshold};
+use regent_sdk::attribute::system::storage::{StorageExpectedState, Threshold};
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::ssh2::Ssh2Auth;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
@@ -51,7 +51,7 @@ async fn main() {
     let port_is_open = IptablesExpectedState::allow_tcp_port(11434, Some(1));
 
     let mut docker_storage_watch =
-        StorageExpectedState::watch_mountpoint("/var/lib/docker", Threshold::Percent(95));
+        StorageExpectedState::watch_mountpoint("/var/lib/docker", Threshold::PercentUsed(95));
     docker_storage_watch.with_cleanup(vec![
         "docker system prune -af".to_string(),
         "journalctl --vacuum-time=3d".to_string(),
