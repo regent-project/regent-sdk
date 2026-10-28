@@ -645,7 +645,13 @@ mod tests {
 
     #[test]
     fn test_parse_login_key_from_content() {
-        let key_content = std::fs::read_to_string("ssh/private.key").unwrap();
+        use russh::keys::ssh_key::{LineEnding, PrivateKey, private::Ed25519Keypair};
+
+        // Throwaway key: a fixed seed keeps the test free of key files and randomness
+        let key_content = PrivateKey::from(Ed25519Keypair::from_seed(&[7; 32]))
+            .to_openssh(LineEnding::LF)
+            .unwrap()
+            .to_string();
         let login_key = LoginKey::from("testuser".to_string(), key_content);
         assert!(parse_login_key(&login_key).is_ok());
     }
