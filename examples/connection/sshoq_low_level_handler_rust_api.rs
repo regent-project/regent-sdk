@@ -37,10 +37,8 @@ async fn main() -> Result<(), RegentError> {
     let tls = shhoq::ClientTlsConfig::with_system_roots()
         .with_known_hosts_file("/etc/regent/sshoq_known_hosts");
 
-    let _params_custom_tls = SshoqConnectionParams::username_password(
-        Credentials::from("alice", "secret"),
-        tls,
-    );
+    let _params_custom_tls =
+        SshoqConnectionParams::username_password(Credentials::from("alice", "secret"), tls);
 
     // ── Full constructor ──
 

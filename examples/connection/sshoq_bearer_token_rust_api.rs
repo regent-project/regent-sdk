@@ -32,15 +32,14 @@ async fn main() {
             SshoqAuth::bearer_token(SecretReference::from_provider(
                 "/path/to/oidc/token",
                 &files,
-            ))
-            // Uncomment to use a custom SSHOQ server endpoint path:
-            // .with_path("/my-sshoq-endpoint")
-            //
-            // TLS configuration (defaults to SystemRoots):
-            // .with_tls_config(SshoqTlsConfig::insecure())
-            // .with_tls_config(SshoqTlsConfig::known_hosts_file(
-            //     "/etc/regent/sshoq_known_hosts",
-            // ))
+            )), // Uncomment to use a custom SSHOQ server endpoint path:
+                // .with_path("/my-sshoq-endpoint")
+                //
+                // TLS configuration (defaults to SystemRoots):
+                // .with_tls_config(SshoqTlsConfig::insecure())
+                // .with_tls_config(SshoqTlsConfig::known_hosts_file(
+                //     "/etc/regent/sshoq_known_hosts",
+                // ))
         )),
     )
     .build(Some(secrets_providers_pool))
@@ -59,10 +58,7 @@ async fn main() {
         ))
         .build();
 
-    match managed_host
-        .assess_compliance(&expected_state, true)
-        .await
-    {
+    match managed_host.assess_compliance(&expected_state, true).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");

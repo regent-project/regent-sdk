@@ -39,22 +39,21 @@ async fn main() {
     // ── Chainable customizers ──
 
     // Custom endpoint path only
-    let _auth_path = SshoqAuth::username_password(creds_ref.clone())
-        .with_path("/my-sshoq-endpoint");
+    let _auth_path =
+        SshoqAuth::username_password(creds_ref.clone()).with_path("/my-sshoq-endpoint");
 
     // Insecure TLS (testing only)
-    let _auth_insecure = SshoqAuth::username_password(creds_ref.clone())
-        .with_tls_config(SshoqTlsConfig::insecure());
+    let _auth_insecure =
+        SshoqAuth::username_password(creds_ref.clone()).with_tls_config(SshoqTlsConfig::insecure());
 
     // Known hosts file: trust system roots + pinned certificates
-    let _auth_known_hosts = SshoqAuth::username_password(creds_ref.clone())
-        .with_tls_config(SshoqTlsConfig::known_hosts_file(
-            "/etc/regent/sshoq_known_hosts",
-        ));
+    let _auth_known_hosts = SshoqAuth::username_password(creds_ref.clone()).with_tls_config(
+        SshoqTlsConfig::known_hosts_file("/etc/regent/sshoq_known_hosts"),
+    );
 
     // Custom: known_hosts file + additional DER-encoded root certificates
-    let _auth_custom = SshoqAuth::username_password(creds_ref.clone())
-        .with_tls_config(SshoqTlsConfig::custom(
+    let _auth_custom =
+        SshoqAuth::username_password(creds_ref.clone()).with_tls_config(SshoqTlsConfig::custom(
             Some("/etc/regent/sshoq_known_hosts"),
             vec![
                 "/etc/regent/my-internal-ca.der",

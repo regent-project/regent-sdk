@@ -375,9 +375,7 @@ impl OllamaExpectedState {
             // Install with the requested version, or latest when unspecified
             match version {
                 Some(OllamaVersion::SpecificVersion(v)) => {
-                    api_calls.push(OllamaModuleInternalApiCall::SetVersion {
-                        version: v.clone(),
-                    });
+                    api_calls.push(OllamaModuleInternalApiCall::SetVersion { version: v.clone() });
                 }
                 _ => {
                     api_calls.push(OllamaModuleInternalApiCall::Install);
@@ -438,8 +436,7 @@ impl OllamaExpectedState {
                     (OllamaVersion::Latest, Some(current)) => {
                         match latest_ollama_version(host_handler).await? {
                             Some(latest)
-                                if normalize_version(&current)
-                                    == normalize_version(&latest) =>
+                                if normalize_version(&current) == normalize_version(&latest) =>
                             {
                                 None
                             }
@@ -937,13 +934,9 @@ async fn install<Handler: HostHandler>(
         Some(_) => {
             // When a specific version was requested, verify it was installed
             if let Some(expected) = version {
-                let result = query(
-                    host_handler,
-                    &ollama_version_command(),
-                    &Privilege::None,
-                )
-                .await
-                .map_err(as_remediation_error)?;
+                let result = query(host_handler, &ollama_version_command(), &Privilege::None)
+                    .await
+                    .map_err(as_remediation_error)?;
                 match parse_ollama_version(&result.stdout) {
                     Some(installed)
                         if normalize_version(&installed) == normalize_version(expected) =>
@@ -1184,12 +1177,8 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for OllamaApiCall {
 
         let privilege = &self.privilege;
         match &self.api_call {
-            OllamaModuleInternalApiCall::Install => {
-                install(host_handler, privilege, None).await
-            }
-            OllamaModuleInternalApiCall::Upgrade => {
-                install(host_handler, privilege, None).await
-            }
+            OllamaModuleInternalApiCall::Install => install(host_handler, privilege, None).await,
+            OllamaModuleInternalApiCall::Upgrade => install(host_handler, privilege, None).await,
             OllamaModuleInternalApiCall::SetVersion { version } => {
                 install(host_handler, privilege, Some(version)).await
             }
@@ -1690,10 +1679,7 @@ Environment=\"OLLAMA_GPU_LAYERS=-1\"
 
     #[test]
     fn github_tag_is_parsed() {
-        assert_eq!(
-            parse_github_tag("v0.5.4\n"),
-            Some("v0.5.4".to_string())
-        );
+        assert_eq!(parse_github_tag("v0.5.4\n"), Some("v0.5.4".to_string()));
         assert_eq!(parse_github_tag("v0.5.4"), Some("v0.5.4".to_string()));
         assert_eq!(parse_github_tag(""), None);
         assert_eq!(parse_github_tag("  \n"), None);
@@ -1730,8 +1716,7 @@ Environment=\"OLLAMA_GPU_LAYERS=-1\"
 
     #[test]
     fn version_builder_methods_set_the_version_field() {
-        let state = OllamaExpectedState::present_with_default_config()
-            .with_latest_version();
+        let state = OllamaExpectedState::present_with_default_config().with_latest_version();
         assert_eq!(
             state,
             OllamaExpectedState::Present {
@@ -1741,8 +1726,8 @@ Environment=\"OLLAMA_GPU_LAYERS=-1\"
             }
         );
 
-        let state = OllamaExpectedState::present_with_default_config()
-            .with_specific_version("0.5.4");
+        let state =
+            OllamaExpectedState::present_with_default_config().with_specific_version("0.5.4");
         assert_eq!(
             state,
             OllamaExpectedState::Present {
@@ -1783,8 +1768,8 @@ Environment=\"OLLAMA_GPU_LAYERS=-1\"
 
     #[test]
     fn installation_with_latest_version_uses_install() {
-        let expected_state = OllamaExpectedState::present_with_default_config()
-            .with_latest_version();
+        let expected_state =
+            OllamaExpectedState::present_with_default_config().with_latest_version();
         assert_eq!(
             expected_state.installation_api_calls(),
             vec![
@@ -1824,10 +1809,8 @@ Environment=\"OLLAMA_GPU_LAYERS=-1\"
             "set ollama version to 0.5.4"
         );
 
-        let api_call = OllamaApiCall::from(
-            OllamaModuleInternalApiCall::Upgrade,
-            Privilege::WithSudo,
-        );
+        let api_call =
+            OllamaApiCall::from(OllamaModuleInternalApiCall::Upgrade, Privilege::WithSudo);
         assert_eq!(api_call.display(), "Upgrade ollama to the latest version");
 
         let api_call = OllamaApiCall::from(

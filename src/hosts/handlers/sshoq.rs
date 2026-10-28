@@ -138,9 +138,9 @@ impl SshoqTlsConfig {
         match self {
             SshoqTlsConfig::SystemRoots => Ok(ClientTlsConfig::with_system_roots()),
             SshoqTlsConfig::Insecure => Ok(ClientTlsConfig::insecure()),
-            SshoqTlsConfig::KnownHostsFile(path) => Ok(
-                ClientTlsConfig::with_system_roots().with_known_hosts_file(path.clone()),
-            ),
+            SshoqTlsConfig::KnownHostsFile(path) => {
+                Ok(ClientTlsConfig::with_system_roots().with_known_hosts_file(path.clone()))
+            }
             SshoqTlsConfig::Custom {
                 known_hosts_file,
                 additional_roots,
@@ -320,10 +320,7 @@ impl HostHandler for SshoqHostHandler {
                 .unwrap_or_else(|| DEFAULT_SSHOQ_URL_PATH.to_string());
 
             let config = Config::new(username, hostname, port, &url_path).map_err(|e| {
-                RegentError::FailedInitialization(format!(
-                    "Failed to build SSHOQ config: {:?}",
-                    e
-                ))
+                RegentError::FailedInitialization(format!("Failed to build SSHOQ config: {:?}", e))
             })?;
 
             let client = match timeout(
@@ -657,7 +654,9 @@ impl SshoqAuth {
 
 /// Build the shhoq `AuthMethod` list and extract the username from a resolved
 /// [`SshoqAuthMethod`].
-fn build_auth_methods(auth_method: &SshoqAuthMethod) -> Result<(String, Vec<AuthMethod>), RegentError> {
+fn build_auth_methods(
+    auth_method: &SshoqAuthMethod,
+) -> Result<(String, Vec<AuthMethod>), RegentError> {
     match auth_method {
         SshoqAuthMethod::UsernamePassword(credentials) => {
             let username = credentials.username().to_string();
@@ -916,10 +915,7 @@ mod tests {
     #[test]
     fn test_tls_builder_custom() {
         assert_eq!(
-            SshoqTlsConfig::custom(
-                Some("/etc/regent/known_hosts"),
-                vec!["/etc/regent/ca.der"],
-            ),
+            SshoqTlsConfig::custom(Some("/etc/regent/known_hosts"), vec!["/etc/regent/ca.der"],),
             SshoqTlsConfig::Custom {
                 known_hosts_file: Some("/etc/regent/known_hosts".to_string()),
                 additional_roots: vec!["/etc/regent/ca.der".to_string()],
@@ -983,7 +979,10 @@ mod tests {
     fn test_base64_decode_with_newlines() {
         // base64 output from the `base64` command wraps at 76 chars;
         // the caller is expected to strip whitespace before decoding
-        let input: String = "aGVs\nbG8=".chars().filter(|c| !c.is_whitespace()).collect();
+        let input: String = "aGVs\nbG8="
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
         let decoded = base64_decode(&input).unwrap();
         assert_eq!(decoded, b"hello");
     }

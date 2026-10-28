@@ -370,10 +370,11 @@ impl ManagedHostBuilder {
                                             .await
                                         {
                                             Ok(secret) => {
-                                                let mut params = SshoqConnectionParams::username_password(
-                                                    secret.inner(),
-                                                    sshoq_tls,
-                                                );
+                                                let mut params =
+                                                    SshoqConnectionParams::username_password(
+                                                        secret.inner(),
+                                                        sshoq_tls,
+                                                    );
                                                 if let Some(p) = sshoq_auth_reference.path.clone() {
                                                     params = params.with_path(&p);
                                                 }
@@ -441,10 +442,11 @@ impl ManagedHostBuilder {
                                             .await
                                         {
                                             Ok(secret) => {
-                                                let mut params = SshoqConnectionParams::bearer_token(
-                                                    secret.inner(),
-                                                    sshoq_tls,
-                                                );
+                                                let mut params =
+                                                    SshoqConnectionParams::bearer_token(
+                                                        secret.inner(),
+                                                        sshoq_tls,
+                                                    );
                                                 if let Some(p) = sshoq_auth_reference.path.clone() {
                                                     params = params.with_path(&p);
                                                 }

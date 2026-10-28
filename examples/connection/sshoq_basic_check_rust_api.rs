@@ -66,13 +66,12 @@ async fn main() {
             SshoqAuth::username_password(SecretReference::from_provider(
                 "/path/to/credentials/secret",
                 &files,
-            ))
-            // Chainable customizers:
-            // .with_path("/my-sshoq-endpoint")
-            // .with_tls_config(SshoqTlsConfig::insecure())
-            // .with_tls_config(SshoqTlsConfig::known_hosts_file(
-            //     "/etc/regent/sshoq_known_hosts",
-            // ))
+            )), // Chainable customizers:
+                // .with_path("/my-sshoq-endpoint")
+                // .with_tls_config(SshoqTlsConfig::insecure())
+                // .with_tls_config(SshoqTlsConfig::known_hosts_file(
+                //     "/etc/regent/sshoq_known_hosts",
+                // ))
         )),
     )
     .build(Some(secrets_providers_pool))
@@ -91,10 +90,7 @@ async fn main() {
         ))
         .build();
 
-    match managed_host
-        .assess_compliance(&expected_state, true)
-        .await
-    {
+    match managed_host.assess_compliance(&expected_state, true).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");

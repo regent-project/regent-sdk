@@ -60,13 +60,9 @@ Attributes:
       Enabled: true
 "#;
 
-    let expected_state =
-        ExpectedState::from_raw_yaml(expected_state_description).unwrap();
+    let expected_state = ExpectedState::from_raw_yaml(expected_state_description).unwrap();
 
-    match managed_host
-        .assess_compliance(&expected_state, true)
-        .await
-    {
+    match managed_host.assess_compliance(&expected_state, true).await {
         Ok(compliance_status) => {
             if compliance_status.is_already_compliant() {
                 println!("Congratulations, host is already compliant !");
