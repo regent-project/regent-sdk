@@ -6,7 +6,7 @@ use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
 use regent_sdk::{Attribute, ExpectedState};
-use regent_sdk::{Privilege, RegentError};
+use regent_sdk::Privilege;
 
 #[tokio::main]
 async fn main() {
@@ -54,7 +54,7 @@ fn create_a_regent_task() -> String {
 async fn run_a_given_regent_task(
     raw_regent_task: String,
     secret_provider: Option<SecretProvidersPool>,
-) -> Result<RegentTaskResult, RegentError> {
+) -> RegentTaskResult {
     let mut regent_task = serde_json::from_str::<RegentTask>(&raw_regent_task).unwrap();
 
     regent_task.run(secret_provider).await
