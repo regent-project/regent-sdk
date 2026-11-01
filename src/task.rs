@@ -26,6 +26,10 @@ use serde::{Deserialize, Serialize};
 ///
 /// # Example
 /// ```no_run
+/// # use regent_sdk::task::{RegentTask, Job};
+/// # use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+/// # use regent_sdk::state::ExpectedState;
+/// # use regent_sdk::hosts::handlers::{ConnectionMethod, TargetUser};
 /// let host_builder = ManagedHostBuilder::new(
 ///     "server-01",
 ///     "192.168.1.100:22",
