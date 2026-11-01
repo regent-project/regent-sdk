@@ -4,6 +4,7 @@
 //! within the Regent SDK. All errors implement `std::error::Error` and
 //! provide detailed context for troubleshooting.
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// The primary error type for Regent SDK operations.
@@ -38,7 +39,7 @@ use thiserror::Error;
 /// - `AttributeError`: Issue with an attribute definition or execution
 /// - `TimeOutReached`: Operation timed out
 ///
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error, Clone, Serialize, Deserialize)]
 pub enum RegentError {
     #[error("Failure to find group content")]
     FailureToFindGroupContent,
