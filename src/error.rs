@@ -38,6 +38,8 @@ use thiserror::Error;
 /// - `SecretsIssue`: Problem with secret management
 /// - `AttributeError`: Issue with an attribute definition or execution
 /// - `TimeOutReached`: Operation timed out
+/// - `HostBusy`: The host lock could not be acquired in time (another operation runs on the host)
+/// - `HostLockUnavailable`: The host lock could not be taken at all (e.g. `flock` missing)
 ///
 #[derive(Debug, Error, Clone, Serialize, Deserialize)]
 pub enum RegentError {
@@ -116,4 +118,10 @@ pub enum RegentError {
 
     #[error("Incompatible host: '{0}'")]
     IncompatibleHost(String),
+
+    #[error("Host busy: '{0}'")]
+    HostBusy(String),
+
+    #[error("Host lock unavailable: '{0}'")]
+    HostLockUnavailable(String),
 }

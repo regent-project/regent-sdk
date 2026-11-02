@@ -1,6 +1,7 @@
 pub mod command;
 pub mod handlers;
 pub mod inventory;
+pub mod lock;
 pub mod managed_host;
 pub mod privilege;
 pub mod properties;

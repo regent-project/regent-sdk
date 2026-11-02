@@ -20,6 +20,7 @@ use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::handlers::localhost::WhichUser;
+use crate::hosts::lock::{self, HostLock, HostLockMode, HostLockSettings, RemoteLockProgress};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::LoginKeyRef;
@@ -532,6 +533,72 @@ impl HostHandler for Ssh2HostHandler {
                         Ok(file_payload)
                     }
                     Err(e) => Err(RegentError::FailureToEstablishConnection(e.to_string())),
+                }
+            }
+        }
+    }
+
+    async fn acquire_host_lock(
+        &mut self,
+        settings: &HostLockSettings,
+        mode: HostLockMode,
+    ) -> Result<HostLock, RegentError> {
+        match self {
+            Ssh2HostHandler::NotConnected(_auth_method) => Err(RegentError::NotConnectedToHost),
+            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+                let mut channel = match session_handle.channel_open_session().await {
+                    Ok(channel) => channel,
+                    Err(e) => {
+                        return Err(RegentError::FailureToEstablishConnection(e.to_string()));
+                    }
+                };
+
+                // Run as the login user: taking the lock needs no privilege escalation
+                if let Err(details) = channel
+                    .exec(true, lock::remote_lock_command(settings, mode))
+                    .await
+                {
+                    return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
+                }
+
+                let mut output = String::new();
+                let wait_for_lock = async {
+                    loop {
+                        let Some(msg) = channel.wait().await else {
+                            return Err(RegentError::HostLockUnavailable(format!(
+                                "lock channel closed: {}",
+                                output.trim()
+                            )));
+                        };
+                        match msg {
+                            ChannelMsg::Data { ref data } => {
+                                output.push_str(&String::from_utf8_lossy(data));
+                                if let RemoteLockProgress::Locked = lock::remote_progress(&output) {
+                                    return Ok(());
+                                }
+                            }
+                            ChannelMsg::ExitStatus { exit_status } => {
+                                return Err(lock::remote_exit_error(
+                                    settings,
+                                    mode,
+                                    exit_status.into(),
+                                    &output,
+                                ));
+                            }
+                            _ => {}
+                        }
+                    }
+                };
+
+                match timeout(lock::remote_answer_timeout(settings, mode), wait_for_lock).await {
+                    Ok(Ok(())) => Ok(HostLock::ssh2(channel)),
+                    Ok(Err(details)) => Err(details),
+                    Err(_elapsed) => {
+                        let _ = channel.close().await;
+                        Err(RegentError::HostLockUnavailable(
+                            "no answer from the lock command".to_string(),
+                        ))
+                    }
                 }
             }
         }

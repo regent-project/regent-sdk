@@ -105,6 +105,7 @@ pub use hosts::handlers::ssh2::{Ssh2AuthMethod, Ssh2HostHandler};
 pub use hosts::handlers::sshoq::{SshoqAuthMethod, SshoqHostHandler, SshoqTlsConfig};
 pub use hosts::handlers::{ConnectionMethod, TargetUser};
 pub use hosts::inventory::Inventory;
+pub use hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 pub use hosts::managed_host::{ManagedHost, ManagedHostBuilder};
 pub use hosts::privilege::Privilege;
 pub use secrets::{SecretProvider, SecretProvidersPoolBuilder};

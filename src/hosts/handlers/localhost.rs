@@ -7,6 +7,7 @@
 use crate::error::RegentError;
 use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::HostHandler;
+use crate::hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
@@ -213,6 +214,14 @@ impl HostHandler for LocalHostHandler {
                 return Err(RegentError::FailureToRunCommand(format!("{:?}", details)));
             }
         }
+    }
+
+    async fn acquire_host_lock(
+        &mut self,
+        settings: &HostLockSettings,
+        mode: HostLockMode,
+    ) -> Result<HostLock, RegentError> {
+        crate::hosts::lock::acquire_local(settings, mode).await
     }
 }
 

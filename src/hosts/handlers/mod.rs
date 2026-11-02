@@ -16,6 +16,7 @@ use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::ssh2::Ssh2Auth;
 use crate::hosts::handlers::sshoq::SshoqAuth;
+use crate::hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
@@ -192,6 +193,14 @@ pub trait HostHandler: Sized {
 
     /// Retrieve the contents of a file from the host.
     async fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError>;
+
+    /// Acquire the host lock (see [`crate::hosts::lock`]), waiting at most the
+    /// mode's timeout before failing with [`RegentError::HostBusy`].
+    async fn acquire_host_lock(
+        &mut self,
+        settings: &HostLockSettings,
+        mode: HostLockMode,
+    ) -> Result<HostLock, RegentError>;
 }
 
 /// Enum that can hold any type of host handler.
@@ -354,6 +363,18 @@ impl HostHandler for Handler {
             Handler::LocalHost(handler) => handler.get_file(path).await,
             Handler::Ssh2(handler) => handler.get_file(path).await,
             Handler::Sshoq(handler) => handler.get_file(path).await,
+        }
+    }
+
+    async fn acquire_host_lock(
+        &mut self,
+        settings: &HostLockSettings,
+        mode: HostLockMode,
+    ) -> Result<HostLock, RegentError> {
+        match self {
+            Handler::LocalHost(handler) => handler.acquire_host_lock(settings, mode).await,
+            Handler::Ssh2(handler) => handler.acquire_host_lock(settings, mode).await,
+            Handler::Sshoq(handler) => handler.acquire_host_lock(settings, mode).await,
         }
     }
 }

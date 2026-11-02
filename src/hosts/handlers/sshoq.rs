@@ -22,7 +22,7 @@ use tokio::time::{Duration, timeout};
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
 
-use shhoq::{AuthMethod, Client, ClientTlsConfig, Config};
+use shhoq::{AuthMethod, Client, ClientTlsConfig, Config, SessionEvent};
 
 use crate::error::RegentError;
 use crate::hosts::command::CommandResult;
@@ -30,6 +30,7 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::shell_quote;
+use crate::hosts::lock::{self, HostLock, HostLockMode, HostLockSettings, RemoteLockProgress};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::LoginKeyRef;
@@ -478,6 +479,87 @@ impl HostHandler for SshoqHostHandler {
                         path.display(),
                         e
                     ))),
+                }
+            }
+        }
+    }
+
+    async fn acquire_host_lock(
+        &mut self,
+        settings: &HostLockSettings,
+        mode: HostLockMode,
+    ) -> Result<HostLock, RegentError> {
+        match self {
+            SshoqHostHandler::NotConnected(_) => Err(RegentError::NotConnectedToHost),
+            SshoqHostHandler::Connected(_params, client) => {
+                let session = match client.open_session().await {
+                    Ok(session) => session,
+                    Err(e) => {
+                        return Err(RegentError::FailureToEstablishConnection(format!(
+                            "SSHOQ session opening failed: {:?}",
+                            e
+                        )));
+                    }
+                };
+
+                // Run as the login user: taking the lock needs no privilege escalation
+                if let Err(e) = session
+                    .exec(&lock::remote_lock_command(settings, mode))
+                    .await
+                {
+                    return Err(RegentError::FailureToRunCommand(format!(
+                        "SSHOQ command execution failed: {:?}",
+                        e
+                    )));
+                }
+
+                let mut output = String::new();
+                let wait_for_lock = async {
+                    loop {
+                        match session.next_event().await {
+                            Ok(Some(SessionEvent::Data(data) | SessionEvent::Stderr(data))) => {
+                                output.push_str(&String::from_utf8_lossy(&data));
+                                if let RemoteLockProgress::Locked = lock::remote_progress(&output) {
+                                    return Ok(());
+                                }
+                            }
+                            Ok(Some(SessionEvent::ExitStatus(status))) => {
+                                return Err(lock::remote_exit_error(
+                                    settings,
+                                    mode,
+                                    status.status_code as i64,
+                                    &output,
+                                ));
+                            }
+                            Ok(Some(SessionEvent::ExitSignal(signal))) => {
+                                return Err(RegentError::HostLockUnavailable(format!(
+                                    "lock command killed by signal {}",
+                                    signal.signal
+                                )));
+                            }
+                            Ok(Some(SessionEvent::Request(_))) => {}
+                            Ok(None) => {
+                                return Err(RegentError::HostLockUnavailable(format!(
+                                    "lock session closed: {}",
+                                    output.trim()
+                                )));
+                            }
+                            Err(e) => {
+                                return Err(RegentError::HostLockUnavailable(format!(
+                                    "lock session error: {:?}",
+                                    e
+                                )));
+                            }
+                        }
+                    }
+                };
+
+                match timeout(lock::remote_answer_timeout(settings, mode), wait_for_lock).await {
+                    Ok(Ok(())) => Ok(HostLock::sshoq(session)),
+                    Ok(Err(details)) => Err(details),
+                    Err(_elapsed) => Err(RegentError::HostLockUnavailable(
+                        "no answer from the lock command".to_string(),
+                    )),
                 }
             }
         }

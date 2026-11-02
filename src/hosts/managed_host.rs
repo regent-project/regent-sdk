@@ -24,6 +24,7 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::TargetUserKind;
 use crate::hosts::handlers::ssh2::Ssh2AuthReference;
 use crate::hosts::handlers::sshoq::{SshoqAuthReference, SshoqConnectionParams, SshoqTlsConfig};
+use crate::hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::Privilege;
@@ -119,6 +120,14 @@ pub struct ManagedHostBuilder {
     /// These variables are available during template rendering and can be used
     /// to customize attribute behavior per host.
     pub host_vars: Option<HashMap<String, String>>,
+    /// Host lock settings (see [`crate::hosts::lock`]). Enabled with default
+    /// settings when absent; `null` disables locking.
+    #[serde(default = "default_host_lock")]
+    host_lock: Option<HostLockSettings>,
+}
+
+fn default_host_lock() -> Option<HostLockSettings> {
+    Some(HostLockSettings::default())
 }
 
 impl ManagedHostBuilder {
@@ -143,11 +152,24 @@ impl ManagedHostBuilder {
             host_connection_method: connection_method,
             host_properties: None,
             host_vars: None,
+            host_lock: default_host_lock(),
         }
     }
 
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Set the host lock settings; `None` disables locking.
+    ///
+    /// Every process working on a host must use the same lock path.
+    pub fn set_host_lock(&mut self, host_lock: Option<HostLockSettings>) {
+        self.host_lock = host_lock;
+    }
+
+    /// The host lock settings (`None`: locking disabled).
+    pub fn host_lock(&self) -> Option<&HostLockSettings> {
+        self.host_lock.as_ref()
     }
 
     /// Set the connection method for this host.
@@ -227,6 +249,16 @@ impl ManagedHostBuilder {
     }
 
     pub async fn build(
+        self,
+        optional_secret_provider: Option<SecretProvidersPool>,
+    ) -> Result<ManagedHost, RegentError> {
+        let host_lock = self.host_lock.clone();
+        let mut managed_host = self.build_without_lock(optional_secret_provider).await?;
+        managed_host.set_host_lock(host_lock);
+        Ok(managed_host)
+    }
+
+    async fn build_without_lock(
         self,
         optional_secret_provider: Option<SecretProvidersPool>,
     ) -> Result<ManagedHost, RegentError> {
@@ -533,6 +565,8 @@ pub struct ManagedHost {
     /// This tracks whether the host is connected, disconnected, or in an unknown state,
     /// enabling proper idempotency for connection/disconnection operations.
     connection_state: ConnectionState,
+    /// Host lock settings; `None` disables locking.
+    host_lock: Option<HostLockSettings>,
 }
 
 impl Clone for ManagedHost {
@@ -545,6 +579,7 @@ impl Clone for ManagedHost {
             host_properties: self.host_properties.clone(),
             secret_providers: self.secret_providers.clone(),
             connection_state: self.connection_state.clone(),
+            host_lock: self.host_lock.clone(),
         }
     }
 }
@@ -578,6 +613,7 @@ impl ManagedHost {
             host_properties,
             secret_providers: secret_providers.clone(),
             connection_state: ConnectionState::Disconnected,
+            host_lock: default_host_lock(),
         }
     }
 
@@ -614,6 +650,29 @@ impl ManagedHost {
             host_properties,
             secret_providers: secret_providers.clone(),
             connection_state: ConnectionState::Disconnected,
+            host_lock: default_host_lock(),
+        }
+    }
+
+    /// Set the host lock settings; `None` disables locking.
+    ///
+    /// Every process working on a host must use the same lock path.
+    pub fn set_host_lock(&mut self, host_lock: Option<HostLockSettings>) {
+        self.host_lock = host_lock;
+    }
+
+    /// The host lock settings (`None`: locking disabled).
+    pub fn host_lock(&self) -> Option<&HostLockSettings> {
+        self.host_lock.as_ref()
+    }
+
+    // Acquire the host lock in the given mode, or a no-op lock when locking is
+    // disabled. Kept private: a caller holding it and then calling
+    // assess_compliance/reach_compliance would wait on its own lock.
+    async fn acquire_host_lock(&mut self, mode: HostLockMode) -> Result<HostLock, RegentError> {
+        match &self.host_lock {
+            Some(settings) => self.handler.acquire_host_lock(settings, mode).await,
+            None => Ok(HostLock::disabled()),
         }
     }
 
@@ -777,6 +836,10 @@ impl ManagedHost {
     ///     println!("Host needs remediation");
     /// }
     /// ```
+    ///
+    /// Holds a **shared** host lock meanwhile (see [`crate::hosts::lock`]): it runs
+    /// in parallel with other assessments, never during a remediation. Fails with
+    /// [`RegentError::HostBusy`] if the lock is not acquired in time.
     // Defaults to sequential assessment
     pub async fn assess_compliance(
         &mut self,
@@ -787,6 +850,17 @@ impl ManagedHost {
             return Err(RegentError::NotConnectedToHost);
         }
 
+        let host_lock = self.acquire_host_lock(HostLockMode::Shared).await?;
+        let result = self.assess_compliance_locked(expected_state, logging).await;
+        host_lock.release().await;
+        result
+    }
+
+    async fn assess_compliance_locked(
+        &mut self,
+        expected_state: &ExpectedState,
+        logging: bool,
+    ) -> Result<ManagedHostStatus, RegentError> {
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
 
@@ -896,6 +970,11 @@ impl ManagedHost {
     ///     println!("Failed to reach compliance");
     /// }
     /// ```
+    ///
+    /// Holds an **exclusive** host lock for the whole run, its own assessment
+    /// included (see [`crate::hosts::lock`]): no other remediation and no assessment
+    /// meanwhile. Fails with [`RegentError::HostBusy`] if the lock is not acquired
+    /// in time.
     pub async fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
@@ -904,6 +983,16 @@ impl ManagedHost {
             return Err(RegentError::NotConnectedToHost);
         }
 
+        let host_lock = self.acquire_host_lock(HostLockMode::Exclusive).await?;
+        let result = self.reach_compliance_locked(expected_state).await;
+        host_lock.release().await;
+        result
+    }
+
+    async fn reach_compliance_locked(
+        &mut self,
+        expected_state: &ExpectedState,
+    ) -> Result<ManagedHostStatus, RegentError> {
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
 
