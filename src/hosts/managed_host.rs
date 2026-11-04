@@ -330,6 +330,7 @@ impl ManagedHostBuilder {
                         }
                     }
                     ConnectionMethod::Ssh2(ssh2_auth_reference) => {
+                        let host_key = ssh2_auth_reference.host_key.clone();
                         match ssh2_auth_reference.auth_method {
                             Ssh2AuthReference::UsernamePassword(secret_reference) => {
                                 match &optional_secret_provider {
@@ -345,6 +346,7 @@ impl ManagedHostBuilder {
                                                     Ssh2AuthMethod::UsernamePassword(
                                                         secret.inner(),
                                                     ),
+                                                    host_key,
                                                 )),
                                                 self.host_vars,
                                                 self.host_properties,
@@ -373,6 +375,7 @@ impl ManagedHostBuilder {
                                                         login_key_ref.username().to_string(),
                                                         secret.inner(),
                                                     )),
+                                                    host_key,
                                                 )),
                                                 self.host_vars,
                                                 self.host_properties,

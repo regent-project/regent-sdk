@@ -35,32 +35,90 @@ use crate::secrets::SecretReference;
 //     session: Handle<Ssh2Client>,
 // }
 
+/// SSH host handler: authentication + host key verification policy (`None`:
+/// the server's key is not verified), then the session once connected.
 pub enum Ssh2HostHandler {
-    NotConnected(Ssh2AuthMethod),
-    Connected(Ssh2AuthMethod, Handle<Ssh2Client>),
+    NotConnected(Ssh2AuthMethod, Option<Ssh2HostKey>),
+    Connected(Ssh2AuthMethod, Option<Ssh2HostKey>, Handle<Ssh2Client>),
 }
 
-struct Ssh2Client {}
+/// How a runner verifies an SSH server's identity.
+///
+/// Without it ([`Ssh2Auth::host_key`] unset), any server key is accepted:
+/// convenient, but a MITM attack cannot be detected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum Ssh2HostKey {
+    /// An OpenSSH `known_hosts` file (hashed entries supported); the server
+    /// must be listed with this key, for its address and port.
+    KnownHostsFile(String),
+    /// Accepted SHA-256 key fingerprints, OpenSSH format (`SHA256:…`, as
+    /// printed by `ssh-keygen -lf`).
+    Fingerprints(Vec<String>),
+}
+
+pub struct Ssh2Client {
+    host_key: Option<Ssh2HostKey>,
+    host: String,
+    port: u16,
+}
+
+impl Ssh2Client {
+    fn verify(&self, key: &russh::keys::PublicKey) -> bool {
+        match &self.host_key {
+            None => true,
+            Some(Ssh2HostKey::Fingerprints(accepted)) => {
+                let fingerprint = key.fingerprint(russh::keys::HashAlg::Sha256).to_string();
+                let matches = accepted.iter().any(|f| f.trim() == fingerprint);
+                if !matches {
+                    warn!(host = %self.host, fingerprint, "SSH host key not in the accepted fingerprints");
+                }
+                matches
+            }
+            Some(Ssh2HostKey::KnownHostsFile(path)) => {
+                match russh::keys::check_known_hosts_path(&self.host, self.port, key, path) {
+                    Ok(true) => true,
+                    Ok(false) => {
+                        warn!(host = %self.host, path, "SSH host not in known_hosts");
+                        false
+                    }
+                    Err(e) => {
+                        warn!(host = %self.host, path, error = %e, "SSH host key rejected by known_hosts");
+                        false
+                    }
+                }
+            }
+        }
+    }
+}
 
 impl Handler for Ssh2Client {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &PublicKeyOrCertificate,
+        server_public_key: &PublicKeyOrCertificate,
     ) -> Result<bool, Self::Error> {
-        Ok(true)
+        let key = match server_public_key {
+            PublicKeyOrCertificate::PublicKey { key, .. } => key.clone(),
+            PublicKeyOrCertificate::Certificate(certificate) => {
+                russh::keys::PublicKey::from(certificate.public_key().clone())
+            }
+        };
+        Ok(self.verify(&key))
     }
 }
 
 impl Clone for Ssh2HostHandler {
     fn clone(&self) -> Self {
         match self {
-            Ssh2HostHandler::NotConnected(auth) => Ssh2HostHandler::NotConnected(auth.clone()),
-            Ssh2HostHandler::Connected(auth, _) => {
+            Ssh2HostHandler::NotConnected(auth, host_key) => {
+                Ssh2HostHandler::NotConnected(auth.clone(), host_key.clone())
+            }
+            Ssh2HostHandler::Connected(auth, host_key, _) => {
                 // When cloning a connected handler, return a new NotConnected handler
                 // The caller will need to reconnect
-                Ssh2HostHandler::NotConnected(auth.clone())
+                Ssh2HostHandler::NotConnected(auth.clone(), host_key.clone())
             }
         }
     }
@@ -69,12 +127,15 @@ impl Clone for Ssh2HostHandler {
 impl std::fmt::Debug for Ssh2HostHandler {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Ssh2HostHandler::NotConnected(auth) => {
-                f.debug_tuple("NotConnected").field(auth).finish()
-            }
-            Ssh2HostHandler::Connected(auth, _) => f
+            Ssh2HostHandler::NotConnected(auth, host_key) => f
+                .debug_tuple("NotConnected")
+                .field(auth)
+                .field(host_key)
+                .finish(),
+            Ssh2HostHandler::Connected(auth, host_key, _) => f
                 .debug_tuple("Connected")
                 .field(auth)
+                .field(host_key)
                 .field(&"*SESSION HANDLE*")
                 .finish(),
         }
@@ -125,8 +186,16 @@ impl HostHandler for Ssh2HostHandler {
             ..Default::default()
         });
 
-        // Connect using russh
-        let client_handler = Ssh2Client {};
+        // Connect using russh, verifying the server key per policy
+        let host_key = match self {
+            Ssh2HostHandler::NotConnected(_, host_key)
+            | Ssh2HostHandler::Connected(_, host_key, _) => host_key.clone(),
+        };
+        let client_handler = Ssh2Client {
+            host_key,
+            host: address.to_string(),
+            port: ssh_port,
+        };
         let connection_timeout = Duration::from_secs(10);
         let mut handle = match timeout(
             connection_timeout,
@@ -149,7 +218,7 @@ impl HostHandler for Ssh2HostHandler {
         };
 
         // Authenticate based on the auth method
-        if let Ssh2HostHandler::NotConnected(auth_method) = self {
+        if let Ssh2HostHandler::NotConnected(auth_method, host_key) = self {
             match auth_method {
                 Ssh2AuthMethod::UsernamePassword(credentials) => {
                     match handle
@@ -158,7 +227,11 @@ impl HostHandler for Ssh2HostHandler {
                     {
                         Ok(auth_result) => match auth_result {
                             AuthResult::Success => {
-                                *self = Ssh2HostHandler::Connected(auth_method.clone(), handle);
+                                *self = Ssh2HostHandler::Connected(
+                                    auth_method.clone(),
+                                    host_key.clone(),
+                                    handle,
+                                );
                                 return Ok(());
                             }
                             AuthResult::Failure {
@@ -197,7 +270,11 @@ impl HostHandler for Ssh2HostHandler {
                         {
                             Ok(auth_result) => match auth_result {
                                 AuthResult::Success => {
-                                    *self = Ssh2HostHandler::Connected(auth_method.clone(), handle);
+                                    *self = Ssh2HostHandler::Connected(
+                                        auth_method.clone(),
+                                        host_key.clone(),
+                                        handle,
+                                    );
                                     return Ok(());
                                 }
                                 AuthResult::Failure {
@@ -232,27 +309,31 @@ impl HostHandler for Ssh2HostHandler {
 
     async fn is_connected(&mut self) -> bool {
         match self {
-            Ssh2HostHandler::NotConnected(_) => false,
-            Ssh2HostHandler::Connected(auth_method, session) => match session.send_ping().await {
-                Ok(()) => true,
-                Err(_error_details) => {
-                    *self = Ssh2HostHandler::NotConnected(auth_method.clone());
-                    false
+            Ssh2HostHandler::NotConnected(..) => false,
+            Ssh2HostHandler::Connected(auth_method, host_key, session) => {
+                match session.send_ping().await {
+                    Ok(()) => true,
+                    Err(_error_details) => {
+                        *self =
+                            Ssh2HostHandler::NotConnected(auth_method.clone(), host_key.clone());
+                        false
+                    }
                 }
-            },
+            }
         }
     }
 
     async fn disconnect(&mut self) -> Result<(), RegentError> {
         match self {
-            Ssh2HostHandler::NotConnected(_) => Ok(()),
-            Ssh2HostHandler::Connected(auth_method, session) => {
+            Ssh2HostHandler::NotConnected(..) => Ok(()),
+            Ssh2HostHandler::Connected(auth_method, host_key, session) => {
                 match session
                     .disconnect(Disconnect::ByApplication, "regent", "English")
                     .await
                 {
                     Ok(()) => {
-                        *self = Ssh2HostHandler::NotConnected(auth_method.clone());
+                        *self =
+                            Ssh2HostHandler::NotConnected(auth_method.clone(), host_key.clone());
                         Ok(())
                     }
                     Err(error_details) => Err(RegentError::ProblemWithHostConnection(format!(
@@ -294,10 +375,10 @@ impl HostHandler for Ssh2HostHandler {
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError> {
         match self {
-            Ssh2HostHandler::NotConnected(_auth_method) => {
+            Ssh2HostHandler::NotConnected(..) => {
                 return Err(RegentError::NotConnectedToHost);
             }
-            Ssh2HostHandler::Connected(auth_method, session_handle) => {
+            Ssh2HostHandler::Connected(auth_method, _, session_handle) => {
                 match session_handle.channel_open_session().await {
                     Ok(mut channel) => {
                         let effective_user = which_user_for_auth_method(auth_method);
@@ -343,10 +424,10 @@ impl HostHandler for Ssh2HostHandler {
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
         match self {
-            Ssh2HostHandler::NotConnected(_auth_method) => {
+            Ssh2HostHandler::NotConnected(..) => {
                 return Err(RegentError::NotConnectedToHost);
             }
-            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+            Ssh2HostHandler::Connected(_auth_method, _, session_handle) => {
                 match session_handle.channel_open_session().await {
                     Ok(mut channel) => {
                         let final_command = format!("cmd /C {}", command);
@@ -391,10 +472,10 @@ impl HostHandler for Ssh2HostHandler {
 
     async fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError> {
         match self {
-            Ssh2HostHandler::NotConnected(_auth_method) => {
+            Ssh2HostHandler::NotConnected(..) => {
                 return Err(RegentError::NotConnectedToHost);
             }
-            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+            Ssh2HostHandler::Connected(_auth_method, _, session_handle) => {
                 match session_handle.channel_open_session().await {
                     Ok(mut channel) => {
                         // 1. SCP request in "source" mode (-f)
@@ -544,8 +625,8 @@ impl HostHandler for Ssh2HostHandler {
         mode: HostLockMode,
     ) -> Result<HostLock, RegentError> {
         match self {
-            Ssh2HostHandler::NotConnected(_auth_method) => Err(RegentError::NotConnectedToHost),
-            Ssh2HostHandler::Connected(_auth_method, session_handle) => {
+            Ssh2HostHandler::NotConnected(..) => Err(RegentError::NotConnectedToHost),
+            Ssh2HostHandler::Connected(_auth_method, _, session_handle) => {
                 let mut channel = match session_handle.channel_open_session().await {
                     Ok(channel) => channel,
                     Err(e) => {
@@ -665,12 +746,17 @@ pub enum Ssh2AuthReference {
 #[serde(deny_unknown_fields)]
 pub struct Ssh2Auth {
     pub auth_method: Ssh2AuthReference,
+    /// Verification of the server's host key; `None` (default): any key is
+    /// accepted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_key: Option<Ssh2HostKey>,
 }
 
 impl Ssh2Auth {
     pub fn username_password(credentials: SecretReference) -> Self {
         Self {
             auth_method: Ssh2AuthReference::UsernamePassword(credentials),
+            host_key: None,
         }
     }
 
@@ -680,7 +766,14 @@ impl Ssh2Auth {
                 username.to_string(),
                 key_secret_reference,
             )),
+            host_key: None,
         }
+    }
+
+    /// Verify the server's host key (see [`Ssh2HostKey`]).
+    pub fn with_host_key(mut self, host_key: Ssh2HostKey) -> Self {
+        self.host_key = Some(host_key);
+        self
     }
 }
 
