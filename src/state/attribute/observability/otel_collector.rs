@@ -614,3 +614,7 @@ Detail: !OtelCollector
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__observability__otel_collector.rs"]
+mod proto_conv;

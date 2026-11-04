@@ -732,3 +732,7 @@ Detail: !AppleMps
         assert_eq!(attribute.name(), "MPS inference host prerequisites");
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__gpu__apple_mps.rs"]
+mod proto_conv;

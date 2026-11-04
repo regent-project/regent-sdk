@@ -1895,3 +1895,7 @@ Attributes:
         assert_eq!(expected_state.attributes.len(), 1);
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__ai__ollama.rs"]
+mod proto_conv;

@@ -569,3 +569,7 @@ Threshold: !AbsoluteUsed 51200000
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__system__storage.rs"]
+mod proto_conv;

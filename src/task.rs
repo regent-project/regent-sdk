@@ -22,6 +22,9 @@ use crate::{error::RegentError, hosts::managed_host::ManagedHostBuilder};
 use chrono::{DateTime, Utc};
 use nanoid::nanoid;
 use serde::{Deserialize, Serialize};
+/// Cancellation signal accepted by [`RegentTask::run_with_cancellation`]
+/// (re-exported from `tokio-util`, so callers need no extra dependency).
+pub use tokio_util::sync::CancellationToken;
 
 /// A unit of work for distributed configuration management.
 ///
@@ -205,8 +208,53 @@ impl RegentTask {
         &mut self,
         optional_secret_provider: Option<SecretProvidersPool>,
     ) -> RegentTaskResult {
+        self.run_with_cancellation(optional_secret_provider, CancellationToken::new())
+            .await
+    }
+
+    /// Execute the task, abortable through `cancel`.
+    ///
+    /// Behaves like [`RegentTask::run`] until `cancel` is triggered (e.g. by
+    /// `cancel.cancel()` from another task). Then:
+    ///
+    /// - before the host is reached (building, connecting, waiting for the host
+    ///   lock): the run stops at once;
+    /// - [`Job::Assess`]: stops at once (read-only);
+    /// - [`Job::Reach`]: **cooperative**, stops before the next attribute or
+    ///   remediation action; the action in progress always completes, so the host is
+    ///   never left halfway through an action.
+    ///
+    /// An aborted run still returns a [`RegentTaskResult`], whose outcome is
+    /// `Ok(status)` with [`ManagedHostStatus::is_aborted`] true and the actions done
+    /// so far (see [`ManagedHostStatus::aborted`]). A run that completes before it
+    /// sees the cancellation returns its normal outcome.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// # use regent_sdk::task::{CancellationToken, Job, RegentTask};
+    /// # use regent_sdk::hosts::managed_host::ManagedHostBuilder;
+    /// # use regent_sdk::state::ExpectedState;
+    /// # async fn example() {
+    /// let builder = ManagedHostBuilder::new("server-01", "192.168.1.100:22", None);
+    /// let mut task = RegentTask::from(builder, ExpectedState::new(), Job::Reach);
+    ///
+    /// let cancel = CancellationToken::new();
+    /// let abort_handle = cancel.clone(); // e.g. given to an "abort requests" listener
+    /// # abort_handle.cancel();
+    /// let result = task.run_with_cancellation(None, cancel).await;
+    /// if result.host_status().is_some_and(|status| status.is_aborted()) {
+    ///     println!("aborted");
+    /// }
+    /// # }
+    /// ```
+    pub async fn run_with_cancellation(
+        &mut self,
+        optional_secret_provider: Option<SecretProvidersPool>,
+        cancel: CancellationToken,
+    ) -> RegentTaskResult {
         let started_at = Utc::now();
-        let outcome = self.execute(optional_secret_provider).await;
+        let outcome = self.execute(optional_secret_provider, &cancel).await;
 
         RegentTaskResult::from(
             self.idempotency_key.clone(),
@@ -221,23 +269,36 @@ impl RegentTask {
     async fn execute(
         &self,
         optional_secret_provider: Option<SecretProvidersPool>,
+        cancel: &CancellationToken,
     ) -> Result<ManagedHostStatus, RegentError> {
-        // Build a ManagedHost
-        let mut managed_host = self
-            .managed_host_builder
-            .clone()
-            .build(optional_secret_provider)
-            .await?;
-
-        managed_host.connect().await?;
+        // Build a ManagedHost and connect to it; nothing has touched the host yet, so
+        // this can stop at once
+        let prepare = async {
+            let mut managed_host = self
+                .managed_host_builder
+                .clone()
+                .build(optional_secret_provider)
+                .await?;
+            managed_host.connect().await?;
+            Ok::<_, RegentError>(managed_host)
+        };
+        let mut managed_host = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Ok(ManagedHostStatus::aborted(Vec::new())),
+            managed_host = prepare => managed_host?,
+        };
 
         match self.job {
             Job::Assess => {
                 managed_host
-                    .assess_compliance(&self.expected_state, true)
+                    .assess_compliance_cancellable(&self.expected_state, true, cancel)
                     .await
             }
-            Job::Reach => managed_host.reach_compliance(&self.expected_state).await,
+            Job::Reach => {
+                managed_host
+                    .reach_compliance_cancellable(&self.expected_state, cancel)
+                    .await
+            }
         }
     }
 }
@@ -366,6 +427,28 @@ mod tests {
         RegentTask::from(host_builder, ExpectedState::new(), Job::Reach)
     }
 
+    #[tokio::test]
+    async fn cancelled_task_returns_aborted_result() {
+        let host_builder = ManagedHostBuilder::new(
+            "server-01",
+            "localhost",
+            Some(crate::hosts::handlers::ConnectionMethod::Localhost(
+                crate::hosts::handlers::TargetUser::current_user(),
+            )),
+        );
+        let mut task = RegentTask::from(host_builder, ExpectedState::new(), Job::Reach)
+            .with_idempotency_key("fixed-key");
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+
+        let result = task.run_with_cancellation(None, cancel).await;
+
+        assert_eq!(result.idempotency_key(), "fixed-key");
+        assert!(result.task_ran_to_completion());
+        assert!(result.host_status().unwrap().is_aborted());
+        assert!(result.host_status().unwrap().actions_taken().is_empty());
+    }
+
     #[test]
     fn task_accessors_survive_serde_roundtrip() {
         let task = sample_task().with_idempotency_key("fixed-key");
@@ -427,3 +510,7 @@ mod tests {
         ));
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "proto/conv/task.rs"]
+mod proto_conv;

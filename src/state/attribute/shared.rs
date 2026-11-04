@@ -872,3 +872,7 @@ pub(crate) async fn run_steps<Handler: HostHandler>(
 pub(crate) fn is_container_toolkit_package(name: &str) -> bool {
     name.starts_with("nvidia-container") || name.starts_with("libnvidia-container")
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../proto/conv/state__attribute__shared.rs"]
+mod proto_conv;

@@ -530,3 +530,7 @@ fn is_valid_dns_name(name: &str) -> bool {
                 || character == '*'
         })
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__network__dns.rs"]
+mod proto_conv;

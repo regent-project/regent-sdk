@@ -441,6 +441,9 @@ impl LivingInventory {
                                 HostStatus::ReachComplianceFailed => {
                                     warn!("Failed to reach compliance");
                                 }
+                                HostStatus::Aborted => {
+                                    warn!("Aborted");
+                                }
                             }
                             Ok((managed_host, managed_host_status))
                         }

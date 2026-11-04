@@ -762,3 +762,7 @@ impl SecretProvidersPool {
         secret_result
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../proto/conv/secrets.rs"]
+mod proto_conv;

@@ -1235,3 +1235,7 @@ State: !Running
         }
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__container__apptainer.rs"]
+mod proto_conv;

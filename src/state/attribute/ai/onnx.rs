@@ -727,3 +727,7 @@ Detail: !Onnx
         assert_eq!(attribute.name(), "ONNX Runtime GPU in the inference venv");
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__ai__onnx.rs"]
+mod proto_conv;

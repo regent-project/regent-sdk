@@ -646,3 +646,7 @@ Detail: !Alloy
         assert_eq!(environment_file(PackageFamily::Dnf), "/etc/sysconfig/alloy");
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__observability__alloy.rs"]
+mod proto_conv;

@@ -1431,3 +1431,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__utilities__lineinfile.rs"]
+mod proto_conv;

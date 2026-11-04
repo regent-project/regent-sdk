@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use tracing::Level;
 use tracing::span;
@@ -846,12 +847,36 @@ impl ManagedHost {
         expected_state: &ExpectedState,
         logging: bool,
     ) -> Result<ManagedHostStatus, RegentError> {
+        self.assess_compliance_cancellable(expected_state, logging, &CancellationToken::new())
+            .await
+    }
+
+    /// Same as [`ManagedHost::assess_compliance`], but can be aborted through `cancel`.
+    ///
+    /// An assessment is read-only, so it stops as soon as `cancel` is triggered, even
+    /// in the middle of an attribute (also while waiting for the host lock). It then
+    /// returns [`ManagedHostStatus::aborted`] with the remediations found so far.
+    ///
+    /// After an abort in the middle of an attribute, the state of the connection is
+    /// unspecified: drop this `ManagedHost` (or reconnect) rather than reusing it.
+    pub async fn assess_compliance_cancellable(
+        &mut self,
+        expected_state: &ExpectedState,
+        logging: bool,
+        cancel: &CancellationToken,
+    ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
 
-        let host_lock = self.acquire_host_lock(HostLockMode::Shared).await?;
-        let result = self.assess_compliance_locked(expected_state, logging).await;
+        let host_lock = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Ok(ManagedHostStatus::aborted(Vec::new())),
+            lock = self.acquire_host_lock(HostLockMode::Shared) => lock?,
+        };
+        let result = self
+            .assess_compliance_locked(expected_state, logging, cancel)
+            .await;
         host_lock.release().await;
         result
     }
@@ -860,6 +885,7 @@ impl ManagedHost {
         &mut self,
         expected_state: &ExpectedState,
         logging: bool,
+        cancel: &CancellationToken,
     ) -> Result<ManagedHostStatus, RegentError> {
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
@@ -871,7 +897,7 @@ impl ManagedHost {
             let attribute_span = span!(Level::INFO, "attribute", attr_name = attribute.name());
 
             // We execute the entire loop iteration inside an instrumented async block for tracing consistency
-            let iteration_result = async {
+            let iteration = async {
                 // Taking context into account before working on the Attribute
                 match attribute.consider_context(&self.context) {
                     Ok(context_aware_attribute) => {
@@ -918,8 +944,23 @@ impl ManagedHost {
                     }
                 }
             }
-            .instrument(attribute_span) // <-- Captures EVERYTHING inside the async block
-            .await;
+            .instrument(attribute_span); // <-- Captures EVERYTHING inside the async block
+
+            // Read-only: abort at once, even in the middle of an attribute
+            let iteration_result = tokio::select! {
+                biased;
+                _ = cancel.cancelled() => None,
+                result = iteration => Some(result),
+            };
+            let Some(iteration_result) = iteration_result else {
+                info!(target: "run", "Assessment aborted");
+                return Ok(ManagedHostStatus::aborted(
+                    final_remediations_list
+                        .into_iter()
+                        .map(|remediation| Action::from(remediation, None))
+                        .collect(),
+                ));
+            };
 
             // Process the control-flow state safely outside the span tracking lifecycle
             match iteration_result {
@@ -979,12 +1020,32 @@ impl ManagedHost {
         &mut self,
         expected_state: &ExpectedState,
     ) -> Result<ManagedHostStatus, RegentError> {
+        self.reach_compliance_cancellable(expected_state, &CancellationToken::new())
+            .await
+    }
+
+    /// Same as [`ManagedHost::reach_compliance`], but can be aborted through `cancel`.
+    ///
+    /// Cancellation is **cooperative**: it is checked before each attribute and
+    /// before each remediation action, never in the middle of one, so the host is
+    /// never left halfway through an action. While waiting for the host lock, it
+    /// stops at once. It then returns [`ManagedHostStatus::aborted`] with the actions
+    /// performed so far.
+    pub async fn reach_compliance_cancellable(
+        &mut self,
+        expected_state: &ExpectedState,
+        cancel: &CancellationToken,
+    ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
 
-        let host_lock = self.acquire_host_lock(HostLockMode::Exclusive).await?;
-        let result = self.reach_compliance_locked(expected_state).await;
+        let host_lock = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => return Ok(ManagedHostStatus::aborted(Vec::new())),
+            lock = self.acquire_host_lock(HostLockMode::Exclusive) => lock?,
+        };
+        let result = self.reach_compliance_locked(expected_state, cancel).await;
         host_lock.release().await;
         result
     }
@@ -992,6 +1053,7 @@ impl ManagedHost {
     async fn reach_compliance_locked(
         &mut self,
         expected_state: &ExpectedState,
+        cancel: &CancellationToken,
     ) -> Result<ManagedHostStatus, RegentError> {
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
@@ -1000,7 +1062,14 @@ impl ManagedHost {
         let mut reaching_compliance_failed = false;
         let mut actions_taken: Vec<Action> = Vec::new();
 
+        let mut aborted = false;
+
         for attribute in &expected_state.attributes {
+            if cancel.is_cancelled() {
+                aborted = true;
+                break;
+            }
+
             let attribute_span = span!(Level::INFO, "attribute", attr_name = attribute.name());
 
             // Wrap the logic into an instrumented async block to facilitate tracing
@@ -1031,6 +1100,13 @@ impl ManagedHost {
                                         let mut local_actions = Vec::new();
 
                                         for remediation in remediations.iter() {
+                                            // Cooperative cancellation: between actions only
+                                            if cancel.is_cancelled() {
+                                                return Ok(LoopControl::Aborted {
+                                                    actions: local_actions,
+                                                });
+                                            }
+
                                             let remediation_span = span!(Level::INFO, "remediation", action = ?remediation);
 
                                             let remediation_result = remediation
@@ -1107,6 +1183,11 @@ impl ManagedHost {
             // Process loop control and state changes outside of the tracing block context
             match iteration_result {
                 Ok(LoopControl::Continue) => {}
+                Ok(LoopControl::Aborted { actions }) => {
+                    actions_taken.extend(actions);
+                    aborted = true;
+                    break;
+                }
                 Ok(LoopControl::Fatal) => {
                     final_host_status = HostStatus::ReachComplianceFailed;
                 }
@@ -1124,6 +1205,11 @@ impl ManagedHost {
                     return Err(details);
                 }
             }
+        }
+
+        if aborted {
+            info!(target: "run", "Remediation aborted");
+            return Ok(ManagedHostStatus::aborted(actions_taken));
         }
 
         match final_host_status {
@@ -1243,6 +1329,17 @@ pub enum InternalApiCallOutcome {
 // Internal state tracking helper for out-of-span control flow
 enum LoopControl {
     Continue,
-    Remediated { failed: bool, actions: Vec<Action> },
+    Remediated {
+        failed: bool,
+        actions: Vec<Action>,
+    },
+    /// Cancellation seen between two actions; carries the actions already done
+    Aborted {
+        actions: Vec<Action>,
+    },
     Fatal,
 }
+
+#[cfg(feature = "proto")]
+#[path = "../proto/conv/hosts__managed_host.rs"]
+mod proto_conv;

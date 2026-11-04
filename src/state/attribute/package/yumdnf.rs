@@ -458,3 +458,7 @@ unknown_key: unknown_value
         assert!(yaml_serde::from_str::<YumDnfExpectedState>(raw_attribute).is_err());
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__package__yumdnf.rs"]
+mod proto_conv;

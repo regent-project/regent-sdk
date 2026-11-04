@@ -56,6 +56,8 @@ Enable the following Cargo features for additional capabilities: `cargo add rege
 - `aws-secretsmanager`: dynamically retrieve secrets from AWS Secrets Manager
 - `gcp-secretmanager`: dynamically retrieve secrets from Google Cloud Secret Manager
 - `windows`: Enable Windows support (not every attribute will be compatible, see [Usage](#usage))
+- `proto`: protobuf form of `RegentTaskResult` (`regent_sdk::proto`), to exchange outcomes between different regent-sdk versions. Building it requires `protoc` **36.1** exactly (on `PATH`, or set `PROTOC`). See [proto/README.md](proto/README.md).
+- `grpc` (implies `proto`): client and server stubs of the outcome `Reporting` service (tonic)
 
 
 ## Usage

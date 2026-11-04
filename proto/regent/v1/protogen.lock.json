@@ -1,0 +1,1959 @@
+{
+  "version": 1,
+  "messages": {
+    "AbsolutePath": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "Action": {
+      "repr": "message",
+      "fields": {
+        "action_result": 2,
+        "remediation": 1
+      },
+      "retired": {}
+    },
+    "AgentRepository": {
+      "repr": "oneof",
+      "fields": {
+        "apt": 1,
+        "rpm_file": 2,
+        "zypper": 3
+      },
+      "retired": {}
+    },
+    "AgentRepository_Apt": {
+      "repr": "message",
+      "fields": {
+        "dearmor": 3,
+        "key_url": 1,
+        "keyring": 2,
+        "list_file": 4,
+        "source_line": 5
+      },
+      "retired": {}
+    },
+    "AgentRepository_RpmFile": {
+      "repr": "message",
+      "fields": {
+        "content": 2,
+        "repo_file": 1
+      },
+      "retired": {}
+    },
+    "AgentRepository_Zypper": {
+      "repr": "message",
+      "fields": {
+        "alias": 2,
+        "url": 1
+      },
+      "retired": {}
+    },
+    "AgentVersion": {
+      "repr": "message",
+      "fields": {
+        "f0": 1
+      },
+      "retired": {}
+    },
+    "AlloyApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "AlloyInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "add_repository": 1,
+        "install": 2,
+        "remove": 5,
+        "write_config": 4,
+        "write_environment": 3
+      },
+      "retired": {}
+    },
+    "AlloyInternalApiCall_Install": {
+      "repr": "message",
+      "fields": {
+        "change": 3,
+        "family": 1,
+        "version": 2
+      },
+      "retired": {}
+    },
+    "AlloyInternalApiCall_Remove": {
+      "repr": "message",
+      "fields": {
+        "family": 1
+      },
+      "retired": {}
+    },
+    "AlloyInternalApiCall_WriteConfig": {
+      "repr": "message",
+      "fields": {
+        "content": 1
+      },
+      "retired": {}
+    },
+    "AlloyInternalApiCall_WriteEnvironment": {
+      "repr": "message",
+      "fields": {
+        "content": 2,
+        "path": 1
+      },
+      "retired": {}
+    },
+    "AppleMpsApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "AppleMpsModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "install_command_line_tools": 1,
+        "remove_command_line_tools": 2
+      },
+      "retired": {}
+    },
+    "ApptainerApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "ApptainerGpu": {
+      "repr": "oneof",
+      "fields": {
+        "nvidia": 1,
+        "nvidia_container_cli": 2,
+        "rocm": 3
+      },
+      "retired": {}
+    },
+    "ApptainerImage": {
+      "repr": "oneof",
+      "fields": {
+        "local": 1,
+        "pulled": 2
+      },
+      "retired": {}
+    },
+    "ApptainerImageUri": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "ApptainerInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "pull": 1,
+        "service": 3,
+        "write_service_files": 2
+      },
+      "retired": {}
+    },
+    "ApptainerInternalApiCall_Service": {
+      "repr": "message",
+      "fields": {
+        "action": 2,
+        "unit": 1
+      },
+      "retired": {}
+    },
+    "ApptainerInternalApiCall_WriteServiceFiles": {
+      "repr": "message",
+      "fields": {
+        "apptainer_path": 3,
+        "config": 2,
+        "reasons": 4,
+        "unit": 1
+      },
+      "retired": {}
+    },
+    "ApptainerIsolation": {
+      "repr": "oneof",
+      "fields": {
+        "contain": 1,
+        "contain_all": 2
+      },
+      "retired": {}
+    },
+    "ApptainerProcess": {
+      "repr": "oneof",
+      "fields": {
+        "exec": 2,
+        "run_script": 1
+      },
+      "retired": {}
+    },
+    "ApptainerPulledImage": {
+      "repr": "message",
+      "fields": {
+        "path": 2,
+        "source": 1
+      },
+      "retired": {}
+    },
+    "ApptainerServiceConfig": {
+      "repr": "message",
+      "fields": {
+        "binds": 4,
+        "clean_env": 6,
+        "cpus": 12,
+        "env": 5,
+        "fakeroot": 9,
+        "gpu": 3,
+        "image": 1,
+        "isolation": 7,
+        "memory": 11,
+        "process": 2,
+        "restart_policy": 13,
+        "working_dir": 10,
+        "writable_tmpfs": 8
+      },
+      "retired": {}
+    },
+    "AptApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "AptModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "install": 1,
+        "remove": 2,
+        "upgrade": 3
+      },
+      "retired": {}
+    },
+    "AptRepoApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "AptRepoModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "remove_file": 2,
+        "update_cache": 3,
+        "write_file": 1
+      },
+      "retired": {}
+    },
+    "AptRepoModuleInternalApiCall_RemoveFile": {
+      "repr": "message",
+      "fields": {
+        "path": 1
+      },
+      "retired": {}
+    },
+    "AptRepoModuleInternalApiCall_WriteFile": {
+      "repr": "message",
+      "fields": {
+        "content": 2,
+        "path": 1
+      },
+      "retired": {}
+    },
+    "BindMount": {
+      "repr": "message",
+      "fields": {
+        "read_only": 3,
+        "source": 1,
+        "target": 2
+      },
+      "retired": {}
+    },
+    "BranchSelection": {
+      "repr": "oneof",
+      "fields": {
+        "module_stream": 1,
+        "version_lock": 2,
+        "zypper_lock": 3
+      },
+      "retired": {}
+    },
+    "Capability": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "CommandApiCall": {
+      "repr": "message",
+      "fields": {
+        "cmd": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "ContainerCommand": {
+      "repr": "message",
+      "fields": {
+        "f0": 1
+      },
+      "retired": {}
+    },
+    "ContainerImage": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "ContainerName": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "ContainerRuntime": {
+      "repr": "oneof",
+      "fields": {
+        "containerd": 2,
+        "cri_o": 3,
+        "docker": 1
+      },
+      "retired": {}
+    },
+    "ContainerVolume": {
+      "repr": "oneof",
+      "fields": {
+        "anonymous": 2,
+        "bind": 1
+      },
+      "retired": {}
+    },
+    "ContainerVolume_Anonymous": {
+      "repr": "message",
+      "fields": {
+        "target": 1
+      },
+      "retired": {}
+    },
+    "ContainerVolume_Bind": {
+      "repr": "message",
+      "fields": {
+        "options": 3,
+        "source": 1,
+        "target": 2
+      },
+      "retired": {}
+    },
+    "CpuCount": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "CronApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "CronModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "remove": 2,
+        "upsert": 1
+      },
+      "retired": {}
+    },
+    "CronModuleInternalApiCall_Remove": {
+      "repr": "message",
+      "fields": {
+        "cron_file": 3,
+        "name": 1,
+        "user": 2
+      },
+      "retired": {}
+    },
+    "CronModuleInternalApiCall_Upsert": {
+      "repr": "message",
+      "fields": {
+        "cron_file": 4,
+        "cron_line": 2,
+        "name": 1,
+        "user": 3
+      },
+      "retired": {}
+    },
+    "CudaArch": {
+      "repr": "oneof",
+      "fields": {
+        "sbsa": 2,
+        "x86_64": 1
+      },
+      "retired": {}
+    },
+    "CudaRepository": {
+      "repr": "message",
+      "fields": {
+        "arch": 2,
+        "distro": 3,
+        "distro_name": 1
+      },
+      "retired": {}
+    },
+    "CudaVersion": {
+      "repr": "message",
+      "fields": {
+        "major": 1,
+        "minor": 2
+      },
+      "retired": {}
+    },
+    "DebugApiCall": {
+      "repr": "message",
+      "fields": {},
+      "retired": {}
+    },
+    "DestinationFileAction": {
+      "repr": "oneof",
+      "fields": {
+        "create_file": 2,
+        "wrong_content": 1
+      },
+      "retired": {}
+    },
+    "DnfRepoApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "DnfRepoModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "remove_section": 2,
+        "upsert_section": 1
+      },
+      "retired": {}
+    },
+    "DnfRepoModuleInternalApiCall_RemoveSection": {
+      "repr": "message",
+      "fields": {
+        "file_name": 1,
+        "repo_name": 2
+      },
+      "retired": {}
+    },
+    "DnfRepoModuleInternalApiCall_UpsertSection": {
+      "repr": "message",
+      "fields": {
+        "file_name": 1,
+        "repo_name": 2,
+        "section_content": 3
+      },
+      "retired": {}
+    },
+    "DnsApiCall": {
+      "repr": "message",
+      "fields": {},
+      "retired": {}
+    },
+    "DockerApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "DockerAttachedNetworking": {
+      "repr": "message",
+      "fields": {
+        "networks": 1,
+        "ports": 2
+      },
+      "retired": {}
+    },
+    "DockerContainerConfig": {
+      "repr": "message",
+      "fields": {
+        "cap_add": 16,
+        "cap_drop": 17,
+        "command": 3,
+        "cpus": 19,
+        "devices": 22,
+        "dns": 21,
+        "entrypoint": 4,
+        "env": 5,
+        "extra_hosts": 20,
+        "gpus": 23,
+        "health_check": 25,
+        "hostname": 9,
+        "image": 1,
+        "init": 15,
+        "ipc": 24,
+        "labels": 12,
+        "log_driver": 26,
+        "log_options": 27,
+        "memory": 18,
+        "networking": 7,
+        "privileged": 13,
+        "pull": 2,
+        "read_only": 14,
+        "restart_policy": 8,
+        "user": 10,
+        "volumes": 6,
+        "working_dir": 11
+      },
+      "retired": {}
+    },
+    "DockerInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "create": 2,
+        "pull": 1,
+        "recreate": 3,
+        "remove": 4,
+        "start": 5,
+        "stop": 6,
+        "unpause": 7,
+        "update_restart_policy": 8
+      },
+      "retired": {}
+    },
+    "DockerInternalApiCall_Create": {
+      "repr": "message",
+      "fields": {
+        "config": 2,
+        "name": 1
+      },
+      "retired": {}
+    },
+    "DockerInternalApiCall_Recreate": {
+      "repr": "message",
+      "fields": {
+        "config": 2,
+        "name": 1,
+        "reasons": 3
+      },
+      "retired": {}
+    },
+    "DockerInternalApiCall_UpdateRestartPolicy": {
+      "repr": "message",
+      "fields": {
+        "name": 1,
+        "restart_policy": 2
+      },
+      "retired": {}
+    },
+    "DockerNetworking": {
+      "repr": "oneof",
+      "fields": {
+        "attached": 3,
+        "host": 1,
+        "isolated": 2
+      },
+      "retired": {}
+    },
+    "DriverDistro": {
+      "repr": "oneof",
+      "fields": {
+        "amazon_linux": 4,
+        "debian": 2,
+        "fedora": 6,
+        "rhel10": 5,
+        "rhel_modular": 3,
+        "suse": 7,
+        "ubuntu": 1
+      },
+      "retired": {}
+    },
+    "EnrootApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "EnrootImage": {
+      "repr": "oneof",
+      "fields": {
+        "imported": 2,
+        "local": 1
+      },
+      "retired": {}
+    },
+    "EnrootImageUri": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "EnrootImportedImage": {
+      "repr": "message",
+      "fields": {
+        "path": 2,
+        "source": 1
+      },
+      "retired": {}
+    },
+    "EnrootInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "create_container": 2,
+        "import": 1,
+        "remove_container": 3,
+        "service": 5,
+        "write_service_files": 4
+      },
+      "retired": {}
+    },
+    "EnrootInternalApiCall_CreateContainer": {
+      "repr": "message",
+      "fields": {
+        "image": 2,
+        "reasons": 3,
+        "unit": 1
+      },
+      "retired": {}
+    },
+    "EnrootInternalApiCall_RemoveContainer": {
+      "repr": "message",
+      "fields": {
+        "is_container_present": 2,
+        "unit": 1
+      },
+      "retired": {}
+    },
+    "EnrootInternalApiCall_Service": {
+      "repr": "message",
+      "fields": {
+        "action": 2,
+        "unit": 1
+      },
+      "retired": {}
+    },
+    "EnrootInternalApiCall_WriteServiceFiles": {
+      "repr": "message",
+      "fields": {
+        "config": 2,
+        "enroot_path": 3,
+        "home": 4,
+        "reasons": 5,
+        "unit": 1
+      },
+      "retired": {}
+    },
+    "EnrootServiceConfig": {
+      "repr": "message",
+      "fields": {
+        "command": 2,
+        "env": 5,
+        "gpus": 3,
+        "image": 1,
+        "mounts": 4,
+        "read_write": 7,
+        "restart_policy": 8,
+        "root": 6
+      },
+      "retired": {}
+    },
+    "EnvVarName": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "ExtraHost": {
+      "repr": "message",
+      "fields": {
+        "address": 2,
+        "hostname": 1
+      },
+      "retired": {}
+    },
+    "FluentBitApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "FluentBitConfig": {
+      "repr": "message",
+      "fields": {
+        "content": 2,
+        "format": 1
+      },
+      "retired": {}
+    },
+    "FluentBitConfigFormat": {
+      "repr": "oneof",
+      "fields": {
+        "classic": 1,
+        "yaml": 2
+      },
+      "retired": {}
+    },
+    "FluentBitInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "add_repository": 1,
+        "install": 2,
+        "remove": 4,
+        "write_config": 3
+      },
+      "retired": {}
+    },
+    "FluentBitInternalApiCall_Install": {
+      "repr": "message",
+      "fields": {
+        "change": 3,
+        "family": 1,
+        "version": 2
+      },
+      "retired": {}
+    },
+    "FluentBitInternalApiCall_Remove": {
+      "repr": "message",
+      "fields": {
+        "family": 1
+      },
+      "retired": {}
+    },
+    "GpuId": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "GpuList": {
+      "repr": "message",
+      "fields": {
+        "f0": 1
+      },
+      "retired": {}
+    },
+    "GpuSelection": {
+      "repr": "oneof",
+      "fields": {
+        "all": 1,
+        "devices": 2
+      },
+      "retired": {}
+    },
+    "GroupApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "GroupModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "add": 1,
+        "delete": 4,
+        "modify_gid": 2,
+        "modify_members": 3
+      },
+      "retired": {}
+    },
+    "GroupModuleInternalApiCall_Add": {
+      "repr": "message",
+      "fields": {
+        "gid": 2,
+        "groupname": 1,
+        "local": 5,
+        "members": 3,
+        "system": 4
+      },
+      "retired": {}
+    },
+    "GroupModuleInternalApiCall_Delete": {
+      "repr": "message",
+      "fields": {
+        "groupname": 1,
+        "local": 2
+      },
+      "retired": {}
+    },
+    "GroupModuleInternalApiCall_ModifyGid": {
+      "repr": "message",
+      "fields": {
+        "gid": 2,
+        "groupname": 1
+      },
+      "retired": {}
+    },
+    "GroupModuleInternalApiCall_ModifyMembers": {
+      "repr": "message",
+      "fields": {
+        "groupname": 1,
+        "members": 2
+      },
+      "retired": {}
+    },
+    "HealthCheck": {
+      "repr": "message",
+      "fields": {
+        "interval": 2,
+        "retries": 6,
+        "start_interval": 5,
+        "start_period": 4,
+        "test": 1,
+        "timeout": 3
+      },
+      "retired": {}
+    },
+    "HealthCheckTest": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "HealthDuration": {
+      "repr": "message",
+      "fields": {
+        "nanos": 2,
+        "spec": 1
+      },
+      "retired": {}
+    },
+    "HostDevice": {
+      "repr": "message",
+      "fields": {
+        "container_path": 2,
+        "host_path": 1,
+        "permissions": 3
+      },
+      "retired": {}
+    },
+    "HostStatus": {
+      "repr": "oneof",
+      "fields": {
+        "aborted": 5,
+        "already_compliant": 1,
+        "not_compliant": 2,
+        "reach_compliance_failed": 3,
+        "reach_compliance_success": 4
+      },
+      "retired": {}
+    },
+    "HostnameApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "HostnameMethod": {
+      "repr": "oneof",
+      "fields": {
+        "generic": 2,
+        "systemd": 1,
+        "windows": 3
+      },
+      "retired": {}
+    },
+    "HostnameModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "set_hostname": 1
+      },
+      "retired": {}
+    },
+    "HostnameModuleInternalApiCall_SetHostname": {
+      "repr": "message",
+      "fields": {
+        "method": 2,
+        "name": 1
+      },
+      "retired": {}
+    },
+    "InternalApiCallOutcome": {
+      "repr": "oneof",
+      "fields": {
+        "allowed_failure": 3,
+        "failure": 2,
+        "success": 1
+      },
+      "retired": {}
+    },
+    "IpcNamespace": {
+      "repr": "oneof",
+      "fields": {
+        "host": 1,
+        "private": 2,
+        "shareable": 3
+      },
+      "retired": {}
+    },
+    "IptablesApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "IptablesModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "append_rule": 4,
+        "create_chain": 1,
+        "delete_rule": 6,
+        "flush_and_delete_chain": 2,
+        "insert_rule": 5,
+        "set_policy": 3
+      },
+      "retired": {}
+    },
+    "IptablesModuleInternalApiCall_AppendRule": {
+      "repr": "message",
+      "fields": {
+        "binary": 1,
+        "chain": 3,
+        "rule_args": 4,
+        "table_arg": 2
+      },
+      "retired": {}
+    },
+    "IptablesModuleInternalApiCall_CreateChain": {
+      "repr": "message",
+      "fields": {
+        "binary": 1,
+        "chain": 3,
+        "table_arg": 2
+      },
+      "retired": {}
+    },
+    "IptablesModuleInternalApiCall_DeleteRule": {
+      "repr": "message",
+      "fields": {
+        "binary": 1,
+        "chain": 3,
+        "rule_args": 4,
+        "table_arg": 2
+      },
+      "retired": {}
+    },
+    "IptablesModuleInternalApiCall_FlushAndDeleteChain": {
+      "repr": "message",
+      "fields": {
+        "binary": 1,
+        "chain": 3,
+        "table_arg": 2
+      },
+      "retired": {}
+    },
+    "IptablesModuleInternalApiCall_InsertRule": {
+      "repr": "message",
+      "fields": {
+        "binary": 1,
+        "chain": 3,
+        "rule_args": 5,
+        "rule_num": 4,
+        "table_arg": 2
+      },
+      "retired": {}
+    },
+    "IptablesModuleInternalApiCall_SetPolicy": {
+      "repr": "message",
+      "fields": {
+        "binary": 1,
+        "chain": 3,
+        "policy": 4,
+        "table_arg": 2
+      },
+      "retired": {}
+    },
+    "Job": {
+      "repr": "oneof",
+      "fields": {
+        "assess": 1,
+        "reach": 2
+      },
+      "retired": {}
+    },
+    "KernelModuleFlavor": {
+      "repr": "oneof",
+      "fields": {
+        "open": 1,
+        "proprietary": 2
+      },
+      "retired": {}
+    },
+    "Line": {
+      "repr": "oneof",
+      "fields": {
+        "raw": 1,
+        "regexp": 2,
+        "regexp_with_backrefs": 3,
+        "search_string": 4
+      },
+      "retired": {}
+    },
+    "LineInFileApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 3,
+        "file_path": 1,
+        "line": 2,
+        "privilege": 4
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "create_file": 9,
+        "delete_by_regexp": 8,
+        "delete_lines": 7,
+        "insert_after_line": 3,
+        "insert_before_line": 4,
+        "insert_bottom": 2,
+        "insert_top": 1,
+        "replace_line": 5,
+        "replace_with_backrefs": 6
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_CreateFile": {
+      "repr": "message",
+      "fields": {
+        "line_content": 1
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_DeleteByRegexp": {
+      "repr": "message",
+      "fields": {
+        "regexp": 1
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_DeleteLines": {
+      "repr": "message",
+      "fields": {
+        "line_numbers": 1
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_InsertAfterLine": {
+      "repr": "message",
+      "fields": {
+        "line_content": 1,
+        "line_number": 2
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_InsertBeforeLine": {
+      "repr": "message",
+      "fields": {
+        "line_content": 1,
+        "line_number": 2
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_InsertBottom": {
+      "repr": "message",
+      "fields": {
+        "line_content": 1
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_InsertTop": {
+      "repr": "message",
+      "fields": {
+        "line_content": 1
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_ReplaceLine": {
+      "repr": "message",
+      "fields": {
+        "line_content": 1,
+        "line_number": 2
+      },
+      "retired": {}
+    },
+    "LineInFileModuleInternalApiCall_ReplaceWithBackrefs": {
+      "repr": "message",
+      "fields": {
+        "line_content": 1,
+        "line_number": 2,
+        "regexp": 3
+      },
+      "retired": {}
+    },
+    "Line_RegexpWithBackrefs": {
+      "repr": "message",
+      "fields": {
+        "content_to_insert": 2,
+        "regexp": 1
+      },
+      "retired": {}
+    },
+    "ManagedHostStatus": {
+      "repr": "message",
+      "fields": {
+        "actions_taken": 2,
+        "state": 1
+      },
+      "retired": {}
+    },
+    "MemorySize": {
+      "repr": "message",
+      "fields": {
+        "bytes": 2,
+        "spec": 1
+      },
+      "retired": {}
+    },
+    "NetworkList": {
+      "repr": "message",
+      "fields": {
+        "f0": 1
+      },
+      "retired": {}
+    },
+    "NetworkName": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "NodeExporterApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "NodeExporterInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "create_textfile_directory": 3,
+        "create_user": 1,
+        "install": 2,
+        "uninstall": 5,
+        "write_unit": 4
+      },
+      "retired": {}
+    },
+    "NodeExporterInternalApiCall_Install": {
+      "repr": "message",
+      "fields": {
+        "arch": 2,
+        "change": 3,
+        "version": 1
+      },
+      "retired": {}
+    },
+    "NodeExporterInternalApiCall_WriteUnit": {
+      "repr": "message",
+      "fields": {
+        "content": 1
+      },
+      "retired": {}
+    },
+    "NvidiaContainerToolkitApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "NvidiaContainerToolkitInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "add_repository": 1,
+        "configure_runtime": 4,
+        "disable_cdi_refresh": 6,
+        "generate_cdi_spec": 7,
+        "install": 2,
+        "refresh_cdi_spec": 5,
+        "remove_packages": 3
+      },
+      "retired": {}
+    },
+    "NvidiaContainerToolkitInternalApiCall_Install": {
+      "repr": "message",
+      "fields": {
+        "downgrades": 4,
+        "family": 1,
+        "upgrades": 3,
+        "version": 2
+      },
+      "retired": {}
+    },
+    "NvidiaContainerToolkitInternalApiCall_RemovePackages": {
+      "repr": "message",
+      "fields": {
+        "family": 1,
+        "packages": 2
+      },
+      "retired": {}
+    },
+    "NvidiaDriverApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "NvidiaDriverInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "add_repository": 1,
+        "install_cuda_toolkit": 5,
+        "install_driver": 4,
+        "load_kernel_module": 6,
+        "remove_driver": 3,
+        "select_branch": 2,
+        "set_persistence_mode": 7
+      },
+      "retired": {}
+    },
+    "NvidiaDriverInternalApiCall_InstallCudaToolkit": {
+      "repr": "message",
+      "fields": {
+        "family": 1,
+        "version": 2
+      },
+      "retired": {}
+    },
+    "NvidiaDriverInternalApiCall_InstallDriver": {
+      "repr": "message",
+      "fields": {
+        "family": 1,
+        "packages": 2
+      },
+      "retired": {}
+    },
+    "NvidiaDriverInternalApiCall_LoadKernelModule": {
+      "repr": "message",
+      "fields": {
+        "branch": 2,
+        "flavor": 1,
+        "reason": 3
+      },
+      "retired": {}
+    },
+    "NvidiaDriverInternalApiCall_RemoveDriver": {
+      "repr": "message",
+      "fields": {
+        "distro": 1,
+        "packages": 2,
+        "reason": 3
+      },
+      "retired": {}
+    },
+    "NvidiaDriverInternalApiCall_SelectBranch": {
+      "repr": "message",
+      "fields": {
+        "distro": 1,
+        "selection": 2,
+        "undo": 3
+      },
+      "retired": {}
+    },
+    "OllamaApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "OllamaModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "install": 1,
+        "pull_model": 3,
+        "remove_model": 4,
+        "restart_service": 6,
+        "set_version": 8,
+        "uninstall": 2,
+        "upgrade": 7,
+        "write_api_config": 5
+      },
+      "retired": {}
+    },
+    "OllamaModuleInternalApiCall_PullModel": {
+      "repr": "message",
+      "fields": {
+        "host": 2,
+        "name": 1
+      },
+      "retired": {}
+    },
+    "OllamaModuleInternalApiCall_RemoveModel": {
+      "repr": "message",
+      "fields": {
+        "host": 2,
+        "name": 1
+      },
+      "retired": {}
+    },
+    "OllamaModuleInternalApiCall_SetVersion": {
+      "repr": "message",
+      "fields": {
+        "version": 1
+      },
+      "retired": {}
+    },
+    "OllamaModuleInternalApiCall_Uninstall": {
+      "repr": "message",
+      "fields": {
+        "binary_path": 1
+      },
+      "retired": {}
+    },
+    "OllamaModuleInternalApiCall_WriteApiConfig": {
+      "repr": "message",
+      "fields": {
+        "content": 1
+      },
+      "retired": {}
+    },
+    "OnnxApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "OnnxModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "install_runtime": 1,
+        "remove_runtime": 2
+      },
+      "retired": {}
+    },
+    "OnnxModuleInternalApiCall_InstallRuntime": {
+      "repr": "message",
+      "fields": {
+        "gpu": 2,
+        "python": 3,
+        "version": 1
+      },
+      "retired": {}
+    },
+    "OnnxModuleInternalApiCall_RemoveRuntime": {
+      "repr": "message",
+      "fields": {
+        "python": 1
+      },
+      "retired": {}
+    },
+    "OtelCollectorApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "OtelCollectorDistribution": {
+      "repr": "oneof",
+      "fields": {
+        "contrib": 2,
+        "core": 1
+      },
+      "retired": {}
+    },
+    "OtelCollectorInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "install": 1,
+        "remove": 3,
+        "write_config": 2
+      },
+      "retired": {}
+    },
+    "OtelCollectorInternalApiCall_Install": {
+      "repr": "message",
+      "fields": {
+        "arch": 4,
+        "change": 5,
+        "distribution": 2,
+        "family": 1,
+        "version": 3
+      },
+      "retired": {}
+    },
+    "OtelCollectorInternalApiCall_Remove": {
+      "repr": "message",
+      "fields": {
+        "family": 1,
+        "packages": 2
+      },
+      "retired": {}
+    },
+    "OtelCollectorInternalApiCall_WriteConfig": {
+      "repr": "message",
+      "fields": {
+        "content": 2,
+        "distribution": 1
+      },
+      "retired": {}
+    },
+    "PackageFamily": {
+      "repr": "oneof",
+      "fields": {
+        "apt": 1,
+        "dnf": 2,
+        "zypper": 3
+      },
+      "retired": {}
+    },
+    "PacmanApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "PacmanModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "install": 1,
+        "remove": 2,
+        "upgrade": 3
+      },
+      "retired": {}
+    },
+    "Parameter_String": {
+      "repr": "oneof",
+      "fields": {
+        "clear": 1,
+        "secret": 2
+      },
+      "retired": {}
+    },
+    "PingApiCall": {
+      "repr": "message",
+      "fields": {
+        "privilege": 1
+      },
+      "retired": {}
+    },
+    "PodName": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "PodmanApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "PodmanAttachedNetworking": {
+      "repr": "message",
+      "fields": {
+        "dns": 3,
+        "extra_hosts": 4,
+        "networks": 1,
+        "ports": 2
+      },
+      "retired": {}
+    },
+    "PodmanContainerConfig": {
+      "repr": "message",
+      "fields": {
+        "cap_add": 15,
+        "cap_drop": 16,
+        "command": 3,
+        "cpus": 18,
+        "devices": 19,
+        "entrypoint": 4,
+        "env": 5,
+        "gpus": 20,
+        "image": 1,
+        "init": 14,
+        "labels": 11,
+        "log_driver": 21,
+        "log_options": 22,
+        "memory": 17,
+        "placement": 7,
+        "privileged": 12,
+        "pull": 2,
+        "read_only": 13,
+        "restart_policy": 8,
+        "user": 9,
+        "volumes": 6,
+        "working_dir": 10
+      },
+      "retired": {}
+    },
+    "PodmanInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "create": 2,
+        "pull": 1,
+        "recreate": 3,
+        "remove": 4,
+        "start": 5,
+        "stop": 6,
+        "unpause": 7
+      },
+      "retired": {}
+    },
+    "PodmanInternalApiCall_Create": {
+      "repr": "message",
+      "fields": {
+        "config": 2,
+        "name": 1
+      },
+      "retired": {}
+    },
+    "PodmanInternalApiCall_Recreate": {
+      "repr": "message",
+      "fields": {
+        "config": 2,
+        "name": 1,
+        "reasons": 3
+      },
+      "retired": {}
+    },
+    "PodmanNetworking": {
+      "repr": "oneof",
+      "fields": {
+        "attached": 3,
+        "host": 1,
+        "isolated": 2
+      },
+      "retired": {}
+    },
+    "PodmanPlacement": {
+      "repr": "oneof",
+      "fields": {
+        "pod": 1,
+        "standalone": 2
+      },
+      "retired": {}
+    },
+    "PodmanStandalone": {
+      "repr": "message",
+      "fields": {
+        "hostname": 1,
+        "ipc": 4,
+        "networking": 3,
+        "userns": 2
+      },
+      "retired": {}
+    },
+    "PodmanUserNamespace": {
+      "repr": "oneof",
+      "fields": {
+        "auto": 3,
+        "host": 1,
+        "keep_id": 4,
+        "no_map": 5,
+        "private": 2
+      },
+      "retired": {}
+    },
+    "PortBinding": {
+      "repr": "message",
+      "fields": {
+        "container_port": 1,
+        "host_ip": 2,
+        "host_port": 3
+      },
+      "retired": {}
+    },
+    "PrivateIpc": {
+      "repr": "message",
+      "fields": {
+        "shm_size": 1
+      },
+      "retired": {}
+    },
+    "Privilege": {
+      "repr": "oneof",
+      "fields": {
+        "none": 1,
+        "with_sudo": 2,
+        "with_sudo_rs": 3
+      },
+      "retired": {}
+    },
+    "PublishedPort": {
+      "repr": "message",
+      "fields": {
+        "bindings": 2,
+        "spec": 1
+      },
+      "retired": {}
+    },
+    "PullPolicy": {
+      "repr": "oneof",
+      "fields": {
+        "missing": 1,
+        "never": 2
+      },
+      "retired": {}
+    },
+    "RedHatFlavoredPackageManager": {
+      "repr": "oneof",
+      "fields": {
+        "dnf": 2,
+        "yum": 1
+      },
+      "retired": {}
+    },
+    "RegentError": {
+      "repr": "oneof",
+      "fields": {
+        "any_other_error": 17,
+        "attribute_error": 23,
+        "failed_dry_run_evaluation": 8,
+        "failed_initialization": 5,
+        "failed_task_dry_run": 7,
+        "failed_tcp_binding": 6,
+        "failed_to_apply_expected_state": 9,
+        "failed_to_get_file": 25,
+        "failed_to_get_secret": 10,
+        "failure_to_consider_context": 11,
+        "failure_to_establish_connection": 4,
+        "failure_to_find_group_content": 1,
+        "failure_to_parse_content": 2,
+        "failure_to_run_command": 3,
+        "group_not_found": 13,
+        "host_busy": 27,
+        "host_lock_unavailable": 28,
+        "incoherent_expected_state": 18,
+        "incompatible_host": 26,
+        "internal_logic_error": 19,
+        "missing_groups_list": 14,
+        "missing_initialization": 12,
+        "not_connected_to_host": 20,
+        "problem_with_host_connection": 21,
+        "secrets_issue": 22,
+        "time_out_reached": 24,
+        "work_flow_not_followed": 15,
+        "wrong_initialization": 16
+      },
+      "retired": {}
+    },
+    "RegentTaskResult": {
+      "repr": "message",
+      "fields": {
+        "finished_at": 5,
+        "host_id": 2,
+        "idempotency_key": 1,
+        "job": 3,
+        "outcome_err": 7,
+        "outcome_ok": 6,
+        "started_at": 4
+      },
+      "retired": {}
+    },
+    "ReleaseArch": {
+      "repr": "oneof",
+      "fields": {
+        "amd64": 1,
+        "arm64": 2
+      },
+      "retired": {}
+    },
+    "Remediation": {
+      "repr": "oneof",
+      "fields": {
+        "alloy": 32,
+        "apple_mps": 27,
+        "apptainer": 23,
+        "apt": 3,
+        "apt_repo": 4,
+        "command": 12,
+        "cron": 15,
+        "debug": 9,
+        "dnf_repo": 6,
+        "dns": 7,
+        "docker": 21,
+        "enroot": 24,
+        "fluent_bit": 29,
+        "group": 14,
+        "hostname": 16,
+        "iptables": 17,
+        "line_in_file": 8,
+        "node_exporter": 30,
+        "none": 1,
+        "nvidia_container_toolkit": 26,
+        "nvidia_driver": 25,
+        "ollama": 18,
+        "onnx": 19,
+        "otel_collector": 31,
+        "pacman": 2,
+        "ping": 10,
+        "podman": 22,
+        "service": 11,
+        "storage": 28,
+        "template": 20,
+        "user": 13,
+        "yum_dnf": 5
+      },
+      "retired": {}
+    },
+    "RestartPolicy": {
+      "repr": "oneof",
+      "fields": {
+        "always": 2,
+        "no": 1,
+        "on_failure": 4,
+        "unless_stopped": 3
+      },
+      "retired": {}
+    },
+    "SecretReference": {
+      "repr": "message",
+      "fields": {
+        "provider": 2,
+        "sec_ref": 1
+      },
+      "retired": {}
+    },
+    "ServiceApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "ServiceEngine": {
+      "repr": "oneof",
+      "fields": {
+        "apptainer": 1,
+        "enroot": 2
+      },
+      "retired": {}
+    },
+    "ServiceEnvVarName": {
+      "repr": "transparent",
+      "fields": {},
+      "retired": {}
+    },
+    "ServiceModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "disable": 6,
+        "enable": 5,
+        "reload": 4,
+        "restart": 3,
+        "start": 1,
+        "stop": 2
+      },
+      "retired": {}
+    },
+    "ServiceUnitAction": {
+      "repr": "oneof",
+      "fields": {
+        "daemon_reload": 2,
+        "disable": 4,
+        "enable": 3,
+        "enable_linger": 1,
+        "remove": 8,
+        "restart": 7,
+        "start": 5,
+        "stop": 6
+      },
+      "retired": {}
+    },
+    "ServiceUnitId": {
+      "repr": "message",
+      "fields": {
+        "engine": 1,
+        "name": 2,
+        "scope": 3
+      },
+      "retired": {}
+    },
+    "StorageApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 3,
+        "privilege": 4,
+        "target": 1,
+        "threshold": 2
+      },
+      "retired": {}
+    },
+    "StorageModuleInternalApiCall": {
+      "repr": "message",
+      "fields": {
+        "cleanup": 1
+      },
+      "retired": {}
+    },
+    "StorageTarget": {
+      "repr": "oneof",
+      "fields": {
+        "file_system": 1,
+        "mount_point": 2
+      },
+      "retired": {}
+    },
+    "TemplateApiCall": {
+      "repr": "message",
+      "fields": {
+        "context": 4,
+        "destination": 2,
+        "destination_action": 3,
+        "privilege": 5,
+        "template": 1
+      },
+      "retired": {}
+    },
+    "TemplateOrigin": {
+      "repr": "oneof",
+      "fields": {
+        "file": 1,
+        "in_line": 2
+      },
+      "retired": {}
+    },
+    "Threshold": {
+      "repr": "oneof",
+      "fields": {
+        "absolute_available": 4,
+        "absolute_used": 2,
+        "percent_available": 3,
+        "percent_used": 1
+      },
+      "retired": {}
+    },
+    "ToolkitVersion": {
+      "repr": "message",
+      "fields": {
+        "major": 1,
+        "minor": 2,
+        "patch": 3,
+        "release": 4
+      },
+      "retired": {}
+    },
+    "UnitRestartPolicy": {
+      "repr": "oneof",
+      "fields": {
+        "always": 3,
+        "no": 1,
+        "on_failure": 2
+      },
+      "retired": {}
+    },
+    "UnitScope": {
+      "repr": "oneof",
+      "fields": {
+        "system": 1,
+        "user": 2
+      },
+      "retired": {}
+    },
+    "UserApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "privilege": 2
+      },
+      "retired": {}
+    },
+    "UserModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "add": 1,
+        "delete": 3,
+        "modify": 2
+      },
+      "retired": {}
+    },
+    "UserModuleInternalApiCall_Add": {
+      "repr": "message",
+      "fields": {
+        "comment": 7,
+        "create_home": 10,
+        "group": 3,
+        "groups": 4,
+        "home": 6,
+        "password": 8,
+        "shell": 5,
+        "system": 9,
+        "uid": 2,
+        "username": 1
+      },
+      "retired": {}
+    },
+    "UserModuleInternalApiCall_Delete": {
+      "repr": "message",
+      "fields": {
+        "remove_home": 2,
+        "username": 1
+      },
+      "retired": {}
+    },
+    "UserModuleInternalApiCall_Modify": {
+      "repr": "message",
+      "fields": {
+        "append": 5,
+        "comment": 8,
+        "group": 3,
+        "groups": 4,
+        "home": 7,
+        "password": 9,
+        "shell": 6,
+        "uid": 2,
+        "username": 1
+      },
+      "retired": {}
+    },
+    "VersionChange": {
+      "repr": "oneof",
+      "fields": {
+        "downgrade": 3,
+        "install": 1,
+        "upgrade": 2
+      },
+      "retired": {}
+    },
+    "YumDnfApiCall": {
+      "repr": "message",
+      "fields": {
+        "api_call": 1,
+        "package_manager": 2,
+        "privilege": 3
+      },
+      "retired": {}
+    },
+    "YumDnfModuleInternalApiCall": {
+      "repr": "oneof",
+      "fields": {
+        "install": 1,
+        "remove": 2,
+        "upgrade": 3
+      },
+      "retired": {}
+    }
+  }
+}

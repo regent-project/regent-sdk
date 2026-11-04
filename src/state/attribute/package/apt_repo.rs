@@ -708,3 +708,7 @@ mod tests {
         assert_eq!(AptRepoExpectedState::absent("docker", true), parsed);
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__package__apt_repo.rs"]
+mod proto_conv;

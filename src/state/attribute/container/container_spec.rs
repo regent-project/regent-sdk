@@ -1036,3 +1036,7 @@ mod tests {
         assert!(parse_inspect_output("[]").is_none());
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__container__container_spec.rs"]
+mod proto_conv;

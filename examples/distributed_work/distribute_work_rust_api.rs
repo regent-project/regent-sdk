@@ -1,3 +1,4 @@
+use regent_sdk::Privilege;
 use regent_sdk::attribute::package::pacman::PacmanExpectedState;
 use regent_sdk::hosts::handlers::ConnectionMethod;
 use regent_sdk::hosts::handlers::TargetUser;
@@ -6,7 +7,6 @@ use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
 use regent_sdk::{Attribute, ExpectedState};
-use regent_sdk::Privilege;
 
 #[tokio::main]
 async fn main() {

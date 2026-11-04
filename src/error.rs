@@ -125,3 +125,7 @@ pub enum RegentError {
     #[error("Host lock unavailable: '{0}'")]
     HostLockUnavailable(String),
 }
+
+#[cfg(feature = "proto")]
+#[path = "proto/conv/error.rs"]
+mod proto_conv;

@@ -1348,3 +1348,7 @@ State: !Present
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__gpu__nvidia_container_toolkit.rs"]
+mod proto_conv;

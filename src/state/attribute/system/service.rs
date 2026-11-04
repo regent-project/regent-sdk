@@ -984,3 +984,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__system__service.rs"]
+mod proto_conv;

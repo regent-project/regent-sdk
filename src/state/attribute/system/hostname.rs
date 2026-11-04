@@ -533,3 +533,7 @@ mod tests {
         assert!(is_valid_hostname(&format!("{}.example.com", long_label)).is_err());
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__system__hostname.rs"]
+mod proto_conv;

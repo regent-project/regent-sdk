@@ -701,3 +701,7 @@ Detail: !FluentBit
         assert!(repository(&sles, PackageFamily::Zypper).is_err());
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__observability__fluentbit.rs"]
+mod proto_conv;

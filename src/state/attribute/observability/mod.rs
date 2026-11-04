@@ -650,3 +650,7 @@ W: some warning
         assert_eq!(with_trailing_newline("x\n"), "x\n");
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__observability.rs"]
+mod proto_conv;

@@ -510,3 +510,7 @@ mod tests {
         println!("{:#?}", attributes);
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__system__group.rs"]
+mod proto_conv;

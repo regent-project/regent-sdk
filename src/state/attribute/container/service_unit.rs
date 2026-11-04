@@ -1253,3 +1253,7 @@ mkdir -p /etc/systemd/system && printf '%s' 'UNIT' > /etc/systemd/system/'regent
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__container__service_unit.rs"]
+mod proto_conv;

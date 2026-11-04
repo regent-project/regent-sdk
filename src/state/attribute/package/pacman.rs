@@ -415,3 +415,7 @@ unknown_key: unknown_value
         assert!(yaml_serde::from_str::<PacmanExpectedState>(raw_attribute).is_err());
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__package__pacman.rs"]
+mod proto_conv;

@@ -1,0 +1,80 @@
+// Outcome reporting protocol, spoken by agents running on managed hosts (e.g.
+// regops) to a collector (e.g. regency's endpoint).
+//
+// Hand-written (unlike model.proto). Wire-compatibility rules: never reuse or
+// renumber a field; mark removed fields `reserved`.
+//
+// Transport: gRPC over TLS. ReportOutcome and RenewCertificate require a client
+// certificate (mTLS) whose identity is the reporting host's id; Enroll is the
+// only call accepted without one.
+
+syntax = "proto3";
+
+package regent.v1;
+
+import "regent/v1/model.proto";
+
+service Reporting {
+  // Report the outcome of one compliance pass. The collector answers OK only
+  // once the outcome is durably accepted; until then the agent keeps it and
+  // retries with the same message (same idempotency key), so duplicates are
+  // possible and must be tolerated by the collector.
+  //
+  // Errors: UNAUTHENTICATED / PERMISSION_DENIED (identity problem, retry
+  // later), INVALID_ARGUMENT (this outcome will never be accepted, e.g. its
+  // host_id differs from the authenticated identity), UNAVAILABLE (retry).
+  rpc ReportOutcome(ReportOutcomeRequest) returns (ReportOutcomeResponse);
+
+  // Built-in CA mode: exchange a one-host enrollment token and a certificate
+  // signing request for a client certificate. Called without a client
+  // certificate.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+
+  // Built-in CA mode: renew the client certificate before it expires. Called
+  // over mTLS with the current certificate; the new one has the same identity.
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
+}
+
+// Who produced an outcome.
+message ReporterInfo {
+  // Agent name, e.g. "regops".
+  string agent = 1;
+  // Agent version, e.g. "0.15.0".
+  string agent_version = 2;
+  // regent-sdk version the agent is built with.
+  string sdk_version = 3;
+  // Revision of the expected state that was applied (e.g. Git commit sha);
+  // empty if unknown.
+  string source_revision = 4;
+}
+
+message ReportOutcomeRequest {
+  RegentTaskResult result = 1;
+  ReporterInfo reporter = 2;
+}
+
+message ReportOutcomeResponse {}
+
+message EnrollRequest {
+  // Signed, short-lived, bound to one host id.
+  string enrollment_token = 1;
+  // PKCS#10 certificate signing request, DER. Its subject alternative name
+  // must be the host id the token is bound to.
+  bytes csr_der = 2;
+}
+
+message EnrollResponse {
+  // Issued certificate followed by its chain, PEM.
+  string certificate_chain_pem = 1;
+}
+
+message RenewCertificateRequest {
+  // PKCS#10 certificate signing request, DER, same identity as the current
+  // certificate.
+  bytes csr_der = 1;
+}
+
+message RenewCertificateResponse {
+  // Issued certificate followed by its chain, PEM.
+  string certificate_chain_pem = 1;
+}

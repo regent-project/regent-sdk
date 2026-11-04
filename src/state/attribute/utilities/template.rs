@@ -403,3 +403,7 @@ fn escape_for_printf(content: &str) -> String {
         .replace('\n', "\\n")
         .replace('\'', "'\\''")
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__utilities__template.rs"]
+mod proto_conv;

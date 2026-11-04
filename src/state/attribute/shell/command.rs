@@ -252,3 +252,7 @@ mod tests {
         let _attributes: Vec<CommandExpectedState> = yaml_serde::from_str(raw_attributes).unwrap();
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__shell__command.rs"]
+mod proto_conv;

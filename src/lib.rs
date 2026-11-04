@@ -25,6 +25,12 @@
 //! - `aws-secretsmanager`: dynamically retrieve secrets from AWS Secrets Manager
 //! - `gcp-secretmanager`: dynamically retrieve secrets from Google Cloud Secret Manager
 //! - `windows`: Enable Windows support (not every attribute will be compatible, see [Usage](#usage))
+//! - `proto`: protobuf mirror of [`RegentTaskResult`](task::RegentTaskResult) (module `proto`,
+//!   schema in `proto/regent/v1/model.proto`), for exchanging outcomes between different
+//!   regent-sdk versions. Building it needs `protoc` **36.1** (exact version, on `PATH` or
+//!   through `PROTOC`).
+//! - `grpc` (implies `proto`): client and server stubs of the outcome `Reporting` service
+//!   (`proto/regent/v1/reporting.proto`), on tonic
 //!
 //!
 //! ## Usage
@@ -95,9 +101,14 @@
 
 pub mod error;
 pub mod hosts;
+#[cfg(feature = "proto")]
+pub mod proto;
 pub mod secrets;
 pub mod state;
 pub mod task;
+
+/// Version of this regent-sdk crate (e.g. for agents reporting which SDK produced an outcome).
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub use error::RegentError;
 pub use hosts::handlers::localhost::{LocalHostHandler, WhichUser};
@@ -112,4 +123,4 @@ pub use secrets::{SecretProvider, SecretProvidersPoolBuilder};
 pub use state::ExpectedState;
 pub use state::attribute;
 pub use state::attribute::Attribute;
-pub use task::{Job, RegentTask};
+pub use task::{CancellationToken, Job, RegentTask};

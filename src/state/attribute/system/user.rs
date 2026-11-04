@@ -983,3 +983,7 @@ State: !Present
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__system__user.rs"]
+mod proto_conv;

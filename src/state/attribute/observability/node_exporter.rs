@@ -806,3 +806,7 @@ Detail: !NodeExporter
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__observability__node_exporter.rs"]
+mod proto_conv;

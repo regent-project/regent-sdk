@@ -929,3 +929,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__package__dnf_repo.rs"]
+mod proto_conv;

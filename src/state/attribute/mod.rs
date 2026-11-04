@@ -1892,3 +1892,7 @@ impl FromIterator<Remediation> for RemediationsList {
         }
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../proto/conv/state__attribute.rs"]
+mod proto_conv;

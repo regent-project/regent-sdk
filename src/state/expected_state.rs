@@ -284,3 +284,7 @@ impl<T: DeserializeOwned> Parameter<T> {
         }
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../proto/conv/state__expected_state.rs"]
+mod proto_conv;

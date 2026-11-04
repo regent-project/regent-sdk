@@ -2482,3 +2482,7 @@ State: !Running
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__container__podman.rs"]
+mod proto_conv;

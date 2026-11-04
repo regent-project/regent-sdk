@@ -211,3 +211,7 @@ impl LoginKeyRef {
         &self.key
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../proto/conv/hosts__privilege.rs"]
+mod proto_conv;

@@ -2614,3 +2614,7 @@ State: !Present
         assert_eq!(api_call.default_timeout(), Duration::from_secs(300));
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__gpu__nvidia_driver.rs"]
+mod proto_conv;

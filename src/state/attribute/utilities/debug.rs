@@ -151,3 +151,7 @@ Msg: some content
         assert_eq!(attribute.msg, "some content".to_string());
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__utilities__debug.rs"]
+mod proto_conv;

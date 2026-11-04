@@ -1437,3 +1437,7 @@ NVIDIA_DRIVER_CAPABILITIES=\"compute,utility\"
         }
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__container__enroot.rs"]
+mod proto_conv;

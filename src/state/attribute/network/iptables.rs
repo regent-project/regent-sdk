@@ -2237,3 +2237,7 @@ Details:
         );
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__network__iptables.rs"]
+mod proto_conv;

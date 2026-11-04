@@ -43,6 +43,19 @@ impl ManagedHostStatus {
         }
     }
 
+    /// The run was aborted through its cancellation token (see
+    /// [`crate::task::RegentTask::run_with_cancellation`]).
+    ///
+    /// `actions` are, for a remediation, the actions performed before the abort (the
+    /// action in progress always completes first); for an assessment, the
+    /// remediations found before the abort (not applied).
+    pub fn aborted(actions: Vec<Action>) -> Self {
+        Self {
+            state: HostStatus::Aborted,
+            actions_taken: Some(actions),
+        }
+    }
+
     pub fn is_already_compliant(&self) -> bool {
         matches!(self.state, HostStatus::AlreadyCompliant)
     }
@@ -57,6 +70,11 @@ impl ManagedHostStatus {
 
     pub fn is_reach_compliance_failed(&self) -> bool {
         matches!(self.state, HostStatus::ReachComplianceFailed)
+    }
+
+    /// The run was aborted before completion; see [`ManagedHostStatus::aborted`].
+    pub fn is_aborted(&self) -> bool {
+        matches!(self.state, HostStatus::Aborted)
     }
 
     pub fn all_remediations(&self) -> Vec<Remediation> {
@@ -110,6 +128,8 @@ pub enum HostStatus {
     NotCompliant,
     ReachComplianceFailed,
     ReachComplianceSuccess,
+    /// The run was stopped through its cancellation token before completing.
+    Aborted,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -173,3 +193,7 @@ pub enum AttributeComplianceStatus {
     NonCompliantFatal(String),
     FailedReachedCompliance,
 }
+
+#[cfg(feature = "proto")]
+#[path = "../proto/conv/state__compliance.rs"]
+mod proto_conv;

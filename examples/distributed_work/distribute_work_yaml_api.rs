@@ -1,8 +1,8 @@
+use regent_sdk::ExpectedState;
 use regent_sdk::hosts::managed_host::ManagedHostBuilder;
 use regent_sdk::secrets::{SecretProvider, SecretProvidersPool};
 use regent_sdk::task::Job;
 use regent_sdk::task::{RegentTask, RegentTaskResult};
-use regent_sdk::ExpectedState;
 
 #[tokio::main]
 async fn main() {

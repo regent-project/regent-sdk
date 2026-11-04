@@ -148,3 +148,7 @@ mod tests {
         let _attribute: PingExpectedState = yaml_serde::from_str(raw_attributes).unwrap();
     }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../../../proto/conv/state__attribute__utilities__ping.rs"]
+mod proto_conv;
