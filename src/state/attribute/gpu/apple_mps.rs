@@ -98,6 +98,7 @@ use crate::state::compliance::AttributeComplianceAssessment;
     rename_all = "PascalCase",
     rename_all_fields = "PascalCase"
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AppleMpsExpectedState {
     /// The Xcode Command Line Tools must be removed. MPS itself is part of
     /// macOS and cannot be removed.

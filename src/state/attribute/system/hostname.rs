@@ -53,6 +53,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum HostnameMethod {
     /// Uses hostnamectl set-hostname (systemd, persistent across reboots)
     Systemd,
@@ -66,6 +67,7 @@ pub enum HostnameMethod {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct HostnameExpectedState {
     name: String,
     /// Method to use for setting the hostname (defaults to auto-detection)

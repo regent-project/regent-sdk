@@ -113,6 +113,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DnfRepoSource {
     Baseurl(Vec<String>),
     Mirrorlist(String),
@@ -123,6 +124,7 @@ pub enum DnfRepoSource {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DnfRepoExpectedState {
     #[serde(rename_all = "PascalCase")]
     Present {

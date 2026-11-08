@@ -157,6 +157,7 @@ const DROP_IN_FILE: &str = "/etc/systemd/system/fluent-bit.service.d/regent.conf
     rename_all_fields = "PascalCase",
     deny_unknown_fields
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum FluentBitExpectedState {
     Present {
         version: Option<AgentVersion>,
@@ -167,6 +168,7 @@ pub enum FluentBitExpectedState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum FluentBitConfigFormat {
     /// `[SERVICE]` / `[INPUT]` / `[OUTPUT]` sections
     Classic,
@@ -176,6 +178,7 @@ pub enum FluentBitConfigFormat {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct FluentBitConfig {
     format: FluentBitConfigFormat,
     /// The whole main configuration file

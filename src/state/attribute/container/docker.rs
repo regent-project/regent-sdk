@@ -131,6 +131,7 @@ use super::container_spec::{
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DockerExpectedState {
     name: ContainerName,
     state: DockerContainerState,
@@ -138,6 +139,7 @@ pub struct DockerExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DockerContainerState {
     Running(Box<DockerContainerConfig>),
     Stopped(Box<DockerContainerConfig>),
@@ -169,6 +171,7 @@ impl DockerExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DockerNetworking {
     /// Share the host network stack (`--network host`), ports can't be published
     Host,
@@ -187,6 +190,7 @@ impl DockerNetworking {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DockerAttachedNetworking {
     networks: Option<NetworkList>,
     ports: Option<Vec<PublishedPort>>,
@@ -196,6 +200,7 @@ pub struct DockerAttachedNetworking {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct HealthCheck {
     test: HealthCheckTest,
     interval: Option<HealthDuration>,
@@ -245,6 +250,7 @@ impl HealthCheck {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct HealthCheckTest(String);
 
 impl TryFrom<String> for HealthCheckTest {
@@ -288,6 +294,7 @@ impl From<HealthCheckTest> for String {
 /// Duration in the Go syntax of the Docker CLI (`30s`, `1m30s`, `500ms`), strictly positive
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct HealthDuration {
     spec: String,
     nanos: i64,
@@ -376,6 +383,7 @@ impl From<HealthDuration> for String {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DockerContainerConfig {
     image: ContainerImage,
     #[serde(default)]

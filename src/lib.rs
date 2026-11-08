@@ -31,6 +31,8 @@
 //!   through `PROTOC`).
 //! - `grpc` (implies `proto`): client and server stubs of the outcome `Reporting` service
 //!   (`proto/regent/v1/reporting.proto`), on tonic
+//! - `schema`: JSON Schema of expected states and attributes (module `schema`, through
+//!   schemars), e.g. to build attribute forms in a UI that follow the SDK's types
 //!
 //!
 //! ## Usage
@@ -103,6 +105,8 @@ pub mod error;
 pub mod hosts;
 #[cfg(feature = "proto")]
 pub mod proto;
+#[cfg(feature = "schema")]
+pub mod schema;
 pub mod secrets;
 pub mod state;
 pub mod task;

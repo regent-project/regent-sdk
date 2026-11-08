@@ -72,6 +72,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AptRepoType {
     Deb,
     DebSrc,
@@ -101,6 +102,7 @@ impl AptRepoType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct AptRepoExpectedState {
     /// Filename (without extension) for the repository file in /etc/apt/sources.list.d/
     filename: String,
@@ -115,6 +117,7 @@ pub struct AptRepoExpectedState {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(untagged)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AptRepoFormat {
     #[serde(rename_all = "PascalCase")]
     Legacy {

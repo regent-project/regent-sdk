@@ -65,6 +65,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum LineExpectedState {
     #[serde(rename_all = "PascalCase")]
     Present {
@@ -85,6 +86,7 @@ pub enum LineExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Line {
     /// The exact line to insert, or the replacement when regexp/search_string matches.
     Raw(Parameter<String>),
@@ -117,6 +119,7 @@ impl Display for Line {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum LinePosition {
     /// Insert the line after the last line matching this regex, or after "EOF" / "BOF". Mutually exclusive with InsertBefore.
     InsertAfter(String),
@@ -131,6 +134,7 @@ fn default_line_position() -> LinePosition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct LineInFileExpectedState {
     /// Absolute path to the managed file.
     file_path: String,
@@ -298,7 +302,8 @@ impl Check for LineInFileExpectedState {
         &self,
         _host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
-        // Line in file operations are cross-platform compatible
+        // Unix-like hosts through sed/grep; Windows hosts through PowerShell
+        // (windows feature)
         Ok(())
     }
 }
@@ -320,22 +325,30 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
         }
-        if !host_handler
-            .is_this_command_available("sed", privilege)
-            .await
-            .unwrap()
-        {
-            return Err(RegentError::FailedDryRunEvaluation(
-                "sed is not available on this host".to_string(),
-            ));
-        }
-
-        let file_exists = host_handler
-            .run_command(&format!("test -f {}", self.file_path), &Privilege::None)
-            .await
-            .unwrap()
-            .return_code
-            == 0;
+        let (file_exists, access) = if is_windows(host_properties) {
+            match windows_read_lines(host_handler, &self.file_path).await? {
+                Some((lines, _)) => (true, Access::Lines(lines)),
+                None => (false, Access::Lines(Vec::new())),
+            }
+        } else {
+            if !host_handler
+                .is_this_command_available("sed", privilege)
+                .await
+                .unwrap()
+            {
+                return Err(RegentError::FailedDryRunEvaluation(
+                    "sed is not available on this host".to_string(),
+                ));
+            }
+            let exists = host_handler
+                .run_command(&format!("test -f {}", self.file_path), &Privilege::None)
+                .await
+                .unwrap()
+                .return_code
+                == 0;
+            (exists, Access::Shell)
+        };
+        let access = &access;
 
         match &self.state {
             LineExpectedState::Absent {
@@ -353,6 +366,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState
                         privilege,
                         &self.line,
                         optional_secret_provider,
+                        access,
                     )
                     .await
                 }
@@ -374,6 +388,7 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for LineInFileExpectedState
                             &self.line,
                             firstmatch,
                             optional_secret_provider,
+                            access,
                         )
                         .await
                     }
@@ -418,6 +433,7 @@ async fn assess_absence<Handler: HostHandler>(
     privilege: &Privilege,
     line: &Line,
     optional_secret_provider: &Option<SecretProvidersPool>,
+    access: &Access,
 ) -> Result<AttributeComplianceAssessment, RegentError> {
     match line {
         Line::Raw(parameter_line) => {
@@ -425,7 +441,8 @@ async fn assess_absence<Handler: HostHandler>(
                 .clone()
                 .inner_raw(optional_secret_provider)
                 .await?;
-            let matches = grep_exact_line(host_handler, &content_to_search, &block.file_path).await;
+            let matches =
+                grep_exact_line(host_handler, &content_to_search, &block.file_path, access).await;
             if matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
@@ -442,7 +459,7 @@ async fn assess_absence<Handler: HostHandler>(
             ))
         }
         Line::Regexp(regexp) => {
-            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false, access).await;
             if matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
@@ -462,7 +479,7 @@ async fn assess_absence<Handler: HostHandler>(
             regexp,
             content_to_insert: _,
         } => {
-            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false, access).await;
             if matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
@@ -479,7 +496,8 @@ async fn assess_absence<Handler: HostHandler>(
             ))
         }
         Line::SearchString(search_string) => {
-            let matches = grep_lines(host_handler, search_string, &block.file_path, false).await;
+            let matches =
+                grep_lines(host_handler, search_string, &block.file_path, false, access).await;
             if matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
@@ -505,6 +523,7 @@ async fn assess_presence<Handler: HostHandler>(
     line: &Line,
     firstmatch: bool,
     optional_secret_provider: &Option<SecretProvidersPool>,
+    access: &Access,
 ) -> Result<AttributeComplianceAssessment, RegentError> {
     match line {
         Line::Raw(parameter_line) => {
@@ -512,13 +531,14 @@ async fn assess_presence<Handler: HostHandler>(
                 .clone()
                 .inner_raw(optional_secret_provider)
                 .await?;
-            let matches = grep_exact_line(host_handler, &content_to_search, &block.file_path).await;
+            let matches =
+                grep_exact_line(host_handler, &content_to_search, &block.file_path, access).await;
             if !matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
         }
         Line::Regexp(regexp) => {
-            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false, access).await;
             if !matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
@@ -527,7 +547,7 @@ async fn assess_presence<Handler: HostHandler>(
             regexp,
             content_to_insert,
         } => {
-            let matches = grep_lines(host_handler, regexp, &block.file_path, false).await;
+            let matches = grep_lines(host_handler, regexp, &block.file_path, false, access).await;
             if !matches.is_empty() {
                 let target = if firstmatch {
                     *matches.first().unwrap()
@@ -550,7 +570,8 @@ async fn assess_presence<Handler: HostHandler>(
             }
         }
         Line::SearchString(search_string) => {
-            let matches = grep_exact_line(host_handler, search_string, &block.file_path).await;
+            let matches =
+                grep_exact_line(host_handler, search_string, &block.file_path, access).await;
             if !matches.is_empty() {
                 return Ok(AttributeComplianceAssessment::Compliant);
             }
@@ -576,7 +597,8 @@ async fn assess_presence<Handler: HostHandler>(
                     },
                     _ => {
                         let matches =
-                            grep_lines(host_handler, pattern, &block.file_path, false).await;
+                            grep_lines(host_handler, pattern, &block.file_path, false, access)
+                                .await;
                         if matches.is_empty() {
                             LineInFileModuleInternalApiCall::InsertBottom {
                                 line_content: line_content.clone(),
@@ -600,7 +622,8 @@ async fn assess_presence<Handler: HostHandler>(
                     },
                     _ => {
                         let matches =
-                            grep_lines(host_handler, pattern, &block.file_path, false).await;
+                            grep_lines(host_handler, pattern, &block.file_path, false, access)
+                                .await;
                         if matches.is_empty() {
                             LineInFileModuleInternalApiCall::InsertBottom {
                                 line_content: line_content.clone(),
@@ -658,12 +681,50 @@ async fn get_line_content(
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
+/// Where the file's lines are read: shell tools on the host (`grep`, `sed`:
+/// Unix hosts), or a copy read once (Windows hosts, feature `windows`).
+pub(crate) enum Access {
+    Shell,
+    #[cfg_attr(not(feature = "windows"), allow(dead_code))]
+    Lines(Vec<String>),
+}
+
+/// 1-based numbers of the lines containing `pattern` (a fixed string, or a
+/// regular expression in Rust `regex` syntax on Windows hosts).
+fn matching_lines(lines: &[String], pattern: &str, fixed: bool) -> Vec<u64> {
+    let matches: Box<dyn Fn(&str) -> bool> = if fixed {
+        Box::new(move |l: &str| l.contains(pattern))
+    } else {
+        #[cfg(feature = "windows")]
+        {
+            match regex::Regex::new(pattern) {
+                Ok(re) => Box::new(move |l: &str| re.is_match(l)),
+                Err(_) => Box::new(|_: &str| false),
+            }
+        }
+        #[cfg(not(feature = "windows"))]
+        {
+            Box::new(move |l: &str| l.contains(pattern))
+        }
+    };
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(_, l)| matches(l))
+        .map(|(i, _)| i as u64 + 1)
+        .collect()
+}
+
 async fn grep_lines<Handler: HostHandler>(
     host_handler: &mut Handler,
     pattern: &str,
     file_path: &str,
     fixed: bool,
+    access: &Access,
 ) -> Vec<u64> {
+    if let Access::Lines(lines) = access {
+        return matching_lines(lines, pattern, fixed);
+    }
     let flag = if fixed { "-nF" } else { "-n" };
     let result = host_handler
         .run_command(
@@ -686,7 +747,16 @@ async fn grep_exact_line<Handler: HostHandler>(
     host_handler: &mut Handler,
     line: &str,
     file_path: &str,
+    access: &Access,
 ) -> Vec<u64> {
+    if let Access::Lines(lines) = access {
+        return lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.as_str() == line)
+            .map(|(i, _)| i as u64 + 1)
+            .collect();
+    }
     let result = host_handler
         .run_command(
             &format!("grep -nxF '{}' {}", line, file_path),
@@ -881,7 +951,8 @@ impl Check for LineInFileApiCall {
         &self,
         _host_properties: &HostProperties,
     ) -> Result<(), RegentError> {
-        // Line in file operations are cross-platform compatible
+        // Unix-like hosts through sed/grep; Windows hosts through PowerShell
+        // (windows feature)
         Ok(())
     }
 }
@@ -895,6 +966,10 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for LineInFileApiCall {
     ) -> Result<InternalApiCallOutcome, RegentError> {
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
+        }
+
+        if is_windows(host_properties) {
+            return windows_call(host_handler, &self.file_path, &self.api_call).await;
         }
 
         let cmd: String = match &self.api_call {
@@ -1173,6 +1248,333 @@ async fn read_file_content<Handler: HostHandler>(
         Some(result.stdout)
     } else {
         None
+    }
+}
+
+/// Whether the host is Windows (feature `windows`).
+fn is_windows(host_properties: &Option<HostProperties>) -> bool {
+    #[cfg(feature = "windows")]
+    if let Some(props) = host_properties {
+        return matches!(
+            props.os_kind(),
+            crate::hosts::properties::OsKind::Windows(_)
+        );
+    }
+    let _ = host_properties;
+    false
+}
+
+/// A Windows host's file as lines (with its line ending); `None` if missing.
+#[cfg(feature = "windows")]
+async fn windows_read_lines<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    file_path: &str,
+) -> Result<Option<(Vec<String>, &'static str)>, RegentError> {
+    let bytes = crate::hosts::windows::read_file(host_handler, file_path)
+        .await
+        .map_err(|e| RegentError::FailedDryRunEvaluation(format!("{file_path}: {e:?}")))?;
+    Ok(bytes.map(|b| crate::hosts::windows::split_lines(&String::from_utf8_lossy(&b))))
+}
+
+#[cfg(not(feature = "windows"))]
+async fn windows_read_lines<Handler: HostHandler>(
+    _host_handler: &mut Handler,
+    file_path: &str,
+) -> Result<Option<(Vec<String>, &'static str)>, RegentError> {
+    Err(RegentError::FailedDryRunEvaluation(format!(
+        "{file_path}: Windows hosts need regent-sdk's windows feature"
+    )))
+}
+
+/// `\1` / `\g<1>` (sed style) to `${1}` (Rust regex replacement).
+#[cfg_attr(not(feature = "windows"), allow(dead_code))]
+fn rust_replacement(sed: &str) -> String {
+    let mut out = String::new();
+    let mut chars = sed.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.peek().copied() {
+                Some(d) if d.is_ascii_digit() => {
+                    chars.next();
+                    out.push_str(&format!("${{{d}}}"));
+                }
+                Some('g') => {
+                    chars.next();
+                    let mut name = String::new();
+                    if chars.peek() == Some(&'<') {
+                        chars.next();
+                        for n in chars.by_ref() {
+                            if n == '>' {
+                                break;
+                            }
+                            name.push(n);
+                        }
+                    }
+                    out.push_str(&format!("${{{name}}}"));
+                }
+                Some(other) => {
+                    chars.next();
+                    out.push(other);
+                }
+                None => out.push('\\'),
+            },
+            '$' => out.push_str("$$"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// The edit of an API call applied to a file's lines (`None` = no file).
+#[cfg_attr(not(feature = "windows"), allow(dead_code))]
+fn apply_edit(
+    lines: Option<Vec<String>>,
+    api_call: &LineInFileModuleInternalApiCall,
+) -> Result<Vec<String>, String> {
+    use LineInFileModuleInternalApiCall as Call;
+    let index = |lines: &Vec<String>, n: u64| -> Result<usize, String> {
+        let i = n as usize;
+        if i == 0 || i > lines.len() {
+            Err(format!(
+                "line {n} out of range (file has {} lines)",
+                lines.len()
+            ))
+        } else {
+            Ok(i - 1)
+        }
+    };
+    if let Call::CreateFile { line_content } = api_call {
+        return Ok(if line_content.is_empty() {
+            Vec::new()
+        } else {
+            vec![line_content.clone()]
+        });
+    }
+    let mut lines = lines.ok_or_else(|| "file not found".to_string())?;
+    match api_call {
+        Call::InsertTop { line_content } => lines.insert(0, line_content.clone()),
+        Call::InsertBottom { line_content } => lines.push(line_content.clone()),
+        Call::InsertAfterLine {
+            line_content,
+            line_number,
+        } => {
+            let i = index(&lines, *line_number)?;
+            lines.insert(i + 1, line_content.clone());
+        }
+        Call::InsertBeforeLine {
+            line_content,
+            line_number,
+        } => {
+            let i = index(&lines, *line_number)?;
+            lines.insert(i, line_content.clone());
+        }
+        Call::ReplaceLine {
+            line_content,
+            line_number,
+        } => {
+            let i = index(&lines, *line_number)?;
+            lines[i] = line_content.clone();
+        }
+        Call::ReplaceWithBackrefs {
+            line_content,
+            line_number,
+            regexp,
+        } => {
+            let i = index(&lines, *line_number)?;
+            #[cfg(feature = "windows")]
+            {
+                let re = regex::Regex::new(regexp).map_err(|e| format!("regexp: {e}"))?;
+                lines[i] = re
+                    .replace(&lines[i], rust_replacement(line_content).as_str())
+                    .to_string();
+            }
+            #[cfg(not(feature = "windows"))]
+            {
+                let _ = (i, line_content, regexp);
+                return Err("needs regent-sdk's windows feature".to_string());
+            }
+        }
+        Call::DeleteLines { line_numbers } => {
+            let doomed: std::collections::BTreeSet<u64> = line_numbers.iter().copied().collect();
+            lines = lines
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| !doomed.contains(&(*i as u64 + 1)))
+                .map(|(_, l)| l)
+                .collect();
+        }
+        Call::DeleteByRegexp { regexp } => {
+            let doomed = matching_lines(&lines, regexp, false);
+            lines = lines
+                .into_iter()
+                .enumerate()
+                .filter(|(i, _)| !doomed.contains(&(*i as u64 + 1)))
+                .map(|(_, l)| l)
+                .collect();
+        }
+        Call::CreateFile { .. } => unreachable!("handled above"),
+    }
+    Ok(lines)
+}
+
+/// Reach on a Windows host: read, edit in process, write, verify.
+#[cfg(feature = "windows")]
+async fn windows_call<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    file_path: &str,
+    api_call: &LineInFileModuleInternalApiCall,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    let current = windows_read_lines(host_handler, file_path).await?;
+    let ending = current.as_ref().map(|(_, e)| *e).unwrap_or("\r\n");
+    let edited = match apply_edit(current.map(|(lines, _)| lines), api_call) {
+        Ok(lines) => lines,
+        Err(e) => return Ok(InternalApiCallOutcome::Failure(format!("{file_path}: {e}"))),
+    };
+    let content = crate::hosts::windows::join_lines(&edited, ending);
+    if let Err(e) =
+        crate::hosts::windows::write_file(host_handler, file_path, content.as_bytes()).await
+    {
+        return Ok(InternalApiCallOutcome::Failure(e));
+    }
+    match windows_read_lines(host_handler, file_path).await? {
+        Some((lines, _)) if lines == edited => Ok(InternalApiCallOutcome::Success(None)),
+        _ => Ok(InternalApiCallOutcome::Failure(format!(
+            "{file_path}: post-verification failed"
+        ))),
+    }
+}
+
+#[cfg(not(feature = "windows"))]
+async fn windows_call<Handler: HostHandler>(
+    _host_handler: &mut Handler,
+    file_path: &str,
+    _api_call: &LineInFileModuleInternalApiCall,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    Err(RegentError::IncompatibleHost(format!(
+        "{file_path}: Windows hosts need regent-sdk's windows feature"
+    )))
+}
+
+#[cfg(test)]
+mod windows_edit_tests {
+    use super::*;
+    use LineInFileModuleInternalApiCall as Call;
+
+    fn lines(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn edits_like_sed() {
+        let file = Some(lines(&["a", "b", "c"]));
+        let edit = |call: Call| apply_edit(file.clone(), &call).unwrap();
+        assert_eq!(
+            edit(Call::InsertTop {
+                line_content: "x".into()
+            }),
+            lines(&["x", "a", "b", "c"])
+        );
+        assert_eq!(
+            edit(Call::InsertBottom {
+                line_content: "x".into()
+            }),
+            lines(&["a", "b", "c", "x"])
+        );
+        assert_eq!(
+            edit(Call::InsertAfterLine {
+                line_content: "x".into(),
+                line_number: 2
+            }),
+            lines(&["a", "b", "x", "c"])
+        );
+        assert_eq!(
+            edit(Call::InsertBeforeLine {
+                line_content: "x".into(),
+                line_number: 1
+            }),
+            lines(&["x", "a", "b", "c"])
+        );
+        assert_eq!(
+            edit(Call::ReplaceLine {
+                line_content: "x".into(),
+                line_number: 3
+            }),
+            lines(&["a", "b", "x"])
+        );
+        assert_eq!(
+            edit(Call::DeleteLines {
+                line_numbers: vec![1, 3]
+            }),
+            lines(&["b"])
+        );
+        assert_eq!(
+            apply_edit(
+                None,
+                &Call::CreateFile {
+                    line_content: "x".into()
+                }
+            )
+            .unwrap(),
+            lines(&["x"])
+        );
+        assert!(
+            apply_edit(
+                None,
+                &Call::InsertTop {
+                    line_content: "x".into()
+                }
+            )
+            .is_err()
+        );
+        assert!(
+            apply_edit(
+                file.clone(),
+                &Call::ReplaceLine {
+                    line_content: "x".into(),
+                    line_number: 9
+                }
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn fixed_and_exact_matches() {
+        let file = lines(&["port 22", "#port 2222", "x"]);
+        assert_eq!(matching_lines(&file, "port", true), vec![1, 2]);
+    }
+
+    #[cfg(feature = "windows")]
+    #[test]
+    fn regexps_and_backrefs() {
+        let file = Some(lines(&["Port 22", "#Port 2222", "x"]));
+        assert_eq!(
+            matching_lines(file.as_ref().unwrap(), "^Port [0-9]+$", false),
+            vec![1]
+        );
+        assert_eq!(
+            apply_edit(
+                file.clone(),
+                &Call::DeleteByRegexp {
+                    regexp: "^#".into()
+                }
+            )
+            .unwrap(),
+            lines(&["Port 22", "x"])
+        );
+        assert_eq!(
+            apply_edit(
+                file,
+                &Call::ReplaceWithBackrefs {
+                    line_content: "Port \\1\\g<1> $5".into(),
+                    line_number: 1,
+                    regexp: "^Port ([0-9]+)$".into(),
+                },
+            )
+            .unwrap()[0],
+            "Port 2222 $5"
+        );
+        assert_eq!(rust_replacement("a\\1b\\g<2>"), "a${1}b${2}");
     }
 }
 

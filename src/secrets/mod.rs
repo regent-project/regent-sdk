@@ -356,6 +356,7 @@ impl<T> Secret<T> {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct SecretReference {
     /// The reference/identifier for the secret (e.g., file path, env var name, secret name).
     sec_ref: String,

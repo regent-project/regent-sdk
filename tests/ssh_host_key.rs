@@ -29,7 +29,9 @@ impl russh::server::Handler for AcceptAll {
 
 /// A deterministic Ed25519 test key.
 fn test_key(seed: u8) -> PrivateKey {
-    PrivateKey::from(russh::keys::ssh_key::private::Ed25519Keypair::from_seed(&[seed; 32]))
+    PrivateKey::from(russh::keys::ssh_key::private::Ed25519Keypair::from_seed(
+        &[seed; 32],
+    ))
 }
 
 /// Start a server; returns its port and host key.
@@ -73,11 +75,30 @@ async fn known_hosts_file() {
     let dir = std::env::temp_dir().join(format!("regent-known-hosts-{port}"));
     std::fs::create_dir_all(&dir).unwrap();
     let listed = dir.join("known_hosts");
-    std::fs::write(&listed, format!("[127.0.0.1]:{port} {}\n", key.public_key().to_openssh().unwrap())).unwrap();
+    std::fs::write(
+        &listed,
+        format!(
+            "[127.0.0.1]:{port} {}\n",
+            key.public_key().to_openssh().unwrap()
+        ),
+    )
+    .unwrap();
     let empty = dir.join("empty_known_hosts");
     std::fs::write(&empty, "").unwrap();
-    assert!(connect(port, Some(Ssh2HostKey::KnownHostsFile(listed.display().to_string()))).await);
-    assert!(!connect(port, Some(Ssh2HostKey::KnownHostsFile(empty.display().to_string()))).await);
+    assert!(
+        connect(
+            port,
+            Some(Ssh2HostKey::KnownHostsFile(listed.display().to_string()))
+        )
+        .await
+    );
+    assert!(
+        !connect(
+            port,
+            Some(Ssh2HostKey::KnownHostsFile(empty.display().to_string()))
+        )
+        .await
+    );
 }
 
 #[test]
@@ -86,8 +107,14 @@ fn yaml_form() {
         "AuthMethod: !Key\n  Username: ops\n  Key:\n    SecRef: id_ed25519\n    Provider: files\nHostKey: !Fingerprints\n  - SHA256:abc\n",
     )
     .unwrap();
-    assert_eq!(auth.host_key, Some(Ssh2HostKey::Fingerprints(vec!["SHA256:abc".to_string()])));
+    assert_eq!(
+        auth.host_key,
+        Some(Ssh2HostKey::Fingerprints(vec!["SHA256:abc".to_string()]))
+    );
     // absent field: serialized form unchanged for older readers
-    let plain = regent_sdk::hosts::handlers::ssh2::Ssh2Auth::key("ops", regent_sdk::secrets::SecretReference::from("k", None));
+    let plain = regent_sdk::hosts::handlers::ssh2::Ssh2Auth::key(
+        "ops",
+        regent_sdk::secrets::SecretReference::from("k", None),
+    );
     assert!(!serde_json::to_string(&plain).unwrap().contains("HostKey"));
 }

@@ -199,6 +199,7 @@ const PROBE_DIR_PREFIX: &str = "/tmp/regent-dhcp-";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DhcpCheckBehavior {
     #[serde(rename_all = "PascalCase")]
     CheckResponseAndServer {
@@ -219,6 +220,7 @@ pub enum DhcpCheckBehavior {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct DhcpExpectedState {
     parent_interface: String,
     mac_address: Option<String>,
@@ -1017,6 +1019,7 @@ fn parse_lease_file(raw_lease: &str) -> DhcpLease {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ExpectedDhcpResponse {
     ip: IpAddr,
     mask: IpAddr,

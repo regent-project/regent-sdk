@@ -156,6 +156,7 @@ const RELEASES_URL: &str =
     rename_all_fields = "PascalCase",
     deny_unknown_fields
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum OtelCollectorExpectedState {
     Present {
         distribution: OtelCollectorDistribution,
@@ -168,6 +169,7 @@ pub enum OtelCollectorExpectedState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum OtelCollectorDistribution {
     /// `otelcol`
     Core,

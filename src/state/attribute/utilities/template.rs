@@ -88,6 +88,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum TemplateOrigin {
     File(PathBuf),
     InLine(String),
@@ -117,6 +118,7 @@ impl Serialize for TemplateOrigin {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TemplateExpectedState {
     pub template: TemplateOrigin,
     pub destination: PathBuf,
@@ -182,8 +184,11 @@ impl Check for TemplateExpectedState {
     ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
+            // written through PowerShell
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but APT is only supported on Linux distributions",
+                "Host is {:?} but templates are only supported on Linux and Windows (windows feature)",
                 incompatible_os_kind
             ))),
         }
@@ -205,6 +210,38 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for TemplateExpectedState {
         let expected_content = render_template_content(&self.template, &self.context)?;
 
         let destination = self.destination.to_string_lossy();
+
+        #[cfg(feature = "windows")]
+        if is_windows(host_properties) {
+            let current = crate::hosts::windows::read_file(host_handler, &destination)
+                .await
+                .map_err(|e| {
+                    RegentError::FailedDryRunEvaluation(format!(
+                        "Unable to read destination file {destination}: {e:?}"
+                    ))
+                })?;
+            let action = match current {
+                None => Some(DestinationFileAction::CreateFile),
+                Some(bytes)
+                    if !same_content(&String::from_utf8_lossy(&bytes), &expected_content) =>
+                {
+                    Some(DestinationFileAction::WrongContent)
+                }
+                Some(_) => None,
+            };
+            return match action {
+                None => Ok(AttributeComplianceAssessment::Compliant),
+                Some(destination_action) => Ok(AttributeComplianceAssessment::NonCompliant(
+                    RemediationsList::from(vec![Remediation::Template(TemplateApiCall {
+                        template: self.template.clone(),
+                        destination: self.destination.clone(),
+                        destination_action,
+                        context: self.context.clone(),
+                        privilege: privilege.clone(),
+                    })])?,
+                )),
+            };
+        }
 
         // Check whether the destination file already exists on the host.
         let file_exists = host_handler
@@ -285,8 +322,11 @@ impl Check for TemplateApiCall {
     ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
+            // written through PowerShell
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but APT is only supported on Linux distributions",
+                "Host is {:?} but templates are only supported on Linux and Windows (windows feature)",
                 incompatible_os_kind
             ))),
         }
@@ -316,6 +356,37 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for TemplateApiCall {
         let expected_content = render_template_content(&self.template, &self.context)?;
 
         let destination = self.destination.to_string_lossy();
+
+        #[cfg(feature = "windows")]
+        if is_windows(host_properties) {
+            if let Err(e) = crate::hosts::windows::write_file(
+                host_handler,
+                &destination,
+                expected_content.as_bytes(),
+            )
+            .await
+            {
+                return Ok(InternalApiCallOutcome::Failure(e));
+            }
+            let written = crate::hosts::windows::read_file(host_handler, &destination)
+                .await
+                .map_err(|e| {
+                    RegentError::FailedDryRunEvaluation(format!(
+                        "Unable to read destination file {destination} for verification: {e:?}"
+                    ))
+                })?;
+            return Ok(match written {
+                Some(bytes)
+                    if same_content(&String::from_utf8_lossy(&bytes), &expected_content) =>
+                {
+                    InternalApiCallOutcome::Success(None)
+                }
+                other => InternalApiCallOutcome::Failure(format!(
+                    "post-verification failed (expected: {expected_content:?}, real: {:?})",
+                    other.map(|b| String::from_utf8_lossy(&b).to_string())
+                )),
+            });
+        }
 
         // Overwrite the destination file if it exists, or create it otherwise.
         // "printf ... > file" handles both cases: it truncates an existing file
@@ -394,6 +465,21 @@ fn render_template_content(
     tera::Tera::one_off(&template_str, &tera_context, true).map_err(|details| {
         RegentError::FailureToConsiderContext(format!("Failed to render template: {}", details))
     })
+}
+
+/// Whether the host is Windows (feature `windows`).
+#[cfg(feature = "windows")]
+fn is_windows(host_properties: &Option<HostProperties>) -> bool {
+    host_properties
+        .as_ref()
+        .is_some_and(|props| matches!(props.os_kind(), OsKind::Windows(_)))
+}
+
+/// Same rendered content, ignoring trailing line endings (like the `cat`
+/// comparison on Unix hosts).
+#[cfg_attr(not(feature = "windows"), allow(dead_code))]
+fn same_content(current: &str, expected: &str) -> bool {
+    current.trim_end_matches(['\n', '\r']) == expected.trim_end_matches(['\n', '\r'])
 }
 
 fn escape_for_printf(content: &str) -> String {

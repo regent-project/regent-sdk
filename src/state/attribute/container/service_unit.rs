@@ -79,6 +79,7 @@ pub enum UnitScope {
 /// `Restart=`
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum UnitRestartPolicy {
     No,
     #[default]
@@ -328,6 +329,7 @@ fn env_file_quote(value: &str) -> String {
 /// environment file.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ServiceEnvVarName(String);
 
 impl TryFrom<String> for ServiceEnvVarName {
@@ -380,6 +382,7 @@ impl ServiceEnvVarName {
 /// Absolute path on the host (no trailing `/`, no line break)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct AbsolutePath(String);
 
 impl TryFrom<String> for AbsolutePath {
@@ -443,6 +446,7 @@ impl AbsolutePath {
 /// separators.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct BindMount {
     source: String,
     target: String,

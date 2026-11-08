@@ -95,6 +95,7 @@ fn default_python() -> String {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct OnnxRuntime {
     /// Exact wheel version to pin (`1.20.0`). `None` accepts any version.
     pub version: Option<String>,
@@ -116,6 +117,7 @@ pub struct OnnxRuntime {
     rename_all = "PascalCase",
     rename_all_fields = "PascalCase"
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum OnnxExpectedState {
     Absent {
         /// Python interpreter to uninstall from. Defaults to `python3`.

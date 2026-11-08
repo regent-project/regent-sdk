@@ -224,6 +224,7 @@ const RECORDED_SETTINGS_LABEL: &str = "io.regent-sdk.recorded-settings";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PodmanExpectedState {
     name: ContainerName,
     state: PodmanContainerState,
@@ -231,6 +232,7 @@ pub struct PodmanExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum PodmanContainerState {
     Running(Box<PodmanContainerConfig>),
     Stopped(Box<PodmanContainerConfig>),
@@ -262,6 +264,7 @@ impl PodmanExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum PodmanPlacement {
     /// Join an existing pod (`--pod`), sharing its network and UTS namespaces
     Pod(PodName),
@@ -272,6 +275,7 @@ pub enum PodmanPlacement {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PodmanStandalone {
     hostname: Option<String>,
     userns: Option<PodmanUserNamespace>,
@@ -377,6 +381,7 @@ impl PodmanStandalone {
 /// User namespace mode (`--userns`)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum PodmanUserNamespace {
     /// `host`: no user namespace
     Host,
@@ -404,6 +409,7 @@ impl PodmanUserNamespace {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum PodmanNetworking {
     /// Share the host network stack (`--network host`)
     Host,
@@ -416,6 +422,7 @@ pub enum PodmanNetworking {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PodmanAttachedNetworking {
     networks: Option<NetworkList>,
     ports: Option<Vec<PublishedPort>>,
@@ -468,6 +475,7 @@ impl PodmanAttachedNetworking {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PodmanContainerConfig {
     /// Image reference (preferably fully qualified)
     image: ContainerImage,
@@ -1862,6 +1870,7 @@ fn extract_id(output: &str, command: &str) -> Result<String, RegentError> {
 /// Pod name: `[a-zA-Z0-9][a-zA-Z0-9_.-]*`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PodName(String);
 
 impl TryFrom<String> for PodName {

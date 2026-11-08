@@ -182,12 +182,14 @@ const CDI_REFRESH_SERVICE_UNIT: &str = "nvidia-cdi-refresh.service";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NvidiaContainerToolkitExpectedState {
     state: NvidiaContainerToolkitState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum NvidiaContainerToolkitState {
     /// Toolkit installed with this configuration
     Present(Box<NvidiaContainerToolkitConfig>),
@@ -212,6 +214,7 @@ impl NvidiaContainerToolkitExpectedState {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "NvidiaContainerToolkitConfigFields")]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NvidiaContainerToolkitConfig {
     version: Option<ToolkitVersion>,
     /// Container engines which must know the `nvidia` runtime
@@ -223,6 +226,7 @@ pub struct NvidiaContainerToolkitConfig {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 struct NvidiaContainerToolkitConfigFields {
     version: Option<ToolkitVersion>,
     #[serde(default)]
@@ -307,6 +311,7 @@ impl NvidiaContainerToolkitConfig {
 /// Container engine whose `nvidia` runtime is configured with `nvidia-ctk runtime configure`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ContainerRuntime {
     Docker,
     Containerd,
@@ -380,6 +385,7 @@ impl fmt::Display for ContainerRuntime {
 /// How the CDI specification of the GPUs is generated
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CdiMode {
     /// `nvidia-cdi-refresh` systemd units (toolkit 1.18.0+), `/var/run/cdi/nvidia.yaml`
     Automatic,
@@ -409,6 +415,7 @@ fn is_cdi_spec_current(spec: &str, driver_version: Option<&str>) -> bool {
 /// Toolkit package version: `<major>.<minor>.<patch>-<release>` (e.g. `1.20.1-1`)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ToolkitVersion {
     major: u32,
     minor: u32,

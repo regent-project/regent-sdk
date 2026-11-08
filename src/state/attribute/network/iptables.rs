@@ -131,6 +131,20 @@ impl CidrBlock {
     }
 }
 
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for CidrBlock {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "CidrBlock".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "IPv4 or IPv6 address, with an optional prefix length (e.g. 10.0.0.0/8)"
+        })
+    }
+}
+
 impl Serialize for CidrBlock {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -156,6 +170,7 @@ impl<'de> Deserialize<'de> for CidrBlock {
 /// Displays as `iptables` or `ip6tables` for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IpVersion {
     V4,
     V6,
@@ -183,6 +198,7 @@ fn is_v4_default(family: &IpVersion) -> bool {
 /// Serializes to YAML as `Append` or `Insert` with a `Position` field.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IptablesInsertionAction {
     Append,
     #[serde(rename_all = "PascalCase")]
@@ -197,6 +213,7 @@ pub enum IptablesInsertionAction {
 /// Displays as `tcp`, `udp`, `icmp`, or `all` for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Protocol {
     #[serde(rename_all = "PascalCase")]
     Tcp {
@@ -242,6 +259,7 @@ impl std::fmt::Display for Protocol {
 /// generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum TcpFlag {
     Syn,
     Ack,
@@ -275,6 +293,7 @@ impl std::fmt::Display for TcpFlag {
 /// `mask` specifies which flags to check, and `comp` specifies which of those must be set.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct TcpFlagsMatch {
     pub mask: Vec<TcpFlag>,
     pub comp: Vec<TcpFlag>,
@@ -285,6 +304,7 @@ pub struct TcpFlagsMatch {
 /// Serializes to YAML with `Rate`, `Unit`, and optional `Burst` fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct RateLimit {
     pub rate: u32,
     pub unit: RateUnit,
@@ -298,6 +318,7 @@ pub struct RateLimit {
 /// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RateUnit {
     Second,
     Minute,
@@ -323,6 +344,7 @@ impl std::fmt::Display for RateUnit {
 /// generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ConnectionState {
     New,
     Established,
@@ -346,6 +368,7 @@ impl std::fmt::Display for ConnectionState {
 /// Connection tracking match specification (-m conntrack --ctstate)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ConntrackMatch {
     pub states: Vec<ConnectionState>,
 }
@@ -357,6 +380,7 @@ pub struct ConntrackMatch {
 /// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum OwnerMatch {
     UidOwner(String),
     GidOwner(String),
@@ -377,6 +401,7 @@ impl std::fmt::Display for OwnerMatch {
 /// and use `Invert` wrapper for fields that support negation with `!` in iptables syntax.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct MatchCriteria {
     pub protocol: Protocol,
 
@@ -415,6 +440,7 @@ pub struct MatchCriteria {
 /// for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RejectWith {
     IcmpPortUnreachable,
     IcmpNetUnreachable,
@@ -439,6 +465,7 @@ impl std::fmt::Display for RejectWith {
 /// The `Reject` and `Log` variants support additional options.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IptablesTarget {
     Accept,
     Drop,
@@ -467,6 +494,7 @@ pub enum IptablesTarget {
 /// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RawChain {
     Prerouting,
     Output,
@@ -490,6 +518,7 @@ impl std::fmt::Display for RawChain {
 /// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum FilterChain {
     Input,
     Forward,
@@ -515,6 +544,7 @@ impl std::fmt::Display for FilterChain {
 /// generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum NatChain {
     Prerouting,
     Input,
@@ -543,6 +573,7 @@ impl std::fmt::Display for NatChain {
 /// for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum MangleChain {
     Prerouting,
     Input,
@@ -572,6 +603,7 @@ impl std::fmt::Display for MangleChain {
 /// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum SecurityChain {
     Input,
     Forward,
@@ -595,6 +627,7 @@ impl std::fmt::Display for SecurityChain {
 /// Serializes to YAML with a `Table` tag and `Details` content using PascalCase for all fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "Table", content = "Details", rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IptablesRule {
     #[serde(rename_all = "PascalCase")]
     Raw {
@@ -644,6 +677,7 @@ pub enum RuleExpectedState {
 /// or just the inner value when inverted is false (due to `skip_serializing_if`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Invert<T> {
     pub value: T,
     #[serde(
@@ -676,6 +710,7 @@ impl<T> Invert<T> {
 /// Displays as `port` or `start:end` for command generation via `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", untagged)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum PortRange {
     Single(u16),
     Range {
@@ -702,6 +737,7 @@ impl std::fmt::Display for PortRange {
 /// `std::fmt::Display`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase", untagged)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum PortSpec {
     Single(u16),
     Range {
@@ -736,6 +772,7 @@ impl std::fmt::Display for PortSpec {
     rename_all = "PascalCase",
     rename_all_fields = "PascalCase"
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IptablesExpectedState {
     Present {
         #[serde(default = "default_ip_family", skip_serializing_if = "is_v4_default")]

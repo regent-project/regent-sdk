@@ -85,6 +85,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ServiceExpectedStatus {
     Started,
     Stopped,
@@ -92,6 +93,7 @@ pub enum ServiceExpectedStatus {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ServiceAction {
     Restarted,
     Reloaded,
@@ -132,6 +134,7 @@ pub enum ServiceAction {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(untagged)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ServiceExpectedState {
     /// Manage the service's running state and/or boot enablement
     ///

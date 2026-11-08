@@ -117,6 +117,7 @@ const REGENT_MARKER_PREFIX: &str = "# regent: ";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CronExpectedStatus {
     Present,
     Absent,
@@ -127,6 +128,7 @@ pub enum CronExpectedStatus {
 /// These are shortcuts for common scheduling patterns like @daily, @weekly, etc.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CronSpecialTime {
     /// Run at boot time
     Reboot,
@@ -161,6 +163,7 @@ impl std::fmt::Display for CronSpecialTime {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CronSchedule {
     Custom {
         /// Minute field (0-59, or * for any)
@@ -179,6 +182,7 @@ pub enum CronSchedule {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CronCommand {
     Any,
     #[serde(untagged)]
@@ -195,6 +199,7 @@ pub enum CronFile {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum CronTarget {
     Crontab(Option<String>), // potential user
     /// User to run the cron job as, and file to work on
@@ -205,6 +210,7 @@ pub enum CronTarget {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CronExpectedState {
     schedule: CronSchedule,
     /// Command to execute

@@ -5,3 +5,5 @@ pub mod lock;
 pub mod managed_host;
 pub mod privilege;
 pub mod properties;
+#[cfg(feature = "windows")]
+pub mod windows;

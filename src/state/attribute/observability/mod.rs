@@ -50,6 +50,8 @@ use std::str::FromStr;
 /// otherwise be read as a number)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("pattern" = "^[0-9]+(\\.[0-9]+)*$")))]
 pub struct AgentVersion(Vec<u32>);
 
 impl TryFrom<String> for AgentVersion {

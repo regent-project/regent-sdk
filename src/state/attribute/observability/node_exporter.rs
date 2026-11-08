@@ -128,6 +128,7 @@ const DEFAULT_LISTEN_ADDRESS: &str = ":9100";
     rename_all_fields = "PascalCase",
     deny_unknown_fields
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum NodeExporterExpectedState {
     Present {
         version: AgentVersion,

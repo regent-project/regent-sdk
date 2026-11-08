@@ -166,6 +166,7 @@ const GPU_DRIVER_CAPABILITIES: &str = "compute,utility";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EnrootExpectedState {
     /// The unit is `regent-enroot-<name>.service`
     name: ContainerName,
@@ -174,6 +175,7 @@ pub struct EnrootExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum EnrootServiceState {
     Running(Box<EnrootServiceConfig>),
     Stopped(Box<EnrootServiceConfig>),
@@ -205,6 +207,7 @@ impl EnrootExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum EnrootImage {
     /// Not managed: the file must be present
     Local(AbsolutePath),
@@ -233,6 +236,7 @@ impl EnrootImage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EnrootImportedImage {
     source: EnrootImageUri,
     /// Squashfs file to create (include the version in the file name: an existing file is
@@ -244,6 +248,7 @@ pub struct EnrootImportedImage {
 /// or `podman://IMAGE[:TAG]`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EnrootImageUri(String);
 
 const ENROOT_URI_SCHEMES: [&str; 3] = ["docker://", "dockerd://", "podman://"];
@@ -300,6 +305,7 @@ impl EnrootImageUri {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "EnrootServiceConfigFields")]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EnrootServiceConfig {
     image: EnrootImage,
     /// Image default command if omitted
@@ -319,6 +325,7 @@ pub struct EnrootServiceConfig {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 struct EnrootServiceConfigFields {
     image: EnrootImage,
     command: Option<ContainerCommand>,

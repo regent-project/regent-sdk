@@ -333,19 +333,92 @@ pub(crate) async fn acquire_local(
     }
 }
 
-#[cfg(not(unix))]
+/// Windows: a lock **file** (`LockFileEx` through `File::try_lock*`; a
+/// directory cannot be locked there). The Unix default path maps to
+/// `%ProgramData%\regent\regent.lock`; every process on the machine must use
+/// the same path.
+#[cfg(windows)]
+pub(crate) async fn acquire_local(
+    settings: &HostLockSettings,
+    mode: HostLockMode,
+) -> Result<HostLock, RegentError> {
+    use std::fs::{OpenOptions, TryLockError};
+
+    let path = windows_lock_path(&settings.path);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&path)
+        .map_err(|details| {
+            RegentError::HostLockUnavailable(format!("cannot open {}: {}", path.display(), details))
+        })?;
+
+    let deadline = tokio::time::Instant::now() + settings.timeout(mode);
+    loop {
+        let attempt = match mode {
+            HostLockMode::Shared => file.try_lock_shared(),
+            HostLockMode::Exclusive => file.try_lock(),
+        };
+        match attempt {
+            Ok(()) => return Ok(HostLock::local(file)),
+            Err(TryLockError::WouldBlock) => {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(busy_error(settings, mode));
+                }
+                tokio::time::sleep(LOCAL_RETRY_INTERVAL).await;
+            }
+            Err(TryLockError::Error(details)) => {
+                return Err(RegentError::HostLockUnavailable(format!(
+                    "cannot lock {}: {}",
+                    path.display(),
+                    details
+                )));
+            }
+        }
+    }
+}
+
+/// The lock file used on Windows for a configured path.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_lock_path(configured: &str) -> std::path::PathBuf {
+    if configured == DEFAULT_HOST_LOCK_PATH {
+        let base = std::env::var("ProgramData").unwrap_or_else(|_| r"C:\ProgramData".to_string());
+        std::path::Path::new(&base)
+            .join("regent")
+            .join("regent.lock")
+    } else {
+        std::path::PathBuf::from(configured)
+    }
+}
+
+#[cfg(not(any(unix, windows)))]
 pub(crate) async fn acquire_local(
     _settings: &HostLockSettings,
     _mode: HostLockMode,
 ) -> Result<HostLock, RegentError> {
     Err(RegentError::HostLockUnavailable(
-        "host lock is only supported on Unix hosts".to_string(),
+        "host lock is only supported on Unix and Windows".to_string(),
     ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_lock_path_maps_the_unix_default() {
+        let mapped = windows_lock_path(DEFAULT_HOST_LOCK_PATH);
+        assert!(mapped.ends_with(std::path::Path::new("regent").join("regent.lock")));
+        assert_eq!(
+            windows_lock_path("D:/locks/regent.lock"),
+            std::path::PathBuf::from("D:/locks/regent.lock")
+        );
+    }
 
     fn settings_in(dir: &std::path::Path) -> HostLockSettings {
         HostLockSettings {

@@ -128,6 +128,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DnsRecordType {
     A(IpAddr),
     Aaaa(IpAddr),
@@ -147,6 +148,7 @@ impl DnsRecordType {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DnsExpectedState {
     #[serde(rename_all = "PascalCase")]
     CheckResponseAndServer {

@@ -113,12 +113,14 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Attribute {
     pub name: Option<String>,
     pub privilege: Privilege,
     detail: AttributeDetail,
     #[serde(default)]
     #[serde(with = "humantime_serde")]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     timeout: Option<Duration>,
 }
 
@@ -538,6 +540,7 @@ impl Attribute {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AttributeDetail {
     Apt(AptExpectedState),
     AptRepo(AptRepoExpectedState),

@@ -175,12 +175,14 @@ const PERSISTENCE_DAEMON: &str = "nvidia-persistenced";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NvidiaDriverExpectedState {
     state: NvidiaDriverState,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum NvidiaDriverState {
     /// Driver installed and loaded with this configuration
     Present(Box<NvidiaDriverConfig>),
@@ -206,6 +208,7 @@ impl NvidiaDriverExpectedState {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NvidiaDriverConfig {
     /// Kernel module flavor and driver branch (open modules, latest branch by default)
     #[serde(default)]
@@ -258,6 +261,7 @@ impl NvidiaDriverConfig {
 /// Kernel module flavor, carrying the driver branch
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum KernelModules {
     /// Open GPU kernel modules (`nvidia-open`): required on Blackwell, recommended from Turing on
     Open(DriverBranch),
@@ -349,6 +353,7 @@ fn unpinned_selection(distro: DriverDistro) -> Option<BranchSelection> {
 /// Driver branch of the open kernel modules: `Latest` or a branch number (e.g. `580`)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RawBranch", into = "RawBranch")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum DriverBranch {
     /// Newest driver available when installing
     Latest,
@@ -359,6 +364,7 @@ pub enum DriverBranch {
 /// Branch as written in YAML or JSON: a number, `Latest`, or a number as a string
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 enum RawBranch {
     Number(u32),
     Text(String),
@@ -465,6 +471,7 @@ impl BranchNumber {
 /// Branch of the proprietary kernel modules: from 570 to 610 (the last branch shipping them)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RawBranch", into = "u32")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ProprietaryBranch(BranchNumber);
 
 impl TryFrom<RawBranch> for ProprietaryBranch {
@@ -547,6 +554,7 @@ impl ProprietaryBranch {
 /// CUDA toolkit version `<major>.<minor>` (e.g. `12.8`, `13.0`)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CudaVersion {
     major: u16,
     minor: u16,

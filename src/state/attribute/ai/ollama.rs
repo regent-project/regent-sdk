@@ -137,6 +137,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum OllamaModelState {
     Present,
     Absent,
@@ -151,6 +152,20 @@ pub enum OllamaVersion {
 // Custom serde: a plain string in YAML — `Latest` or a version like `0.5.4`.
 // A derived enum representation (externally tagged) cannot nest inside the
 // internally tagged `OllamaExpectedState`.
+#[cfg(feature = "schema")]
+impl schemars::JsonSchema for OllamaVersion {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "OllamaVersion".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": "string",
+            "description": "`Latest`, or a version such as `0.5.4`"
+        })
+    }
+}
+
 impl Serialize for OllamaVersion {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
@@ -174,6 +189,7 @@ impl<'de> Deserialize<'de> for OllamaVersion {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct OllamaModel {
     /// Name of the model (e.g., "llama3", "mistral:7b")
     pub name: String,
@@ -203,6 +219,7 @@ impl OllamaModel {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct OllamaApiConfig {
     /// OLLAMA_HOST env var - the address the server listens on, e.g. "0.0.0.0:11434"
     pub host: Option<String>,
@@ -280,6 +297,7 @@ impl OllamaApiConfig {
     rename_all = "PascalCase",
     rename_all_fields = "PascalCase"
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum OllamaExpectedState {
     Present {
         /// Written to the systemd override file

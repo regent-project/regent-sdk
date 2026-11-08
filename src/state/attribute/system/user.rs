@@ -66,6 +66,7 @@ use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum UserExpectedStatus {
     Absent {
         /// Whether to remove home directory when deleting user
@@ -78,6 +79,7 @@ pub enum UserExpectedStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct UserDetails {
     uid: Option<u32>,
     /// Primary group name
@@ -176,6 +178,7 @@ impl UserDetails {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct UserExpectedState {
     name: String,
     /// Desired state of the user (defaults to Present if not specified)

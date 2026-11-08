@@ -54,6 +54,7 @@ use std::time::Duration;
 /// Desired state of a group
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum GroupExpectedStatus {
     Absent,
     #[serde(rename_all = "PascalCase")]
@@ -72,6 +73,7 @@ pub enum GroupExpectedStatus {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GroupExpectedState {
     name: String,
     state: GroupExpectedStatus,
@@ -124,12 +126,40 @@ impl Check for GroupExpectedState {
     ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
+            // local groups (Microsoft.PowerShell.LocalAccounts)
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => {
+                let unix_only = match &self.state {
+                    GroupExpectedStatus::Present { gid, system, .. } => {
+                        gid.is_some() || system.unwrap_or(false)
+                    }
+                    GroupExpectedStatus::Absent => false,
+                } || self.local.unwrap_or(false);
+                if unix_only {
+                    Err(RegentError::IncoherentExpectedState(format!(
+                        "group {}: Gid, System and Local have no meaning on Windows",
+                        self.name
+                    )))
+                } else {
+                    Ok(())
+                }
+            }
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but group management is only supported on Linux",
+                "Host is {:?} but group management is only supported on Linux and Windows (windows feature)",
                 incompatible_os_kind
             ))),
         }
     }
+}
+
+/// Whether the host is Windows (feature `windows`).
+fn is_windows(host_properties: &Option<HostProperties>) -> bool {
+    #[cfg(feature = "windows")]
+    if let Some(props) = host_properties {
+        return matches!(props.os_kind(), OsKind::Windows(_));
+    }
+    let _ = host_properties;
+    false
 }
 
 impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
@@ -146,7 +176,12 @@ impl<Handler: HostHandler> AssessCompliance<Handler> for GroupExpectedState {
 
         let local = self.local.unwrap_or(false);
 
-        let opt_group_info = match get_group_info(host_handler, &self.name).await {
+        let info = if is_windows(host_properties) {
+            windows_group_info(host_handler, &self.name).await
+        } else {
+            get_group_info(host_handler, &self.name).await
+        };
+        let opt_group_info = match info {
             Ok(opt_group_info) => opt_group_info,
             Err(e) => return Err(RegentError::FailedDryRunEvaluation(e)),
         };
@@ -320,8 +355,10 @@ impl Check for GroupApiCall {
     ) -> Result<(), RegentError> {
         match host_properties.os_kind() {
             OsKind::Linux(_) => Ok(()),
+            #[cfg(feature = "windows")]
+            OsKind::Windows(_) => Ok(()),
             incompatible_os_kind => Err(RegentError::IncompatibleHost(format!(
-                "Host is {:?} but group management is only supported on Linux",
+                "Host is {:?} but group management is only supported on Linux and Windows (windows feature)",
                 incompatible_os_kind
             ))),
         }
@@ -337,6 +374,11 @@ impl<Handler: HostHandler> ReachCompliance<Handler> for GroupApiCall {
     ) -> Result<InternalApiCallOutcome, RegentError> {
         if let Some(props) = host_properties {
             self.check_host_compatibility(props)?;
+        }
+
+        #[cfg(feature = "windows")]
+        if is_windows(host_properties) {
+            return windows_call(host_handler, &self.api_call).await;
         }
 
         let (cmd, privilege) = match &self.api_call {
@@ -514,3 +556,141 @@ mod tests {
 #[cfg(feature = "proto")]
 #[path = "../../../proto/conv/state__attribute__system__group.rs"]
 mod proto_conv;
+
+/// Local group of a Windows host: `None` when it does not exist; members by
+/// account name (the `COMPUTER\` or `DOMAIN\` prefix removed).
+#[cfg(feature = "windows")]
+async fn windows_group_info<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    groupname: &str,
+) -> Result<Option<Group>, String> {
+    use crate::hosts::windows::{ps_quote, run_powershell};
+    let script = format!(
+        "$g = Get-LocalGroup -Name {name} -ErrorAction SilentlyContinue\nif (-not $g) {{ exit 3 }}\nGet-LocalGroupMember -Group {name} | ForEach-Object {{ $_.Name }}",
+        name = ps_quote(groupname)
+    );
+    let result = run_powershell(host_handler, &script)
+        .await
+        .map_err(|e| format!("Unable to read local group {groupname}: {e:?}"))?;
+    match result.return_code {
+        0 => Ok(Some(Group {
+            name: groupname.to_string(),
+            gid: 0,
+            members: windows_member_names(&result.stdout),
+        })),
+        3 => Ok(None),
+        code => Err(format!(
+            "Unable to read local group {groupname} (exit code {code}): {}",
+            result.stderr.trim()
+        )),
+    }
+}
+
+#[cfg(not(feature = "windows"))]
+async fn windows_group_info<Handler: HostHandler>(
+    _host_handler: &mut Handler,
+    _groupname: &str,
+) -> Result<Option<Group>, String> {
+    Err("Windows hosts need regent-sdk's windows feature".to_string())
+}
+
+/// `HOST\alice` -> `alice` (one name per line).
+#[cfg_attr(not(feature = "windows"), allow(dead_code))]
+fn windows_member_names(output: &str) -> Vec<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(|l| l.rsplit('\\').next().unwrap_or(l).to_string())
+        .collect()
+}
+
+#[cfg(feature = "windows")]
+async fn windows_call<Handler: HostHandler>(
+    host_handler: &mut Handler,
+    api_call: &GroupModuleInternalApiCall,
+) -> Result<InternalApiCallOutcome, RegentError> {
+    use crate::hosts::windows::{ps_quote, run_powershell};
+    let script = match api_call {
+        GroupModuleInternalApiCall::Add {
+            groupname, members, ..
+        } => {
+            let mut lines = vec![format!(
+                "New-LocalGroup -Name {} | Out-Null",
+                ps_quote(groupname)
+            )];
+            for member in members.iter().flatten() {
+                lines.push(format!(
+                    "Add-LocalGroupMember -Group {} -Member {}",
+                    ps_quote(groupname),
+                    ps_quote(member)
+                ));
+            }
+            lines.join("\n")
+        }
+        GroupModuleInternalApiCall::ModifyGid { groupname, .. } => {
+            return Ok(InternalApiCallOutcome::Failure(format!(
+                "group {groupname}: Windows groups have no GID"
+            )));
+        }
+        GroupModuleInternalApiCall::ModifyMembers { groupname, members } => {
+            let current = match windows_group_info(host_handler, groupname).await {
+                Ok(Some(group)) => group.members,
+                Ok(None) => {
+                    return Ok(InternalApiCallOutcome::Failure(format!(
+                        "group {groupname} does not exist anymore"
+                    )));
+                }
+                Err(e) => return Ok(InternalApiCallOutcome::Failure(e)),
+            };
+            let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
+            let mut lines = Vec::new();
+            for member in members {
+                if !current.iter().any(|c| same(c, member)) {
+                    lines.push(format!(
+                        "Add-LocalGroupMember -Group {} -Member {}",
+                        ps_quote(groupname),
+                        ps_quote(member)
+                    ));
+                }
+            }
+            for member in &current {
+                if !members.iter().any(|m| same(m, member)) {
+                    lines.push(format!(
+                        "Remove-LocalGroupMember -Group {} -Member {}",
+                        ps_quote(groupname),
+                        ps_quote(member)
+                    ));
+                }
+            }
+            if lines.is_empty() {
+                return Ok(InternalApiCallOutcome::Success(None));
+            }
+            lines.join("\n")
+        }
+        GroupModuleInternalApiCall::Delete { groupname, .. } => {
+            format!("Remove-LocalGroup -Name {}", ps_quote(groupname))
+        }
+    };
+    match run_powershell(host_handler, &script).await {
+        Ok(result) if result.return_code == 0 => Ok(InternalApiCallOutcome::Success(None)),
+        Ok(result) => Ok(InternalApiCallOutcome::Failure(format!(
+            "RC: {}, STDOUT: {}, STDERR: {}",
+            result.return_code, result.stdout, result.stderr
+        ))),
+        Err(e) => Ok(InternalApiCallOutcome::Failure(format!("{e:?}"))),
+    }
+}
+
+#[cfg(test)]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn windows_member_names_drop_the_domain() {
+        assert_eq!(
+            windows_member_names("WIN-01\\alice\r\nCORP\\bob\r\n\r\n"),
+            vec!["alice", "bob"]
+        );
+    }
+}

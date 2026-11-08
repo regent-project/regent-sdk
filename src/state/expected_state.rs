@@ -56,6 +56,7 @@ use std::fmt::{Debug, Display};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ExpectedState {
     /// List of attributes that define the expected state.
     ///
@@ -150,6 +151,7 @@ impl ExpectedState {
 /// ```
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Parameter<T> {
     /// A direct, non-secret value.
     Clear(T),

@@ -84,6 +84,7 @@ impl std::fmt::Display for YumDnfModuleInternalApiCall {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum YumDnfExpectedState {
     /// Perform a full system upgrade (dnf/yum update)
     SystemUpToDate,

@@ -84,6 +84,7 @@ impl std::fmt::Display for AptModuleInternalApiCall {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all_fields = "PascalCase")]
 #[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AptExpectedState {
     /// Perform a full system upgrade (apt-get update && apt-get upgrade)
     SystemUpToDate,

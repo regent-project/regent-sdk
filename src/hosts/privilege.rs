@@ -33,6 +33,7 @@ use crate::secrets::SecretReference;
 /// let privilege = Privilege::WithSudoRs;
 /// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Privilege {
     /// Run command as the current authenticated user (no privilege escalation).
     None,

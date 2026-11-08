@@ -55,6 +55,7 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CommandExpectedState {
     /// Command to execute. Can be a clear text string or a secret reference.
     cmd: Parameter<String>,

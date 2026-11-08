@@ -17,6 +17,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum PullPolicy {
     #[default]
     Missing,
@@ -27,6 +28,7 @@ pub enum PullPolicy {
 /// `--restart`
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum RestartPolicy {
     /// `no`
     No,
@@ -157,6 +159,8 @@ string_backed_type!(
 /// Container name: `[a-zA-Z0-9][a-zA-Z0-9_.-]*`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "schema", schemars(extend("pattern" = "^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")))]
 pub struct ContainerName(String);
 
 impl TryFrom<String> for ContainerName {
@@ -198,6 +202,7 @@ impl ContainerName {
 /// Image reference (`[registry/]repository[:tag][@digest]`)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ContainerImage(String);
 
 impl TryFrom<String> for ContainerImage {
@@ -229,6 +234,7 @@ impl ContainerImage {
 /// Omit the command to use the image default
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "Vec<String>", into = "Vec<String>")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ContainerCommand(Vec<String>);
 
 impl TryFrom<Vec<String>> for ContainerCommand {
@@ -264,6 +270,7 @@ impl ContainerCommand {
 /// Environment variable name (non-empty, without `=`)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EnvVarName(String);
 
 impl TryFrom<String> for EnvVarName {
@@ -295,6 +302,7 @@ impl EnvVarName {
 /// and `Isolated` networking variants of each attribute, the others are not supported.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NetworkName(String);
 
 impl TryFrom<String> for NetworkName {
@@ -339,6 +347,7 @@ impl NetworkName {
 /// Non-empty list of networks (the first one is used at creation, the others are connected afterwards)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "Vec<NetworkName>", into = "Vec<NetworkName>")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct NetworkList(Vec<NetworkName>);
 
 impl TryFrom<Vec<NetworkName>> for NetworkList {
@@ -387,6 +396,7 @@ pub(super) struct PortBinding {
 /// Port ranges (`8000-8010:8000-8010`) are supported.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PublishedPort {
     spec: String,
     /// Bindings as the engines store them (ranges expanded)
@@ -480,6 +490,7 @@ impl PublishedPort {
 /// `target` (anonymous volume). The target must be an absolute path.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ContainerVolume {
     Bind {
         source: String,
@@ -556,6 +567,7 @@ impl ContainerVolume {
 /// `net_admin`, `NET_ADMIN` and `CAP_NET_ADMIN` are all accepted.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Capability(String);
 
 impl TryFrom<String> for Capability {
@@ -589,6 +601,7 @@ impl Capability {
 /// Memory size, CLI syntax (binary units, case-insensitive): `512m`, `1.5g`, `1048576`...
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct MemorySize {
     spec: String,
     bytes: i64,
@@ -638,6 +651,7 @@ impl MemorySize {
 /// Number of CPUs, strictly positive (e.g. `1.5`)
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "f64", into = "f64")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct CpuCount(f64);
 
 impl TryFrom<f64> for CpuCount {
@@ -677,6 +691,7 @@ impl CpuCount {
 /// Requires the NVIDIA Container Toolkit on the host
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum GpuSelection {
     All,
     Devices(GpuList),
@@ -707,10 +722,12 @@ impl GpuSelection {
 /// Indexes can be written as YAML integers (`Devices: [0, 1]`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "GpuIdRepr", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GpuId(String);
 
 #[derive(Deserialize)]
 #[serde(untagged)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 enum GpuIdRepr {
     Index(u32),
     Id(String),
@@ -760,6 +777,7 @@ impl GpuId {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "Vec<GpuId>", into = "Vec<GpuId>")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct GpuList(Vec<GpuId>);
 
 impl TryFrom<Vec<GpuId>> for GpuList {
@@ -795,6 +813,7 @@ impl GpuList {
 /// (64 MiB by default). The size of `/dev/shm` can only be set on a private namespace.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum IpcNamespace {
     /// Share the host IPC namespace and `/dev/shm` (`--ipc host`)
     Host,
@@ -852,6 +871,7 @@ impl IpcNamespace {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct PrivateIpc {
     /// Size of `/dev/shm` (`--shm-size`, not managed if omitted)
     shm_size: Option<MemorySize>,
@@ -871,6 +891,7 @@ impl PrivateIpc {
 /// Custom host-to-IP mapping: `hostname:ip` (`ip` can also be `host-gateway`)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ExtraHost {
     hostname: String,
     /// IP address in canonical form, or `host-gateway`
@@ -913,6 +934,7 @@ impl ExtraHost {
 /// (container path defaults to the host path, permissions to `rwm`)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct HostDevice {
     host_path: String,
     container_path: String,

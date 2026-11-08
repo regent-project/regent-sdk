@@ -70,6 +70,7 @@ use tracing::info;
 /// Values are compared against `df --output=pcent,used,avail` results.
 /// `used` and `avail` are expressed in 1K blocks.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum Threshold {
     /// `PercentUsed(95)` triggers when 95% or more of the storage is used
     PercentUsed(u8),
@@ -83,6 +84,7 @@ pub enum Threshold {
 
 /// Target of the storage watch: either a filesystem path or a mount point.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum StorageTarget {
     /// A filesystem path (e.g. `/`, `/var`).
     FileSystem(String),
@@ -105,6 +107,7 @@ impl StorageTarget {
 /// cleanup commands are executed one by one to free up space.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct StorageExpectedState {
     target: StorageTarget,
     threshold: Threshold,

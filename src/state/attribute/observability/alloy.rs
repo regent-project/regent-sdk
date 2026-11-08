@@ -157,6 +157,7 @@ const ZYPPER_ALIAS: &str = "grafana";
     rename_all_fields = "PascalCase",
     deny_unknown_fields
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum AlloyExpectedState {
     Present {
         version: Option<AgentVersion>,

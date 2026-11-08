@@ -153,6 +153,7 @@ const APPTAINER_ENV_PREFIX: &str = "APPTAINERENV_";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApptainerExpectedState {
     /// The unit is `regent-apptainer-<name>.service`
     name: ContainerName,
@@ -161,6 +162,7 @@ pub struct ApptainerExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ApptainerServiceState {
     Running(Box<ApptainerServiceConfig>),
     Stopped(Box<ApptainerServiceConfig>),
@@ -192,6 +194,7 @@ impl ApptainerExpectedState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ApptainerImage {
     /// Not managed: the file must be present
     Local(AbsolutePath),
@@ -220,6 +223,7 @@ impl ApptainerImage {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApptainerPulledImage {
     source: ApptainerImageUri,
     /// SIF file to create (include the version in the file name: an existing file is never
@@ -231,6 +235,7 @@ pub struct ApptainerPulledImage {
 /// `https://`, `docker-archive:`, `docker-daemon:` or `oci-archive:`
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApptainerImageUri(String);
 
 const APPTAINER_URI_SCHEMES: [&str; 9] = [
@@ -296,6 +301,7 @@ impl ApptainerImageUri {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ApptainerProcess {
     /// `apptainer run`: the image's run script, with these arguments. For an image built from
     /// a Docker image, the run script is `ENTRYPOINT` + `CMD`, and arguments replace `CMD`.
@@ -312,6 +318,7 @@ impl Default for ApptainerProcess {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ApptainerGpu {
     /// NVIDIA GPUs, host libraries bound into the container (`--nv`)
     Nvidia,
@@ -323,6 +330,7 @@ pub enum ApptainerGpu {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum ApptainerIsolation {
     /// Minimal `/dev`, empty `/tmp` and home directory (`--contain`)
     Contain,
@@ -333,6 +341,7 @@ pub enum ApptainerIsolation {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ApptainerServiceConfig {
     image: ApptainerImage,
     #[serde(default)]
