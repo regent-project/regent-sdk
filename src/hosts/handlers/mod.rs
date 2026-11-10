@@ -285,7 +285,7 @@ impl Handler {
     /// let creds = Credentials::from("alice", "secret");
     /// let params = SshoqConnectionParams::username_password(
     ///     creds,
-    ///     shhoq::ClientTlsConfig::with_system_roots(),
+    ///     sshoq::ClientTlsConfig::with_system_roots(),
     /// );
     /// let handler = Handler::sshoq(SshoqHostHandler::NotConnected(params));
     /// ```

@@ -3,7 +3,7 @@
 //! This example demonstrates using the SSHOQ handler directly, without going
 //! through `ManagedHostBuilder` / `ConnectionMethod`. This is useful when you
 //! need full control over the connection — for example, using a custom
-//! `shhoq::ClientTlsConfig` that is not expressible via [`SshoqTlsConfig`],
+//! `sshoq::ClientTlsConfig` that is not expressible via [`SshoqTlsConfig`],
 //! or when building a handler programmatically.
 //!
 //! The normal path is `ManagedHostBuilder` + `ConnectionMethod::Sshoq(SshoqAuth)`.
@@ -21,20 +21,20 @@ async fn main() -> Result<(), RegentError> {
     // Password auth with system roots TLS
     let params = SshoqConnectionParams::username_password(
         Credentials::from("alice", "secret"),
-        shhoq::ClientTlsConfig::with_system_roots(),
+        sshoq::ClientTlsConfig::with_system_roots(),
     );
 
     // Same, but with a custom endpoint path
     let _params_with_path = SshoqConnectionParams::username_password(
         Credentials::from("alice", "secret"),
-        shhoq::ClientTlsConfig::with_system_roots(),
+        sshoq::ClientTlsConfig::with_system_roots(),
     )
     .with_path("/my-sshoq-endpoint");
 
     // ── Custom ClientTlsConfig (not expressible via SshoqTlsConfig) ──
 
     // Example: system roots + known_hosts file + additional root certificate
-    let tls = shhoq::ClientTlsConfig::with_system_roots()
+    let tls = sshoq::ClientTlsConfig::with_system_roots()
         .with_known_hosts_file("/etc/regent/sshoq_known_hosts");
 
     let _params_custom_tls =
@@ -51,7 +51,7 @@ async fn main() -> Result<(), RegentError> {
             "-----BEGIN OPENSSH PRIVATE KEY-----\n...".to_string(),
         )),
         Some("/custom-path".to_string()),
-        shhoq::ClientTlsConfig::insecure(),
+        sshoq::ClientTlsConfig::insecure(),
     );
 
     // ── Wrap in a Handler and connect ──

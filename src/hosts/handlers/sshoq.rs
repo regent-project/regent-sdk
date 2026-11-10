@@ -22,7 +22,7 @@ use tokio::time::{Duration, timeout};
 #[allow(unused)]
 use tracing::{debug, error, info, trace, warn};
 
-use shhoq::{AuthMethod, Client, ClientTlsConfig, Config, SessionEvent};
+use sshoq::{AuthMethod, Client, ClientTlsConfig, Config, SessionEvent};
 
 use crate::error::RegentError;
 use crate::hosts::command::CommandResult;
@@ -52,7 +52,7 @@ const DEFAULT_SSHOQ_URL_PATH: &str = "/sshoq-server";
 
 /// TLS configuration for SSHOQ connections.
 ///
-/// Serializable wrapper around [`shhoq::ClientTlsConfig`]. Since
+/// Serializable wrapper around [`sshoq::ClientTlsConfig`]. Since
 /// `ClientTlsConfig` is not serializable, this enum captures the common
 /// configurations in a YAML/JSON-friendly form and converts to the real type
 /// at connection time.
@@ -132,7 +132,7 @@ impl SshoqTlsConfig {
         }
     }
 
-    /// Convert to a [`shhoq::ClientTlsConfig`].
+    /// Convert to a [`sshoq::ClientTlsConfig`].
     ///
     /// Additional root certificate files are read from disk at conversion time.
     pub fn to_client_tls_config(&self) -> Result<ClientTlsConfig, RegentError> {
@@ -245,7 +245,7 @@ impl std::fmt::Debug for SshoqConnectionParams {
 /// Like [`crate::hosts::handlers::ssh2::Ssh2HostHandler`], this handler uses a
 /// two-state enum: [`SshoqHostHandler::NotConnected`] holds the resolved
 /// connection parameters, and [`SshoqHostHandler::Connected`] holds the same
-/// plus the live [`shhoq::Client`].
+/// plus the live [`sshoq::Client`].
 pub enum SshoqHostHandler {
     /// Not yet connected — holds the resolved connection parameters.
     NotConnected(SshoqConnectionParams),
@@ -311,7 +311,7 @@ impl HostHandler for SshoqHostHandler {
             None => DEFAULT_SSHOQ_PORT,
         };
 
-        // Build the shhoq Config and auth methods from the resolved params
+        // Build the sshoq Config and auth methods from the resolved params
         if let SshoqHostHandler::NotConnected(params) = self {
             let (username, auth_methods) = build_auth_methods(&params.auth_method)?;
 
@@ -734,7 +734,7 @@ impl SshoqAuth {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Build the shhoq `AuthMethod` list and extract the username from a resolved
+/// Build the sshoq `AuthMethod` list and extract the username from a resolved
 /// [`SshoqAuthMethod`].
 fn build_auth_methods(
     auth_method: &SshoqAuthMethod,
@@ -748,7 +748,7 @@ fn build_auth_methods(
         SshoqAuthMethod::Key(login_key) => {
             let username = login_key.username().to_string();
             // Parse the private key from PEM content and create a PrivateKey auth method
-            let private_key = shhoq::PrivateKey::from_pem(login_key.key().as_bytes(), None)
+            let private_key = sshoq::PrivateKey::from_pem(login_key.key().as_bytes(), None)
                 .map_err(|e| {
                     RegentError::FailedInitialization(format!(
                         "Failed to parse SSHOQ private key: {:?}",
@@ -760,7 +760,7 @@ fn build_auth_methods(
         }
         SshoqAuthMethod::BearerToken(token) => {
             // Bearer token auth: the username is embedded in the token,
-            // but the shhoq Config requires a username. We use a placeholder.
+            // but the sshoq Config requires a username. We use a placeholder.
             let auth = vec![AuthMethod::bearer_token(token)];
             Ok(("sshoq".to_string(), auth))
         }

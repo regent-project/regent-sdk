@@ -117,7 +117,7 @@ pub struct HostLock {
 enum HostLockInner {
     LocalHost(std::fs::File),
     Ssh2(russh::Channel<russh::client::Msg>),
-    Sshoq(shhoq::Session),
+    Sshoq(sshoq::Session),
 }
 
 impl HostLock {
@@ -138,7 +138,7 @@ impl HostLock {
         }
     }
 
-    pub(crate) fn sshoq(session: shhoq::Session) -> Self {
+    pub(crate) fn sshoq(session: sshoq::Session) -> Self {
         Self {
             inner: Some(HostLockInner::Sshoq(session)),
         }
