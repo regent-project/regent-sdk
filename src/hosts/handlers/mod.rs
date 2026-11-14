@@ -16,6 +16,7 @@ use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::ssh2::Ssh2Auth;
 use crate::hosts::handlers::sshoq::SshoqAuth;
+use crate::hosts::live::OutputStream;
 use crate::hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
@@ -185,11 +186,42 @@ pub trait HostHandler: Sized {
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError>;
 
+    /// Same as [`HostHandler::run_command`], also giving the output to `on_output`
+    /// while the command runs (live view, see [`crate::hosts::live`]).
+    ///
+    /// The default implementation gives the whole output at once, after the
+    /// command; the SDK's handlers give it as it comes.
+    async fn run_command_observed(
+        &mut self,
+        command: &str,
+        privilege: &Privilege,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
+        let result = self.run_command(command, privilege).await?;
+        on_output(OutputStream::Stdout, result.stdout.as_bytes());
+        on_output(OutputStream::Stderr, result.stderr.as_bytes());
+        Ok(result)
+    }
+
     /// Execute a Windows command on the host.
     ///
     /// This method is specifically for Windows command execution.
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError>;
+
+    /// Same as [`HostHandler::run_windows_command`], also giving the output to
+    /// `on_output` while the command runs (see [`HostHandler::run_command_observed`]).
+    #[cfg(feature = "windows")]
+    async fn run_windows_command_observed(
+        &mut self,
+        command: &str,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
+        let result = self.run_windows_command(command).await?;
+        on_output(OutputStream::Stdout, result.stdout.as_bytes());
+        on_output(OutputStream::Stderr, result.stderr.as_bytes());
+        Ok(result)
+    }
 
     /// Retrieve the contents of a file from the host.
     async fn get_file(&mut self, path: PathBuf) -> Result<Vec<u8>, RegentError>;
@@ -349,12 +381,62 @@ impl HostHandler for Handler {
         }
     }
 
+    async fn run_command_observed(
+        &mut self,
+        command: &str,
+        privilege: &Privilege,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
+        match self {
+            Handler::LocalHost(handler) => {
+                handler
+                    .run_command_observed(command, privilege, on_output)
+                    .await
+            }
+            Handler::Ssh2(handler) => {
+                handler
+                    .run_command_observed(command, privilege, on_output)
+                    .await
+            }
+            Handler::Sshoq(handler) => {
+                handler
+                    .run_command_observed(command, privilege, on_output)
+                    .await
+            }
+        }
+    }
+
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
         match self {
             Handler::LocalHost(handler) => handler.run_windows_command(command).await,
             Handler::Ssh2(handler) => handler.run_windows_command(command).await,
             Handler::Sshoq(handler) => handler.run_windows_command(command).await,
+        }
+    }
+
+    #[cfg(feature = "windows")]
+    async fn run_windows_command_observed(
+        &mut self,
+        command: &str,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
+        match self {
+            Handler::LocalHost(handler) => {
+                handler
+                    .run_windows_command_observed(command, on_output)
+                    .await
+            }
+            Handler::Ssh2(handler) => {
+                handler
+                    .run_windows_command_observed(command, on_output)
+                    .await
+            }
+            Handler::Sshoq(handler) => {
+                handler
+                    .run_windows_command_observed(command, on_output)
+                    .await
+            }
         }
     }
 

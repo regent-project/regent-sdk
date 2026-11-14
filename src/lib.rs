@@ -103,6 +103,8 @@
 
 pub mod error;
 pub mod hosts;
+#[cfg(feature = "logging")]
+pub mod logging;
 #[cfg(feature = "proto")]
 pub mod proto;
 #[cfg(feature = "schema")]
@@ -120,6 +122,7 @@ pub use hosts::handlers::ssh2::{Ssh2AuthMethod, Ssh2HostHandler};
 pub use hosts::handlers::sshoq::{SshoqAuthMethod, SshoqHostHandler, SshoqTlsConfig};
 pub use hosts::handlers::{ConnectionMethod, TargetUser};
 pub use hosts::inventory::Inventory;
+pub use hosts::live::{LiveEvent, LiveSink, LiveUpdate};
 pub use hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 pub use hosts::managed_host::{ManagedHost, ManagedHostBuilder};
 pub use hosts::privilege::Privilege;

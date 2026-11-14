@@ -25,6 +25,9 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::TargetUserKind;
 use crate::hosts::handlers::ssh2::Ssh2AuthReference;
 use crate::hosts::handlers::sshoq::{SshoqAuthReference, SshoqConnectionParams, SshoqTlsConfig};
+use crate::hosts::live::{AttributeVerdict, LiveContext, LiveEvent, LiveHandler, LiveMode, LiveSink};
+use crate::secrets::redact::Redactor;
+use crate::task::{Job, random_key};
 use crate::hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
@@ -549,6 +552,11 @@ impl ManagedHostBuilder {
 ///
 /// host.disconnect().unwrap();
 /// ```
+/// The span of one run of one host: its fields are on every log line of the run.
+pub(crate) fn run_span(run_id: &str, host_id: &str, job: Job) -> tracing::Span {
+    span!(Level::INFO, "run", run_id, host_id, job = job.as_str())
+}
+
 // #[derive(Clone)]
 pub struct ManagedHost {
     /// Unique identifier for this managed host.
@@ -571,6 +579,8 @@ pub struct ManagedHost {
     connection_state: ConnectionState,
     /// Host lock settings; `None` disables locking.
     host_lock: Option<HostLockSettings>,
+    /// Live mode (see [`crate::hosts::live`]); `None` (default): off.
+    live: Option<LiveMode>,
 }
 
 impl Clone for ManagedHost {
@@ -584,6 +594,7 @@ impl Clone for ManagedHost {
             secret_providers: self.secret_providers.clone(),
             connection_state: self.connection_state.clone(),
             host_lock: self.host_lock.clone(),
+            live: self.live.clone(),
         }
     }
 }
@@ -618,6 +629,7 @@ impl ManagedHost {
             secret_providers: secret_providers.clone(),
             connection_state: ConnectionState::Disconnected,
             host_lock: default_host_lock(),
+            live: None,
         }
     }
 
@@ -655,6 +667,7 @@ impl ManagedHost {
             secret_providers: secret_providers.clone(),
             connection_state: ConnectionState::Disconnected,
             host_lock: default_host_lock(),
+            live: None,
         }
     }
 
@@ -668,6 +681,40 @@ impl ManagedHost {
     /// The host lock settings (`None`: locking disabled).
     pub fn host_lock(&self) -> Option<&HostLockSettings> {
         self.host_lock.as_ref()
+    }
+
+    /// Turn the live mode on (see [`crate::hosts::live`]): runs report what they do
+    /// as tracing events (targets `regent_sdk::live*`) and, if `sink` is given, as
+    /// [`LiveUpdate`](crate::hosts::live::LiveUpdate)s sent to it. The outcome of
+    /// runs is the same either way.
+    pub fn enable_live(&mut self, sink: Option<LiveSink>) {
+        self.live = Some(LiveMode { sink });
+    }
+
+    /// Turn the live mode off (the default); drops the sink, if any.
+    pub fn disable_live(&mut self) {
+        self.live = None;
+    }
+
+    /// Whether the live mode is on.
+    pub fn is_live(&self) -> bool {
+        self.live.is_some()
+    }
+
+    // Redacts the secrets of the current run (call once secret caching is enabled)
+    fn redactor(&self) -> Redactor {
+        Redactor::new(
+            self.secret_providers
+                .as_ref()
+                .and_then(|pool| pool.secret_cache()),
+        )
+    }
+
+    // The live view of one run, if the live mode is on
+    fn live_context(&self, run_id: &str, job: Job, redactor: &Redactor) -> Option<LiveContext> {
+        self.live
+            .as_ref()
+            .map(|mode| LiveContext::new(mode, run_id, &self.id, job, redactor.clone()))
     }
 
     // Acquire the host lock in the given mode, or a no-op lock when locking is
@@ -868,6 +915,21 @@ impl ManagedHost {
         logging: bool,
         cancel: &CancellationToken,
     ) -> Result<ManagedHostStatus, RegentError> {
+        let run_id = random_key();
+        let span = run_span(&run_id, &self.id, Job::Assess);
+        self.assess_in_run(expected_state, logging, cancel, &run_id)
+            .instrument(span)
+            .await
+    }
+
+    /// The assessment of run `run_id` (the caller provides the `run` span).
+    pub(crate) async fn assess_in_run(
+        &mut self,
+        expected_state: &ExpectedState,
+        logging: bool,
+        cancel: &CancellationToken,
+        run_id: &str,
+    ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
@@ -878,7 +940,7 @@ impl ManagedHost {
             lock = self.acquire_host_lock(HostLockMode::Shared) => lock?,
         };
         let result = self
-            .assess_compliance_locked(expected_state, logging, cancel)
+            .assess_compliance_locked(expected_state, logging, cancel, run_id)
             .await;
         host_lock.release().await;
         result
@@ -889,24 +951,38 @@ impl ManagedHost {
         expected_state: &ExpectedState,
         logging: bool,
         cancel: &CancellationToken,
+        run_id: &str,
     ) -> Result<ManagedHostStatus, RegentError> {
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
 
         let mut already_compliant = true;
         let mut final_remediations_list: Vec<Remediation> = Vec::new();
+        let redactor = self.redactor();
+        let live = self.live_context(run_id, Job::Assess, &redactor);
+        let live = live.as_ref();
+        let emit = |event| {
+            if let Some(live) = live {
+                live.emit(event);
+            }
+        };
 
-        for attribute in expected_state.attributes.clone().iter_mut() {
+        for (index, attribute) in expected_state.attributes.clone().iter_mut().enumerate() {
             let attribute_span = span!(Level::INFO, "attribute", attr_name = attribute.name());
 
             // We execute the entire loop iteration inside an instrumented async block for tracing consistency
             let iteration = async {
+                emit(LiveEvent::AttributeStarted {
+                    index,
+                    name: attribute.name(),
+                });
+                let mut handler = LiveHandler::new(&mut self.handler, live);
                 // Taking context into account before working on the Attribute
                 match attribute.consider_context(&self.context) {
                     Ok(context_aware_attribute) => {
                         match context_aware_attribute
                             .assess(
-                                &mut self.handler,
+                                &mut handler,
                                 &self.host_properties,
                                 &self.secret_providers,
                             )
@@ -918,31 +994,60 @@ impl ManagedHost {
                                         if logging {
                                             info!(target: "run", "Compliant");
                                         }
+                                        emit(LiveEvent::AttributeAssessed {
+                                            index,
+                                            verdict: AttributeVerdict::Compliant,
+                                        });
                                         Ok(Some(Vec::new())) // Compliant, no remediations
                                     }
                                     AttributeComplianceAssessment::NonCompliant(remediations) => {
                                         if logging {
-                                            warn!(target: "run", remediations = ?remediations.remediations(), "Not compliant");
+                                            let redaction = redactor.snapshot().await;
+                                            warn!(target: "run", remediations = redaction.debug(&remediations.remediations()), "Not compliant");
                                         }
+                                        emit(LiveEvent::AttributeAssessed {
+                                            index,
+                                            verdict: AttributeVerdict::NonCompliant {
+                                                remediations: remediations.remediations().len(),
+                                            },
+                                        });
                                         Ok(Some(remediations.into_inner()))
                                     }
                                     AttributeComplianceAssessment::NonCompliantFatal(details) => {
+                                        let details = redactor.snapshot().await.apply(&details);
                                         if logging {
                                             error!(target: "run", details, "Not compliant and no remediation possible");
                                         }
+                                        emit(LiveEvent::AttributeAssessed {
+                                            index,
+                                            verdict: AttributeVerdict::NonCompliantFatal { details },
+                                        });
                                         Ok(None) // Non-compliant fatal, can't remediate
                                     }
                                 }
                             }
-                            Err(details) => Err(details),
+                            Err(details) => {
+                                emit(LiveEvent::AttributeAssessed {
+                                    index,
+                                    verdict: AttributeVerdict::Failed {
+                                        error: redactor.snapshot().await.apply(&details.to_string()),
+                                    },
+                                });
+                                Err(details)
+                            }
                         }
                     }
                     Err(details) => {
+                        let redaction = redactor.snapshot().await;
                         let content = match &details {
-                            RegentError::FailureToConsiderContext(content) => content,
-                            _ => &format!("{:?}", details),
+                            RegentError::FailureToConsiderContext(content) => redaction.apply(content),
+                            _ => redaction.debug(&details),
                         };
                         error!("{}", content);
+                        emit(LiveEvent::AttributeAssessed {
+                            index,
+                            verdict: AttributeVerdict::Failed { error: content },
+                        });
                         Err(details)
                     }
                 }
@@ -957,6 +1062,7 @@ impl ManagedHost {
             };
             let Some(iteration_result) = iteration_result else {
                 info!(target: "run", "Assessment aborted");
+                emit(LiveEvent::Aborted);
                 return Ok(ManagedHostStatus::aborted(
                     final_remediations_list
                         .into_iter()
@@ -1019,6 +1125,9 @@ impl ManagedHost {
     /// included (see [`crate::hosts::lock`]): no other remediation and no assessment
     /// meanwhile. Fails with [`RegentError::HostBusy`] if the lock is not acquired
     /// in time.
+    ///
+    /// The details of the actions taken (often the output of a command) have the
+    /// run's secrets redacted (see [`crate::secrets::redact`]).
     pub async fn reach_compliance(
         &mut self,
         expected_state: &ExpectedState,
@@ -1039,6 +1148,20 @@ impl ManagedHost {
         expected_state: &ExpectedState,
         cancel: &CancellationToken,
     ) -> Result<ManagedHostStatus, RegentError> {
+        let run_id = random_key();
+        let span = run_span(&run_id, &self.id, Job::Reach);
+        self.reach_in_run(expected_state, cancel, &run_id)
+            .instrument(span)
+            .await
+    }
+
+    /// The enforcement of run `run_id` (the caller provides the `run` span).
+    pub(crate) async fn reach_in_run(
+        &mut self,
+        expected_state: &ExpectedState,
+        cancel: &CancellationToken,
+        run_id: &str,
+    ) -> Result<ManagedHostStatus, RegentError> {
         if !self.is_connected().await {
             return Err(RegentError::NotConnectedToHost);
         }
@@ -1048,7 +1171,9 @@ impl ManagedHost {
             _ = cancel.cancelled() => return Ok(ManagedHostStatus::aborted(Vec::new())),
             lock = self.acquire_host_lock(HostLockMode::Exclusive) => lock?,
         };
-        let result = self.reach_compliance_locked(expected_state, cancel).await;
+        let result = self
+            .reach_compliance_locked(expected_state, cancel, run_id)
+            .await;
         host_lock.release().await;
         result
     }
@@ -1057,17 +1182,25 @@ impl ManagedHost {
         &mut self,
         expected_state: &ExpectedState,
         cancel: &CancellationToken,
+        run_id: &str,
     ) -> Result<ManagedHostStatus, RegentError> {
         // Enable secret caching to ensure idempotency
         self.enable_secret_caching();
 
         let mut final_host_status = HostStatus::AlreadyCompliant;
-        let mut reaching_compliance_failed = false;
         let mut actions_taken: Vec<Action> = Vec::new();
 
         let mut aborted = false;
+        let redactor = self.redactor();
+        let live = self.live_context(run_id, Job::Reach, &redactor);
+        let live = live.as_ref();
+        let emit = |event| {
+            if let Some(live) = live {
+                live.emit(event);
+            }
+        };
 
-        for attribute in &expected_state.attributes {
+        for (index, attribute) in expected_state.attributes.iter().enumerate() {
             if cancel.is_cancelled() {
                 aborted = true;
                 break;
@@ -1077,13 +1210,18 @@ impl ManagedHost {
 
             // Wrap the logic into an instrumented async block to facilitate tracing
             let iteration_result = async {
+                emit(LiveEvent::AttributeStarted {
+                    index,
+                    name: attribute.name(),
+                });
+                let mut handler = LiveHandler::new(&mut self.handler, live);
                 match attribute.consider_context(&self.context) {
                     Ok(context_aware_attribute) => {
                         let timeout_duration = context_aware_attribute.timeout();
 
                         match context_aware_attribute
                             .assess(
-                                &mut self.handler,
+                                &mut handler,
                                 &self.host_properties,
                                 &self.secret_providers,
                             )
@@ -1093,11 +1231,22 @@ impl ManagedHost {
                                 match attribute_compliance {
                                     AttributeComplianceAssessment::Compliant => {
                                         info!(target: "run", "Compliant");
+                                        emit(LiveEvent::AttributeAssessed {
+                                            index,
+                                            verdict: AttributeVerdict::Compliant,
+                                        });
                                         // Return progress updates back to the parent collector
                                         Ok(LoopControl::Continue)
                                     }
                                     AttributeComplianceAssessment::NonCompliant(remediations) => {
-                                        warn!(target: "run", remediations = ?remediations.remediations(), "Not compliant");
+                                        let redaction = redactor.snapshot().await;
+                                        warn!(target: "run", remediations = redaction.debug(&remediations.remediations()), "Not compliant");
+                                        emit(LiveEvent::AttributeAssessed {
+                                            index,
+                                            verdict: AttributeVerdict::NonCompliant {
+                                                remediations: remediations.remediations().len(),
+                                            },
+                                        });
 
                                         let mut local_failed = false;
                                         let mut local_actions = Vec::new();
@@ -1110,11 +1259,19 @@ impl ManagedHost {
                                                 });
                                             }
 
-                                            let remediation_span = span!(Level::INFO, "remediation", action = ?remediation);
+                                            let redaction = match live {
+                                                Some(live) => live.redaction().await,
+                                                None => redactor.snapshot().await,
+                                            };
+                                            let remediation_span = span!(Level::INFO, "remediation", action = redaction.debug(remediation));
 
+                                            emit(LiveEvent::RemediationStarted {
+                                                index,
+                                                remediation: remediation.clone(),
+                                            });
                                             let remediation_result = remediation
                                                 .reach_compliance(
-                                                    &mut self.handler,
+                                                    &mut handler,
                                                     &self.host_properties,
                                                     &self.secret_providers,
                                                     timeout_duration,
@@ -1122,7 +1279,16 @@ impl ManagedHost {
                                                 .instrument(remediation_span.clone())
                                                 .await;
 
+                                            // Secrets resolved by the remediation itself included
+                                            let redaction = redactor.snapshot().await;
+                                            let remediation_result = remediation_result
+                                                .map(|outcome| redaction.outcome(outcome));
+
                                             let _remediation_span_guard = remediation_span.enter();
+                                            emit(LiveEvent::RemediationFinished {
+                                                index,
+                                                outcome: remediation_result.as_ref().ok().cloned(),
+                                            });
 
                                             match remediation_result {
                                                 Ok(internal_api_call_outcome) => {
@@ -1147,7 +1313,7 @@ impl ManagedHost {
                                                     }
                                                 }
                                                 Err(details) => {
-                                                    warn!("Failed to apply remediation");
+                                                    warn!(error = redaction.apply(&details.to_string()), "Failed to apply remediation");
                                                     return Err(details);
                                                 }
                                             }
@@ -1159,23 +1325,38 @@ impl ManagedHost {
                                         })
                                     }
                                     AttributeComplianceAssessment::NonCompliantFatal(details) => {
+                                        let details = redactor.snapshot().await.apply(&details);
                                         error!(target: "run", details, "Not compliant and no remediation possible");
+                                        emit(LiveEvent::AttributeAssessed {
+                                            index,
+                                            verdict: AttributeVerdict::NonCompliantFatal { details },
+                                        });
                                         Ok(LoopControl::Fatal)
                                     }
                                 }
                             }
                             Err(details) => {
-                                warn!(reason = ?details, "Failed assessment");
+                                let error = redactor.snapshot().await.apply(&details.to_string());
+                                warn!(reason = error, "Failed assessment");
+                                emit(LiveEvent::AttributeAssessed {
+                                    index,
+                                    verdict: AttributeVerdict::Failed { error },
+                                });
                                 Err(details)
                             }
                         }
                     }
                     Err(details) => {
+                        let redaction = redactor.snapshot().await;
                         let content = match &details {
-                            RegentError::FailureToConsiderContext(content) => content,
-                            _ => &format!("{:?}", details),
+                            RegentError::FailureToConsiderContext(content) => redaction.apply(content),
+                            _ => redaction.debug(&details),
                         };
                         error!("{}", content);
+                        emit(LiveEvent::AttributeAssessed {
+                            index,
+                            verdict: AttributeVerdict::Failed { error: content },
+                        });
                         Err(details)
                     }
                 }
@@ -1197,7 +1378,6 @@ impl ManagedHost {
                 Ok(LoopControl::Remediated { failed, actions }) => {
                     actions_taken.extend(actions);
                     if failed {
-                        // reaching_compliance_failed = true;
                         final_host_status = HostStatus::ReachComplianceFailed;
                         break; // Stop processing further attributes due to failure
                     } else {
@@ -1212,6 +1392,7 @@ impl ManagedHost {
 
         if aborted {
             info!(target: "run", "Remediation aborted");
+            emit(LiveEvent::Aborted);
             return Ok(ManagedHostStatus::aborted(actions_taken));
         }
 

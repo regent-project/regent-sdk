@@ -7,6 +7,7 @@ use tracing::Instrument;
 use crate::ExpectedState;
 use crate::error::RegentError;
 use crate::hosts::handlers::ConnectionMethod;
+use crate::hosts::live::LiveSink;
 use crate::hosts::managed_host::ManagedHost;
 use crate::hosts::managed_host::ManagedHostBuilder;
 use crate::secrets::SecretProvider;
@@ -219,6 +220,24 @@ impl LivingInventory {
         Self { name, hosts }
     }
 
+    /// Turn the live mode on for every host (see [`ManagedHost::enable_live`] and
+    /// [`crate::hosts::live`]); each update carries its host id and run id.
+    ///
+    /// The hosts keep a clone of the sink: call [`LivingInventory::disable_live`]
+    /// once the run is over so that the receiver sees the end of the channel.
+    pub fn enable_live(&mut self, sink: Option<LiveSink>) {
+        for managed_host in self.hosts.values_mut() {
+            managed_host.enable_live(sink.clone());
+        }
+    }
+
+    /// Turn the live mode off for every host (drops their sinks).
+    pub fn disable_live(&mut self) {
+        for managed_host in self.hosts.values_mut() {
+            managed_host.disable_live();
+        }
+    }
+
     // TODO : is it worth it to make this parallel through tokio tasks ?
     pub fn add_var(&mut self, key: String, value: String) {
         let span = span!(Level::DEBUG, "living_inventory_add_var");
@@ -348,11 +367,11 @@ impl LivingInventory {
             let expected_state_clone = expected_state.clone();
 
             let current_job_span = job_span.clone();
-            let host_span = span!(parent: &current_job_span, Level::INFO, "host", id = host_id);
+            let host_span = span!(parent: &current_job_span, Level::INFO, "host", host_id);
 
             set.spawn(
                 async move {
-                    debug!(id = host_id, "Assessing compliance");
+                    debug!(host_id, "Assessing compliance");
                     match managed_host
                         .assess_compliance(&expected_state_clone, true)
                         .await
@@ -418,7 +437,7 @@ impl LivingInventory {
             let expected_state_clone = expected_state.clone();
 
             let current_job_span = job_span.clone();
-            let host_span = span!(parent: &current_job_span, Level::INFO, "host", id = host_id);
+            let host_span = span!(parent: &current_job_span, Level::INFO, "host", host_id);
 
             set.spawn(
                 async move {

@@ -20,6 +20,7 @@ use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::handlers::localhost::WhichUser;
+use crate::hosts::live::OutputStream;
 use crate::hosts::lock::{self, HostLock, HostLockMode, HostLockSettings, RemoteLockProgress};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
@@ -374,6 +375,16 @@ impl HostHandler for Ssh2HostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError> {
+        self.run_command_observed(command, privilege, &mut |_, _| {})
+            .await
+    }
+
+    async fn run_command_observed(
+        &mut self,
+        command: &str,
+        privilege: &Privilege,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
         match self {
             Ssh2HostHandler::NotConnected(..) => {
                 return Err(RegentError::NotConnectedToHost);
@@ -399,7 +410,12 @@ impl HostHandler for Ssh2HostHandler {
                             match msg {
                                 // Write data to the buffer
                                 ChannelMsg::Data { ref data } => {
+                                    on_output(OutputStream::Stdout, data);
                                     command_output.push_str(&String::from_utf8_lossy(data));
+                                }
+                                // stderr (rare: Unix commands get `2>&1`), live view only
+                                ChannelMsg::ExtendedData { ref data, ext: 1 } => {
+                                    on_output(OutputStream::Stderr, data);
                                 }
                                 ChannelMsg::ExitStatus { exit_status } => {
                                     return_code = exit_status;
@@ -423,6 +439,16 @@ impl HostHandler for Ssh2HostHandler {
 
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
+        self.run_windows_command_observed(command, &mut |_, _| {})
+            .await
+    }
+
+    #[cfg(feature = "windows")]
+    async fn run_windows_command_observed(
+        &mut self,
+        command: &str,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
         match self {
             Ssh2HostHandler::NotConnected(..) => {
                 return Err(RegentError::NotConnectedToHost);
@@ -447,7 +473,12 @@ impl HostHandler for Ssh2HostHandler {
                             match msg {
                                 // Write data to the buffer
                                 ChannelMsg::Data { ref data } => {
+                                    on_output(OutputStream::Stdout, data);
                                     command_output.push_str(&String::from_utf8_lossy(data));
+                                }
+                                // stderr (rare: Unix commands get `2>&1`), live view only
+                                ChannelMsg::ExtendedData { ref data, ext: 1 } => {
+                                    on_output(OutputStream::Stderr, data);
                                 }
                                 ChannelMsg::ExitStatus { exit_status } => {
                                     return_code = exit_status;

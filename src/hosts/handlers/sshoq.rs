@@ -30,6 +30,7 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::final_command;
 use crate::hosts::handlers::localhost::WhichUser;
 use crate::hosts::handlers::shell_quote;
+use crate::hosts::live::OutputStream;
 use crate::hosts::lock::{self, HostLock, HostLockMode, HostLockSettings, RemoteLockProgress};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
@@ -283,6 +284,50 @@ impl std::fmt::Debug for SshoqHostHandler {
     }
 }
 
+/// Run a command to completion like [`Client::run_command`], giving its output to
+/// `on_output` as it arrives (live view).
+async fn run_observed(
+    client: &Client,
+    command: &str,
+    on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+) -> sshoq::Result<sshoq::CommandOutput> {
+    let session = client.open_session().await?;
+    session.exec(command).await?;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    loop {
+        match session.next_event().await? {
+            Some(SessionEvent::Data(data)) => {
+                on_output(OutputStream::Stdout, &data);
+                stdout.extend_from_slice(&data);
+            }
+            Some(SessionEvent::Stderr(data)) => {
+                on_output(OutputStream::Stderr, &data);
+                stderr.extend_from_slice(&data);
+            }
+            Some(SessionEvent::ExitStatus(status)) => {
+                return Ok(sshoq::CommandOutput {
+                    stdout,
+                    stderr,
+                    exit_status: status.status_code,
+                });
+            }
+            Some(SessionEvent::ExitSignal(signal)) => {
+                return Err(sshoq::Error::ExitSignal {
+                    signal: signal.signal,
+                    error_message_utf8: signal.error_message_utf8,
+                });
+            }
+            Some(SessionEvent::Request(_)) => {} // unexpected requests are ignored
+            None => {
+                return Err(sshoq::Error::Protocol(
+                    "the session channel closed before the command's exit status".to_string(),
+                ));
+            }
+        }
+    }
+}
+
 impl HostHandler for SshoqHostHandler {
     async fn connect(&mut self, endpoint: &str) -> Result<(), RegentError> {
         if self.is_connected().await {
@@ -400,6 +445,16 @@ impl HostHandler for SshoqHostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError> {
+        self.run_command_observed(command, privilege, &mut |_, _| {})
+            .await
+    }
+
+    async fn run_command_observed(
+        &mut self,
+        command: &str,
+        privilege: &Privilege,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
         match self {
             SshoqHostHandler::NotConnected(_) => Err(RegentError::NotConnectedToHost),
             SshoqHostHandler::Connected(params, client) => {
@@ -407,7 +462,7 @@ impl HostHandler for SshoqHostHandler {
                 let effective_user = which_user_for_auth_method(&params.auth_method);
                 let final_cmd = final_command(command, privilege, &effective_user);
 
-                match client.run_command(&final_cmd).await {
+                match run_observed(client, &final_cmd, on_output).await {
                     Ok(output) => Ok(CommandResult {
                         return_code: output.exit_status as i64,
                         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -424,11 +479,21 @@ impl HostHandler for SshoqHostHandler {
 
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
+        self.run_windows_command_observed(command, &mut |_, _| {})
+            .await
+    }
+
+    #[cfg(feature = "windows")]
+    async fn run_windows_command_observed(
+        &mut self,
+        command: &str,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
         match self {
             SshoqHostHandler::NotConnected(_) => Err(RegentError::NotConnectedToHost),
             SshoqHostHandler::Connected(_params, client) => {
                 let final_cmd = format!("cmd /C {}", command);
-                match client.run_command(&final_cmd).await {
+                match run_observed(client, &final_cmd, on_output).await {
                     Ok(output) => Ok(CommandResult {
                         return_code: output.exit_status as i64,
                         stdout: String::from_utf8_lossy(&output.stdout).to_string(),

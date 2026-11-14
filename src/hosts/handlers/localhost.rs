@@ -7,17 +7,18 @@
 use crate::error::RegentError;
 use crate::hosts::command::CommandResult;
 use crate::hosts::handlers::HostHandler;
+use crate::hosts::live::OutputStream;
 use crate::hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::Privilege;
 use crate::secrets::SecretProvider;
 use std::process::Stdio;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 use crate::hosts::handlers::shell_quote;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 // use std::process::Command;
 
 /// Handler for executing operations on the local machine.
@@ -117,45 +118,49 @@ impl HostHandler for LocalHostHandler {
         command: &str,
         privilege: &Privilege,
     ) -> Result<CommandResult, RegentError> {
+        self.run_command_observed(command, privilege, &mut |_, _| {})
+            .await
+    }
+
+    async fn run_command_observed(
+        &mut self,
+        command: &str,
+        privilege: &Privilege,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
         let result = match (privilege, &self.user) {
             (Privilege::None, _) => {
-                Command::new("sh")
-                    .arg("-c")
-                    .arg(command)
-                    .kill_on_drop(true)
-                    .output()
-                    .await
+                let mut cmd = Command::new("sh");
+                cmd.arg("-c").arg(command).kill_on_drop(true);
+                spawn_and_collect(cmd, on_output).await
             }
             (Privilege::WithSudo | Privilege::WithSudoRs, WhichUser::CurrentUser) => {
                 // Expecting a working NOPASSD sudoers file here
-                Command::new(match privilege {
+                let mut cmd = Command::new(match privilege {
                     Privilege::WithSudoRs => "sudo-rs",
                     _ => "sudo",
-                })
-                .arg("-n")
-                .arg("sh")
-                .arg("-c")
-                .arg(command)
-                .env_remove("DISPLAY")
-                .env_remove("WAYLAND_DISPLAY")
-                .env_remove("DBUS_SESSION_BUS_ADDRESS")
-                .env_remove("XDG_RUNTIME_DIR")
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .output()
-                .await
+                });
+                cmd.arg("-n")
+                    .arg("sh")
+                    .arg("-c")
+                    .arg(command)
+                    .env_remove("DISPLAY")
+                    .env_remove("WAYLAND_DISPLAY")
+                    .env_remove("DBUS_SESSION_BUS_ADDRESS")
+                    .env_remove("XDG_RUNTIME_DIR");
+                spawn_and_collect(cmd, on_output).await
             }
             (Privilege::WithSudo, WhichUser::CurrentUserWithSudoPassword(password)) => {
-                run_with_sudo("sudo", password, command).await
+                run_with_sudo("sudo", password, command, on_output).await
             }
             (Privilege::WithSudoRs, WhichUser::CurrentUserWithSudoPassword(password)) => {
-                run_with_sudo("sudo-rs", password, command).await
+                run_with_sudo("sudo-rs", password, command, on_output).await
             }
             (Privilege::WithSudo, WhichUser::UsernamePassword(credentials)) => {
-                run_with_sudo("sudo", credentials.password(), command).await
+                run_with_sudo("sudo", credentials.password(), command, on_output).await
             }
             (Privilege::WithSudoRs, WhichUser::UsernamePassword(credentials)) => {
-                run_with_sudo("sudo-rs", credentials.password(), command).await
+                run_with_sudo("sudo-rs", credentials.password(), command, on_output).await
             }
         };
 
@@ -177,12 +182,19 @@ impl HostHandler for LocalHostHandler {
 
     #[cfg(feature = "windows")]
     async fn run_windows_command(&mut self, command: &str) -> Result<CommandResult, RegentError> {
-        match Command::new("cmd")
-            .args(&["/C", command])
-            .kill_on_drop(true)
-            .output()
+        self.run_windows_command_observed(command, &mut |_, _| {})
             .await
-        {
+    }
+
+    #[cfg(feature = "windows")]
+    async fn run_windows_command_observed(
+        &mut self,
+        command: &str,
+        on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+    ) -> Result<CommandResult, RegentError> {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", command]).kill_on_drop(true);
+        match spawn_and_collect(cmd, on_output).await {
             Ok(output) => match output.status.code() {
                 Some(code) => Ok(CommandResult {
                     return_code: code.into(),
@@ -273,10 +285,76 @@ impl std::fmt::Debug for WhichUser {
     }
 }
 
+/// Run `command` like `Command::output` (no stdin, stdout and stderr captured),
+/// giving the output to `on_output` as it arrives.
+async fn spawn_and_collect(
+    mut command: Command,
+    on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+) -> Result<std::process::Output, std::io::Error> {
+    let child = command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    collect_output(child, on_output).await
+}
+
+/// Like `Child::wait_with_output`, giving the output to `on_output` as it arrives.
+async fn collect_output(
+    mut child: Child,
+    on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
+) -> Result<std::process::Output, std::io::Error> {
+    async fn read_some<R: AsyncRead + Unpin>(
+        reader: &mut Option<R>,
+        buffer: &mut [u8],
+    ) -> std::io::Result<usize> {
+        match reader {
+            Some(reader) => reader.read(buffer).await,
+            None => std::future::pending().await,
+        }
+    }
+
+    let mut child_stdout = child.stdout.take();
+    let mut child_stderr = child.stderr.take();
+    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+    let (mut stdout_buffer, mut stderr_buffer) = ([0u8; 8192], [0u8; 8192]);
+
+    while child_stdout.is_some() || child_stderr.is_some() {
+        tokio::select! {
+            read = read_some(&mut child_stdout, &mut stdout_buffer), if child_stdout.is_some() => {
+                match read? {
+                    0 => child_stdout = None,
+                    n => {
+                        on_output(OutputStream::Stdout, &stdout_buffer[..n]);
+                        stdout.extend_from_slice(&stdout_buffer[..n]);
+                    }
+                }
+            }
+            read = read_some(&mut child_stderr, &mut stderr_buffer), if child_stderr.is_some() => {
+                match read? {
+                    0 => child_stderr = None,
+                    n => {
+                        on_output(OutputStream::Stderr, &stderr_buffer[..n]);
+                        stderr.extend_from_slice(&stderr_buffer[..n]);
+                    }
+                }
+            }
+        }
+    }
+
+    let status = child.wait().await?;
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
 async fn run_with_sudo(
     sudo_binary: &str,
     password: &str,
     command: &str,
+    on_output: &mut (dyn FnMut(OutputStream, &[u8]) + Send),
 ) -> Result<std::process::Output, std::io::Error> {
     let mut child = Command::new(sudo_binary)
         .arg("-S") // Read password from stdin
@@ -297,5 +375,5 @@ async fn run_with_sudo(
         stdin.write_all(b"\n").await?;
     }
 
-    child.wait_with_output().await
+    collect_output(child, on_output).await
 }

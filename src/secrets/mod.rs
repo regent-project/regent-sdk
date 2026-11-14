@@ -31,6 +31,7 @@
 //! ```
 
 pub mod local;
+pub mod redact;
 pub mod remote;
 
 #[cfg(feature = "aws-secretsmanager")]
@@ -82,6 +83,12 @@ impl SecretCache {
     pub async fn contains(&self, secret_ref: &str) -> bool {
         let cache = self.cache.lock().await;
         cache.contains_key(secret_ref)
+    }
+
+    /// Every secret value resolved so far (used to redact the live view).
+    pub(crate) async fn values(&self) -> Vec<String> {
+        let cache = self.cache.lock().await;
+        cache.values().cloned().collect()
     }
 }
 
@@ -636,6 +643,11 @@ impl SecretProvidersPool {
     /// ```
     pub fn disable_caching(&mut self) {
         self.secret_cache = None;
+    }
+
+    /// The cache of this pool, if caching is enabled.
+    pub(crate) fn secret_cache(&self) -> Option<SecretCache> {
+        self.secret_cache.clone()
     }
 
     /// Check if caching is enabled for this pool.

@@ -14,6 +14,7 @@
 //! - **Task-level idempotency**: Has this task already been executed, meaning has this host compliance already been checked/fixed by some other worker ? The idempotency key in [`RegentTask`] is a helper that allows external middleware to implement task-level idempotency. If the same task is delivered multiple times (due to network retries, message queue redelivery, etc.), external systems can use this key to deduplicate the task execution. Note: **The regent-sdk crate itself does not handle task idempotency** — it only provides the key. You must implement deduplication logic in your message queue, API gateway, or other middleware.
 //!
 
+use crate::hosts::managed_host::run_span;
 use crate::secrets::SecretProvidersPool;
 use crate::state::ExpectedState;
 use crate::state::compliance::ManagedHostStatus;
@@ -21,6 +22,7 @@ use crate::{error::RegentError, hosts::managed_host::ManagedHostBuilder};
 
 use chrono::{DateTime, Utc};
 use nanoid::nanoid;
+use tracing::Instrument;
 use serde::{Deserialize, Serialize};
 /// Cancellation signal accepted by [`RegentTask::run_with_cancellation`]
 /// (re-exported from `tokio-util`, so callers need no extra dependency).
@@ -82,12 +84,7 @@ impl RegentTask {
             managed_host_builder,
             expected_state,
             job,
-            idempotency_key: nanoid!(
-                16,
-                &[
-                    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
-                ]
-            ),
+            idempotency_key: random_key(),
         }
     }
 
@@ -271,6 +268,22 @@ impl RegentTask {
         optional_secret_provider: Option<SecretProvidersPool>,
         cancel: &CancellationToken,
     ) -> Result<ManagedHostStatus, RegentError> {
+        // Every log line of the run carries the task's key as `run_id`
+        let span = run_span(
+            &self.idempotency_key,
+            &self.managed_host_builder.id,
+            self.job,
+        );
+        self.execute_in_run(optional_secret_provider, cancel)
+            .instrument(span)
+            .await
+    }
+
+    async fn execute_in_run(
+        &self,
+        optional_secret_provider: Option<SecretProvidersPool>,
+        cancel: &CancellationToken,
+    ) -> Result<ManagedHostStatus, RegentError> {
         // Build a ManagedHost and connect to it; nothing has touched the host yet, so
         // this can stop at once
         let prepare = async {
@@ -291,16 +304,26 @@ impl RegentTask {
         match self.job {
             Job::Assess => {
                 managed_host
-                    .assess_compliance_cancellable(&self.expected_state, true, cancel)
+                    .assess_in_run(&self.expected_state, true, cancel, &self.idempotency_key)
                     .await
             }
             Job::Reach => {
                 managed_host
-                    .reach_compliance_cancellable(&self.expected_state, cancel)
+                    .reach_in_run(&self.expected_state, cancel, &self.idempotency_key)
                     .await
             }
         }
     }
+}
+
+/// A random 16-character hexadecimal key (default idempotency keys, run ids).
+pub(crate) fn random_key() -> String {
+    nanoid!(
+        16,
+        &[
+            '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
+        ]
+    )
 }
 
 /// The type of job for a [`RegentTask`] to perform.
@@ -317,6 +340,16 @@ pub enum Job {
     /// This will check compliance and automatically perform the necessary
     /// remediations to bring the host into the expected state.
     Reach,
+}
+
+impl Job {
+    /// `"assess"` or `"reach"` (as in logs).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Job::Assess => "assess",
+            Job::Reach => "reach",
+        }
+    }
 }
 
 /// Result of executing a [`RegentTask`].

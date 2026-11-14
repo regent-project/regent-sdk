@@ -19,6 +19,7 @@
 - [Usage](#usage)
   - [YAML API](#yaml-api)
   - [Rust API](#rust-api)
+  - [Live view and logs](#live-view-and-logs)
 - [Attribute Categories](#attribute-categories)
 - [Use Cases](#use-cases)
 - [Task Distribution](#task-distribution)
@@ -59,6 +60,7 @@ Enable the following Cargo features for additional capabilities: `cargo add rege
 - `proto`: protobuf form of `RegentTaskResult` (`regent_sdk::proto`), to exchange outcomes between different regent-sdk versions. Building it requires `protoc` **36.1** exactly (on `PATH`, or set `PROTOC`). See [proto/README.md](proto/README.md).
 - `grpc` (implies `proto`): client and server stubs of the outcome `Reporting` service (tonic)
 - `schema`: JSON Schema of expected states and attributes (`regent_sdk::schema`, via schemars), e.g. to build attribute forms in a UI that follow the SDK's types
+- `logging`: flat JSON log lines (`regent_sdk::logging::JsonLayer`, for Grafana Loki, Elasticsearch...) and a non-blocking log writer (`non_blocking_stdout`), see [Live view and logs](#live-view-and-logs)
 
 
 ## Usage
@@ -151,6 +153,39 @@ async fn main() {
     }
 }
 ```
+
+### Live view and logs
+
+By default, a run gives its outcome once it is over. Turn the **live mode** on to see
+what a host is doing while it runs: attributes being assessed, remediations being
+applied, and the commands they run with their output, line by line, as it comes.
+
+```rust
+use regent_sdk::LiveSink;
+
+let (sink, mut updates) = LiveSink::channel(1024);
+managed_host.enable_live(Some(sink)); // or `None`: tracing events only
+
+tokio::spawn(async move {
+    while let Some(update) = updates.recv().await {
+        println!("[{}] #{} {:?}", update.host_id, update.seq, update.event);
+    }
+});
+let status = managed_host.reach_compliance(&expected_state).await;
+managed_host.disable_live();
+```
+
+- Every live event is also a flat `tracing` event (targets `regent_sdk::live` and
+  `regent_sdk::live::output`) carrying `run_id`, `host_id`, `job`, `seq` and its
+  content, and every run runs in a `run{run_id, host_id, job}` span: one run of one host
+  can be rebuilt from a log database by filtering on `run_id` and sorting on `seq`.
+- A run never waits for the live view: the sink is a bounded channel (updates beyond
+  it are dropped and counted); for logs, use a non-blocking writer (feature `logging`).
+- Secrets resolved during a run are replaced by `********` in the live view, in the
+  SDK's logs and in the details of the outcome's actions.
+
+See the [`hosts::live`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/live/index.html)
+documentation for the fields and an example Loki query.
 
 ## Attribute Categories
 
