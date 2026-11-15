@@ -44,7 +44,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Types the mirror starts from.
-const ROOTS: &[&str] = &["RegentTaskResult"];
+const ROOTS: &[&str] = &["RegentTaskResult", "LiveUpdate", "RunLog"];
 
 /// Types whose decoding falls back to a value of the same type when the message
 /// holds a variant this SDK does not know (sent by a newer regent-sdk). `{}` is

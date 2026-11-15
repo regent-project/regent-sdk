@@ -2,7 +2,8 @@
 //!
 //! By default, an assessment or an enforcement only gives its outcome once it is
 //! over. With the live mode on ([`ManagedHost::enable_live`](crate::ManagedHost::enable_live),
-//! or [`LivingInventory::enable_live`](crate::hosts::inventory::LivingInventory::enable_live)
+//! [`RegentTask::enable_live`](crate::RegentTask::enable_live) for a task, or
+//! [`LivingInventory::enable_live`](crate::hosts::inventory::LivingInventory::enable_live)
 //! for every host), the run also reports what it does as it goes: attributes being
 //! assessed, remediations being applied, and the commands they run on the host with
 //! their output, **line by line, while the command is running**.
@@ -285,6 +286,147 @@ impl LiveSink {
         if self.tx.try_send(update).is_err() {
             self.dropped.fetch_add(1, Ordering::Relaxed);
         }
+    }
+}
+
+/// The live view of a run, kept once it is over: its [`LiveUpdate`]s in order, up to
+/// a size limit.
+///
+/// Fill it from the receiver of a [`LiveSink`] while forwarding the updates
+/// elsewhere (a UI, a collector), then store it with the run's outcome. Beyond
+/// `limit_bytes` (an estimate of the text the updates hold, see
+/// [`LiveUpdate::approx_size`]), later updates are not kept but counted
+/// ([`RunLog::omitted_updates`]): a cropped log says so ([`RunLog::is_truncated`]).
+///
+/// ```
+/// use regent_sdk::hosts::live::RunLog;
+/// let log = RunLog::new(1024 * 1024);
+/// assert!(!log.is_truncated());
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct RunLog {
+    /// The updates kept, in the order they were received.
+    updates: Vec<LiveUpdate>,
+    /// Maximum size kept, in bytes (estimate); 0 = no limit.
+    limit_bytes: u64,
+    /// Size of the updates kept, in bytes (estimate).
+    size_bytes: u64,
+    /// Updates not kept because of the limit.
+    omitted_updates: u64,
+    /// Updates the run produced but the sink lost ([`LiveEvent::Dropped`]).
+    dropped_updates: u64,
+}
+
+impl RunLog {
+    /// An empty log keeping at most `limit_bytes` (estimate; 0 = no limit).
+    pub fn new(limit_bytes: u64) -> Self {
+        Self {
+            limit_bytes,
+            ..Self::default()
+        }
+    }
+
+    /// Add an update; returns `false` if it was not kept (limit reached).
+    /// [`LiveEvent::Dropped`] is never kept: it is added to
+    /// [`RunLog::dropped_updates`].
+    pub fn push(&mut self, update: LiveUpdate) -> bool {
+        if let LiveEvent::Dropped { updates } = update.event {
+            self.dropped_updates += updates;
+            return false;
+        }
+        let size = update.approx_size() as u64;
+        if self.omitted_updates > 0
+            || (self.limit_bytes > 0 && self.size_bytes + size > self.limit_bytes)
+        {
+            self.omitted_updates += 1;
+            return false;
+        }
+        self.size_bytes += size;
+        self.updates.push(update);
+        true
+    }
+
+    /// Apply a smaller limit to a log already filled (e.g. by a collector enforcing
+    /// its own limit on logs it receives): the updates beyond it are removed and
+    /// counted as omitted. A limit of 0, or one larger than the current limit,
+    /// changes nothing.
+    pub fn crop(&mut self, limit_bytes: u64) {
+        if limit_bytes == 0 || (self.limit_bytes != 0 && limit_bytes >= self.limit_bytes) {
+            return;
+        }
+        self.limit_bytes = limit_bytes;
+        let mut size = 0u64;
+        let keep = self
+            .updates
+            .iter()
+            .take_while(|update| {
+                size += update.approx_size() as u64;
+                size <= limit_bytes
+            })
+            .count();
+        let removed = self.updates.len() - keep;
+        if removed > 0 {
+            self.updates.truncate(keep);
+            self.omitted_updates += removed as u64;
+            self.size_bytes = self.updates.iter().map(|u| u.approx_size() as u64).sum();
+        }
+    }
+
+    /// The updates kept, in order.
+    pub fn updates(&self) -> &[LiveUpdate] {
+        &self.updates
+    }
+
+    /// The updates kept, in order.
+    pub fn into_updates(self) -> Vec<LiveUpdate> {
+        self.updates
+    }
+
+    /// Maximum size kept, in bytes (estimate); 0 = no limit.
+    pub fn limit_bytes(&self) -> u64 {
+        self.limit_bytes
+    }
+
+    /// Size of the updates kept, in bytes (estimate).
+    pub fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+
+    /// Updates not kept because the limit was reached.
+    pub fn omitted_updates(&self) -> u64 {
+        self.omitted_updates
+    }
+
+    /// Updates lost by the sink before they reached this log.
+    pub fn dropped_updates(&self) -> u64 {
+        self.dropped_updates
+    }
+
+    /// Whether the log is incomplete (limit reached, or updates lost by the sink).
+    pub fn is_truncated(&self) -> bool {
+        self.omitted_updates > 0 || self.dropped_updates > 0
+    }
+}
+
+impl LiveUpdate {
+    /// Estimated size of the update in bytes: its text plus a fixed overhead (used
+    /// by [`RunLog`]'s limit; close to, not equal to, its encoded size).
+    pub fn approx_size(&self) -> usize {
+        const OVERHEAD: usize = 32;
+        let content = match &self.event {
+            LiveEvent::AttributeStarted { name, .. } => name.len(),
+            LiveEvent::AttributeAssessed { verdict, .. } => match verdict {
+                AttributeVerdict::NonCompliantFatal { details } => details.len(),
+                AttributeVerdict::Failed { error } => error.len(),
+                _ => 0,
+            },
+            LiveEvent::RemediationStarted { remediation, .. } => format!("{remediation:?}").len(),
+            LiveEvent::RemediationFinished { outcome, .. } => format!("{outcome:?}").len(),
+            LiveEvent::CommandStarted { command, .. } => command.len(),
+            LiveEvent::Output { line, .. } => line.len(),
+            LiveEvent::CommandFinished { .. } | LiveEvent::Aborted | LiveEvent::Dropped { .. } => 0,
+        };
+        OVERHEAD + self.run_id.len() + self.host_id.len() + content
     }
 }
 
@@ -756,4 +898,72 @@ mod tests {
         ));
         assert!(matches!(rx.try_recv().unwrap().event, LiveEvent::Aborted));
     }
+
+    fn update(seq: u64, event: LiveEvent) -> LiveUpdate {
+        LiveUpdate {
+            run_id: "R1".into(),
+            host_id: "h1".into(),
+            job: Job::Reach,
+            seq,
+            at: Utc::now(),
+            event,
+        }
+    }
+
+    fn line(seq: u64, text: &str) -> LiveUpdate {
+        update(
+            seq,
+            LiveEvent::Output {
+                exec_id: 1,
+                stream: OutputStream::Stdout,
+                line: text.into(),
+            },
+        )
+    }
+
+    #[test]
+    fn run_log_keeps_updates_up_to_its_limit() {
+        let one = line(1, "0123456789").approx_size() as u64;
+        let mut log = RunLog::new(2 * one);
+        assert!(log.push(line(1, "0123456789")));
+        assert!(log.push(line(2, "0123456789")));
+        assert!(!log.is_truncated());
+        assert!(!log.push(line(3, "0123456789")));
+        // once cropped, nothing later is kept (no hole in the middle of the log)
+        assert!(!log.push(line(4, "")));
+        assert_eq!(log.updates().len(), 2);
+        assert_eq!((log.omitted_updates(), log.size_bytes()), (2, 2 * one));
+        assert!(log.is_truncated());
+    }
+
+    #[test]
+    fn run_log_crop_applies_a_smaller_limit_only() {
+        let one = line(1, "0123456789").approx_size() as u64;
+        let mut log = RunLog::new(0);
+        for seq in 1..=5 {
+            log.push(line(seq, "0123456789"));
+        }
+        log.crop(3 * one);
+        assert_eq!((log.updates().len(), log.omitted_updates()), (3, 2));
+        assert_eq!((log.limit_bytes(), log.size_bytes()), (3 * one, 3 * one));
+        log.crop(10 * one); // larger: no change
+        log.crop(0);
+        assert_eq!((log.updates().len(), log.limit_bytes()), (3, 3 * one));
+        assert!(log.is_truncated());
+    }
+
+    #[test]
+    fn run_log_counts_sink_drops_and_has_no_limit_at_zero() {
+        let mut log = RunLog::new(0);
+        for seq in 1..=100 {
+            assert!(log.push(line(seq, "some output")));
+        }
+        assert!(!log.push(update(0, LiveEvent::Dropped { updates: 7 })));
+        assert_eq!((log.updates().len(), log.dropped_updates()), (100, 7));
+        assert!(log.is_truncated());
+    }
 }
+
+#[cfg(feature = "proto")]
+#[path = "../proto/conv/hosts__live.rs"]
+mod proto_conv;

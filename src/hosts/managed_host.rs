@@ -25,21 +25,23 @@ use crate::hosts::handlers::HostHandler;
 use crate::hosts::handlers::TargetUserKind;
 use crate::hosts::handlers::ssh2::Ssh2AuthReference;
 use crate::hosts::handlers::sshoq::{SshoqAuthReference, SshoqConnectionParams, SshoqTlsConfig};
-use crate::hosts::live::{AttributeVerdict, LiveContext, LiveEvent, LiveHandler, LiveMode, LiveSink};
-use crate::secrets::redact::Redactor;
-use crate::task::{Job, random_key};
+use crate::hosts::live::{
+    AttributeVerdict, LiveContext, LiveEvent, LiveHandler, LiveMode, LiveSink,
+};
 use crate::hosts::lock::{HostLock, HostLockMode, HostLockSettings};
 use crate::hosts::privilege::Credentials;
 use crate::hosts::privilege::LoginKey;
 use crate::hosts::privilege::Privilege;
 use crate::hosts::properties::HostProperties;
 use crate::secrets::SecretProvidersPool;
+use crate::secrets::redact::Redactor;
 use crate::state::ExpectedState;
 use crate::state::attribute::Remediation;
 use crate::state::compliance::Action;
 use crate::state::compliance::AttributeComplianceAssessment;
 use crate::state::compliance::HostStatus;
 use crate::state::compliance::ManagedHostStatus;
+use crate::task::{Job, random_key};
 
 /// Represents the connection state of a managed host.
 ///

@@ -4,7 +4,7 @@
 // Hand-written (unlike model.proto). Wire-compatibility rules: never reuse or
 // renumber a field; mark removed fields `reserved`.
 //
-// Transport: gRPC over TLS. ReportOutcome and RenewCertificate require a client
+// Transport: gRPC over TLS. ReportOutcome, ReportLive and RenewCertificate require a client
 // certificate (mTLS) whose identity is the reporting host's id; Enroll is the
 // only call accepted without one.
 
@@ -24,6 +24,13 @@ service Reporting {
   // later), INVALID_ARGUMENT (this outcome will never be accepted, e.g. its
   // host_id differs from the authenticated identity), UNAVAILABLE (retry).
   rpc ReportOutcome(ReportOutcomeRequest) returns (ReportOutcomeResponse);
+
+  // Stream the live view of a pass while it runs (best effort: nothing is
+  // retried; the outcome's run_log is the durable copy). The agent opens one
+  // call per pass and sends batches of updates; every update's host_id must be
+  // the authenticated identity (else INVALID_ARGUMENT). The collector answers
+  // once the agent closes its side.
+  rpc ReportLive(stream ReportLiveRequest) returns (ReportLiveResponse);
 
   // Built-in CA mode: exchange a one-host enrollment token and a certificate
   // signing request for a client certificate. Called without a client
@@ -51,9 +58,21 @@ message ReporterInfo {
 message ReportOutcomeRequest {
   RegentTaskResult result = 1;
   ReporterInfo reporter = 2;
+  // The live view of the pass, if the agent kept it (cropped to its limit).
+  RunLog run_log = 3;
 }
 
 message ReportOutcomeResponse {}
+
+message ReportLiveRequest {
+  // In the order the pass produced them.
+  repeated LiveUpdate updates = 1;
+}
+
+message ReportLiveResponse {
+  // Updates the collector accepted (forwarded).
+  uint64 accepted = 1;
+}
 
 message EnrollRequest {
   // Signed, short-lived, bound to one host id.

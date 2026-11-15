@@ -272,6 +272,37 @@
       },
       "retired": {}
     },
+    "AttributeVerdict": {
+      "repr": "oneof",
+      "fields": {
+        "compliant": 1,
+        "failed": 4,
+        "non_compliant": 2,
+        "non_compliant_fatal": 3
+      },
+      "retired": {}
+    },
+    "AttributeVerdict_Failed": {
+      "repr": "message",
+      "fields": {
+        "error": 1
+      },
+      "retired": {}
+    },
+    "AttributeVerdict_NonCompliant": {
+      "repr": "message",
+      "fields": {
+        "remediations": 1
+      },
+      "retired": {}
+    },
+    "AttributeVerdict_NonCompliantFatal": {
+      "repr": "message",
+      "fields": {
+        "details": 1
+      },
+      "retired": {}
+    },
     "BindMount": {
       "repr": "message",
       "fields": {
@@ -1106,6 +1137,97 @@
       },
       "retired": {}
     },
+    "LiveEvent": {
+      "repr": "oneof",
+      "fields": {
+        "aborted": 8,
+        "attribute_assessed": 2,
+        "attribute_started": 1,
+        "command_finished": 7,
+        "command_started": 5,
+        "dropped": 9,
+        "output": 6,
+        "remediation_finished": 4,
+        "remediation_started": 3
+      },
+      "retired": {}
+    },
+    "LiveEvent_AttributeAssessed": {
+      "repr": "message",
+      "fields": {
+        "index": 1,
+        "verdict": 2
+      },
+      "retired": {}
+    },
+    "LiveEvent_AttributeStarted": {
+      "repr": "message",
+      "fields": {
+        "index": 1,
+        "name": 2
+      },
+      "retired": {}
+    },
+    "LiveEvent_CommandFinished": {
+      "repr": "message",
+      "fields": {
+        "exec_id": 1,
+        "return_code": 2
+      },
+      "retired": {}
+    },
+    "LiveEvent_CommandStarted": {
+      "repr": "message",
+      "fields": {
+        "command": 2,
+        "exec_id": 1
+      },
+      "retired": {}
+    },
+    "LiveEvent_Dropped": {
+      "repr": "message",
+      "fields": {
+        "updates": 1
+      },
+      "retired": {}
+    },
+    "LiveEvent_Output": {
+      "repr": "message",
+      "fields": {
+        "exec_id": 1,
+        "line": 3,
+        "stream": 2
+      },
+      "retired": {}
+    },
+    "LiveEvent_RemediationFinished": {
+      "repr": "message",
+      "fields": {
+        "index": 1,
+        "outcome": 2
+      },
+      "retired": {}
+    },
+    "LiveEvent_RemediationStarted": {
+      "repr": "message",
+      "fields": {
+        "index": 1,
+        "remediation": 2
+      },
+      "retired": {}
+    },
+    "LiveUpdate": {
+      "repr": "message",
+      "fields": {
+        "at": 5,
+        "event": 6,
+        "host_id": 2,
+        "job": 3,
+        "run_id": 1,
+        "seq": 4
+      },
+      "retired": {}
+    },
     "ManagedHostStatus": {
       "repr": "message",
       "fields": {
@@ -1412,6 +1534,14 @@
       "fields": {
         "content": 2,
         "distribution": 1
+      },
+      "retired": {}
+    },
+    "OutputStream": {
+      "repr": "oneof",
+      "fields": {
+        "stderr": 2,
+        "stdout": 1
       },
       "retired": {}
     },
@@ -1724,6 +1854,17 @@
         "no": 1,
         "on_failure": 4,
         "unless_stopped": 3
+      },
+      "retired": {}
+    },
+    "RunLog": {
+      "repr": "message",
+      "fields": {
+        "dropped_updates": 5,
+        "limit_bytes": 2,
+        "omitted_updates": 4,
+        "size_bytes": 3,
+        "updates": 1
       },
       "retired": {}
     },

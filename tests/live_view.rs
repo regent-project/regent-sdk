@@ -283,3 +283,44 @@ mod logs {
         assert_eq!(not_compliant["job"], "assess");
     }
 }
+
+#[tokio::test]
+async fn task_runs_live_with_its_key_as_run_id() {
+    use regent_sdk::hosts::live::RunLog;
+    use regent_sdk::task::{Job, RegentTask};
+
+    let state = ExpectedState::from_raw_yaml(STATE).unwrap();
+    let mut task = RegentTask::from(localhost(), state, Job::Assess).with_idempotency_key("job-42");
+    assert!(!task.is_live());
+    let (sink, mut updates) = LiveSink::channel(1024);
+    task.enable_live(Some(sink));
+    assert!(task.is_live());
+    let collector = tokio::spawn(async move {
+        let mut log = RunLog::new(0);
+        while let Some(update) = updates.recv().await {
+            log.push(update);
+        }
+        log
+    });
+    let result = task.run(Some(secrets())).await;
+    assert!(result.task_ran_to_completion(), "{:?}", result.outcome());
+    task.disable_live();
+    let log = collector.await.unwrap();
+    assert!(!log.updates().is_empty());
+    assert!(
+        log.updates()
+            .iter()
+            .all(|u| u.run_id == "job-42" && u.host_id == "local")
+    );
+    assert!(
+        log.updates()
+            .iter()
+            .any(|u| matches!(u.event, LiveEvent::AttributeStarted { .. }))
+    );
+    // the serialized task does not carry the live mode
+    let json = serde_json::to_string(&task).unwrap();
+    assert!(
+        !json.contains("\"live\"") && !json.contains("\"Live\""),
+        "{json}"
+    );
+}

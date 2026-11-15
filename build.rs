@@ -30,14 +30,16 @@ fn proto() {
 fn grpc() {
     use tonic_build::manual::{Builder, Method, Service};
 
-    let method = |name: &str, route: &str, input: &str, output: &str| {
+    let builder = |name: &str, route: &str, input: &str, output: &str| {
         Method::builder()
             .name(name)
             .route_name(route)
             .input_type(format!("crate::proto::{input}"))
             .output_type(format!("crate::proto::{output}"))
             .codec_path("crate::proto::grpc::ProtobufCodec")
-            .build()
+    };
+    let method = |name: &str, route: &str, input: &str, output: &str| {
+        builder(name, route, input, output).build()
     };
     let reporting = Service::builder()
         .name("Reporting")
@@ -49,6 +51,16 @@ fn grpc() {
             "ReportOutcomeRequest",
             "ReportOutcomeResponse",
         ))
+        .method(
+            builder(
+                "report_live",
+                "ReportLive",
+                "ReportLiveRequest",
+                "ReportLiveResponse",
+            )
+            .client_streaming()
+            .build(),
+        )
         .method(method(
             "enroll",
             "Enroll",

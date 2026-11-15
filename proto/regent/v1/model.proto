@@ -244,6 +244,31 @@ message AptRepoModuleInternalApiCall_RemoveFile {
   string path = 1;
 }
 
+// crate::hosts::live::AttributeVerdict
+message AttributeVerdict {
+  oneof variant_kind {
+    Unit compliant = 1;
+    AttributeVerdict_NonCompliant non_compliant = 2;
+    AttributeVerdict_NonCompliantFatal non_compliant_fatal = 3;
+    AttributeVerdict_Failed failed = 4;
+  }
+}
+
+// crate::hosts::live::AttributeVerdict::NonCompliant
+message AttributeVerdict_NonCompliant {
+  uint64 remediations = 1;
+}
+
+// crate::hosts::live::AttributeVerdict::NonCompliantFatal
+message AttributeVerdict_NonCompliantFatal {
+  string details = 1;
+}
+
+// crate::hosts::live::AttributeVerdict::Failed
+message AttributeVerdict_Failed {
+  string error = 1;
+}
+
 // crate::state::attribute::container::service_unit::BindMount
 message BindMount {
   string source = 1;
@@ -916,6 +941,79 @@ message LineInFileModuleInternalApiCall_CreateFile {
   string line_content = 1;
 }
 
+// crate::hosts::live::LiveEvent
+message LiveEvent {
+  oneof variant_kind {
+    LiveEvent_AttributeStarted attribute_started = 1;
+    LiveEvent_AttributeAssessed attribute_assessed = 2;
+    LiveEvent_RemediationStarted remediation_started = 3;
+    LiveEvent_RemediationFinished remediation_finished = 4;
+    LiveEvent_CommandStarted command_started = 5;
+    LiveEvent_Output output = 6;
+    LiveEvent_CommandFinished command_finished = 7;
+    Unit aborted = 8;
+    LiveEvent_Dropped dropped = 9;
+  }
+}
+
+// crate::hosts::live::LiveEvent::AttributeStarted
+message LiveEvent_AttributeStarted {
+  uint64 index = 1;
+  string name = 2;
+}
+
+// crate::hosts::live::LiveEvent::AttributeAssessed
+message LiveEvent_AttributeAssessed {
+  uint64 index = 1;
+  AttributeVerdict verdict = 2;
+}
+
+// crate::hosts::live::LiveEvent::RemediationStarted
+message LiveEvent_RemediationStarted {
+  uint64 index = 1;
+  Remediation remediation = 2;
+}
+
+// crate::hosts::live::LiveEvent::RemediationFinished
+message LiveEvent_RemediationFinished {
+  uint64 index = 1;
+  InternalApiCallOutcome outcome = 2;
+}
+
+// crate::hosts::live::LiveEvent::CommandStarted
+message LiveEvent_CommandStarted {
+  uint64 exec_id = 1;
+  string command = 2;
+}
+
+// crate::hosts::live::LiveEvent::Output
+message LiveEvent_Output {
+  uint64 exec_id = 1;
+  OutputStream stream = 2;
+  string line = 3;
+}
+
+// crate::hosts::live::LiveEvent::CommandFinished
+message LiveEvent_CommandFinished {
+  uint64 exec_id = 1;
+  optional int64 return_code = 2;
+}
+
+// crate::hosts::live::LiveEvent::Dropped
+message LiveEvent_Dropped {
+  uint64 updates = 1;
+}
+
+// crate::hosts::live::LiveUpdate
+message LiveUpdate {
+  string run_id = 1;
+  string host_id = 2;
+  Job job = 3;
+  uint64 seq = 4;
+  Timestamp at = 5;
+  LiveEvent event = 6;
+}
+
 // crate::state::compliance::ManagedHostStatus
 message ManagedHostStatus {
   HostStatus state = 1;
@@ -1162,6 +1260,14 @@ message OtelCollectorInternalApiCall_WriteConfig {
 message OtelCollectorInternalApiCall_Remove {
   PackageFamily family = 1;
   repeated string packages = 2;
+}
+
+// crate::hosts::live::OutputStream
+message OutputStream {
+  oneof variant_kind {
+    Unit stdout = 1;
+    Unit stderr = 2;
+  }
 }
 
 // crate::state::attribute::shared::PackageFamily
@@ -1447,6 +1553,15 @@ message RestartPolicy {
     Unit unless_stopped = 3;
     uint32 on_failure = 4;
   }
+}
+
+// crate::hosts::live::RunLog
+message RunLog {
+  repeated LiveUpdate updates = 1;
+  uint64 limit_bytes = 2;
+  uint64 size_bytes = 3;
+  uint64 omitted_updates = 4;
+  uint64 dropped_updates = 5;
 }
 
 // crate::secrets::SecretReference

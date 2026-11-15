@@ -14,6 +14,7 @@
 //! - **Task-level idempotency**: Has this task already been executed, meaning has this host compliance already been checked/fixed by some other worker ? The idempotency key in [`RegentTask`] is a helper that allows external middleware to implement task-level idempotency. If the same task is delivered multiple times (due to network retries, message queue redelivery, etc.), external systems can use this key to deduplicate the task execution. Note: **The regent-sdk crate itself does not handle task idempotency** — it only provides the key. You must implement deduplication logic in your message queue, API gateway, or other middleware.
 //!
 
+use crate::hosts::live::{LiveMode, LiveSink};
 use crate::hosts::managed_host::run_span;
 use crate::secrets::SecretProvidersPool;
 use crate::state::ExpectedState;
@@ -22,11 +23,11 @@ use crate::{error::RegentError, hosts::managed_host::ManagedHostBuilder};
 
 use chrono::{DateTime, Utc};
 use nanoid::nanoid;
-use tracing::Instrument;
 use serde::{Deserialize, Serialize};
 /// Cancellation signal accepted by [`RegentTask::run_with_cancellation`]
 /// (re-exported from `tokio-util`, so callers need no extra dependency).
 pub use tokio_util::sync::CancellationToken;
+use tracing::Instrument;
 
 /// A unit of work for distributed configuration management.
 ///
@@ -51,6 +52,9 @@ pub struct RegentTask {
     expected_state: ExpectedState,
     job: Job,
     idempotency_key: String,
+    /// Live mode of the run (see [`crate::hosts::live`]); not serialized.
+    #[serde(skip)]
+    live: Option<LiveMode>,
 }
 
 impl RegentTask {
@@ -85,7 +89,46 @@ impl RegentTask {
             expected_state,
             job,
             idempotency_key: random_key(),
+            live: None,
         }
+    }
+
+    /// Turn the live mode on for the runs of this task (see [`crate::hosts::live`]):
+    /// the run reports what it does as tracing events and, if `sink` is given, as
+    /// [`LiveUpdate`](crate::hosts::live::LiveUpdate)s whose `run_id` is the task's
+    /// idempotency key. The outcome is the same either way.
+    ///
+    /// Not part of the task's serialized form: a worker receiving a task turns it
+    /// on itself.
+    ///
+    /// ```no_run
+    /// # use regent_sdk::task::{Job, RegentTask};
+    /// # use regent_sdk::hosts::live::LiveSink;
+    /// # async fn example(mut task: RegentTask) {
+    /// let (sink, mut updates) = LiveSink::channel(1024);
+    /// task.enable_live(Some(sink));
+    /// let forwarder = tokio::spawn(async move {
+    ///     while let Some(update) = updates.recv().await {
+    ///         // e.g. publish it; `update.run_id == task's idempotency key`
+    ///     }
+    /// });
+    /// let result = task.run(None).await;
+    /// task.disable_live(); // drops the sink: the forwarder ends
+    /// forwarder.await.unwrap();
+    /// # }
+    /// ```
+    pub fn enable_live(&mut self, sink: Option<LiveSink>) {
+        self.live = Some(LiveMode { sink });
+    }
+
+    /// Turn the live mode off (the default); drops the sink, if any.
+    pub fn disable_live(&mut self) {
+        self.live = None;
+    }
+
+    /// Whether the live mode is on.
+    pub fn is_live(&self) -> bool {
+        self.live.is_some()
     }
 
     /// Get the task-level idempotency key for this task.
@@ -292,6 +335,9 @@ impl RegentTask {
                 .clone()
                 .build(optional_secret_provider)
                 .await?;
+            if let Some(mode) = &self.live {
+                managed_host.enable_live(mode.sink.clone());
+            }
             managed_host.connect().await?;
             Ok::<_, RegentError>(managed_host)
         };

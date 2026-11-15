@@ -82,33 +82,46 @@ pub enum ProtoError {
     Serialize(String),
 }
 
-impl crate::task::RegentTaskResult {
-    /// Convert into its protobuf message.
-    pub fn to_proto(&self) -> RegentTaskResult {
-        self.into_proto_value()
-    }
+/// `to_proto` / `from_proto` / `to_proto_bytes` / `from_proto_bytes` of a mirrored root type.
+macro_rules! proto_root {
+    ($rust:path, $message:ident, $what:literal) => {
+        impl $rust {
+            #[doc = concat!("Convert ", $what, " into its protobuf message.")]
+            pub fn to_proto(&self) -> $message {
+                self.into_proto_value()
+            }
 
-    /// Convert from its protobuf message. Variants unknown to this version are
-    /// replaced (see the [module docs](crate::proto)); other inconsistencies are
-    /// errors.
-    pub fn from_proto(message: &RegentTaskResult) -> Result<Self, ProtoError> {
-        Self::from_proto_value(message.as_view())
-    }
+            #[doc = concat!("Convert ", $what, " from its protobuf message. Variants unknown to this")]
+            /// version are replaced where a fallback exists (see the
+            /// [module docs](crate::proto)); other inconsistencies are errors.
+            pub fn from_proto(message: &$message) -> Result<Self, ProtoError> {
+                Self::from_proto_value(message.as_view())
+            }
 
-    /// Serialize as protobuf bytes.
-    pub fn to_proto_bytes(&self) -> Result<Vec<u8>, ProtoError> {
-        self.to_proto()
-            .serialize()
-            .map_err(|e| ProtoError::Serialize(format!("{e:?}")))
-    }
+            /// Serialize as protobuf bytes.
+            pub fn to_proto_bytes(&self) -> Result<Vec<u8>, ProtoError> {
+                self.to_proto()
+                    .serialize()
+                    .map_err(|e| ProtoError::Serialize(format!("{e:?}")))
+            }
 
-    /// Parse protobuf bytes.
-    pub fn from_proto_bytes(bytes: &[u8]) -> Result<Self, ProtoError> {
-        let message =
-            RegentTaskResult::parse(bytes).map_err(|e| ProtoError::Parse(format!("{e:?}")))?;
-        Self::from_proto(&message)
-    }
+            /// Parse protobuf bytes.
+            pub fn from_proto_bytes(bytes: &[u8]) -> Result<Self, ProtoError> {
+                let message =
+                    $message::parse(bytes).map_err(|e| ProtoError::Parse(format!("{e:?}")))?;
+                Self::from_proto(&message)
+            }
+        }
+    };
 }
+
+proto_root!(
+    crate::task::RegentTaskResult,
+    RegentTaskResult,
+    "a task result"
+);
+proto_root!(crate::hosts::live::LiveUpdate, LiveUpdate, "a live update");
+proto_root!(crate::hosts::live::RunLog, RunLog, "a run log");
 
 #[cfg(test)]
 mod tests {
@@ -144,6 +157,61 @@ mod tests {
                 serde_json::to_value(&back).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn live_update_and_run_log_roundtrip_through_bytes() {
+        use crate::hosts::live::{LiveEvent, LiveUpdate, OutputStream, RunLog};
+        let update = |seq, event| LiveUpdate {
+            run_id: "key-1".into(),
+            host_id: "web-01".into(),
+            job: Job::Reach,
+            seq,
+            at: Utc::now(),
+            event,
+        };
+        let mut log = RunLog::new(0);
+        for (seq, event) in [
+            (
+                1,
+                LiveEvent::AttributeStarted {
+                    index: 0,
+                    name: "nginx".into(),
+                },
+            ),
+            (
+                2,
+                LiveEvent::CommandStarted {
+                    exec_id: 1,
+                    command: "apt-get install nginx".into(),
+                },
+            ),
+            (
+                3,
+                LiveEvent::Output {
+                    exec_id: 1,
+                    stream: OutputStream::Stderr,
+                    line: "done".into(),
+                },
+            ),
+            (
+                4,
+                LiveEvent::CommandFinished {
+                    exec_id: 1,
+                    return_code: Some(0),
+                },
+            ),
+            (5, LiveEvent::Aborted),
+        ] {
+            let one = update(seq, event);
+            let back = LiveUpdate::from_proto_bytes(&one.to_proto_bytes().unwrap()).unwrap();
+            assert_eq!(format!("{one:?}"), format!("{back:?}"));
+            log.push(one);
+        }
+        log.push(update(0, LiveEvent::Dropped { updates: 2 }));
+        let back = RunLog::from_proto_bytes(&log.to_proto_bytes().unwrap()).unwrap();
+        assert_eq!(format!("{log:?}"), format!("{back:?}"));
+        assert_eq!((back.updates().len(), back.dropped_updates()), (5, 2));
     }
 
     #[test]

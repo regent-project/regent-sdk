@@ -183,6 +183,10 @@ managed_host.disable_live();
   it are dropped and counted); for logs, use a non-blocking writer (feature `logging`).
 - Secrets resolved during a run are replaced by `********` in the live view, in the
   SDK's logs and in the details of the outcome's actions.
+- A `RegentTask` has the same switch (`task.enable_live(Some(sink))`); its updates
+  carry the task's idempotency key as `run_id`. Keep a bounded copy of a run's
+  updates with `RunLog::new(limit_bytes)` (protobuf form with feature `proto`; the
+  `Reporting` service streams them with `ReportLive`).
 
 See the [`hosts::live`](https://docs.rs/regent-sdk/latest/regent_sdk/hosts/live/index.html)
 documentation for the fields and an example Loki query.
