@@ -144,6 +144,31 @@ async fn reach_streams_commands_while_they_run() {
     assert!(outcome.contains(REDACTED) && !outcome.contains("/proc/"));
 }
 
+/// A run must fit in a small thread stack, also in debug builds, where every future
+/// is copied along each `.await` (0.24.0 needed more than tokio's 2 MiB: a command's
+/// read buffers were part of its future).
+#[test]
+fn a_run_fits_in_a_small_stack() {
+    let run = std::thread::Builder::new()
+        .stack_size(1024 * 1024)
+        .spawn(|| {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let mut host = connected_host().await;
+                let (sink, _updates) = LiveSink::channel(1024);
+                host.enable_live(Some(sink));
+                let state = ExpectedState::from_raw_yaml(STATE).unwrap();
+                host.reach_compliance(&state).await.unwrap();
+                host.assess_compliance(&state, true).await.unwrap();
+            });
+        })
+        .unwrap();
+    assert!(run.join().is_ok());
+}
+
 #[tokio::test]
 async fn no_live_view_by_default() {
     let host = localhost().build(None).await.unwrap();

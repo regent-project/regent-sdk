@@ -317,7 +317,8 @@ async fn collect_output(
     let mut child_stdout = child.stdout.take();
     let mut child_stderr = child.stderr.take();
     let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let (mut stdout_buffer, mut stderr_buffer) = ([0u8; 8192], [0u8; 8192]);
+    // On the heap: in the future, they would be copied along every await in debug builds
+    let (mut stdout_buffer, mut stderr_buffer) = (vec![0u8; 8192], vec![0u8; 8192]);
 
     while child_stdout.is_some() || child_stderr.is_some() {
         tokio::select! {
